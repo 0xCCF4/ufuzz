@@ -500,6 +500,15 @@ fn sifting(papers: &Vec<RelevancePaper>, term: &mut DefaultTerminal) -> Result<b
                     if key.code == KeyCode::Enter || key.code == KeyCode::Esc {
                         mode = Mode::Sifting;
                         save = true;
+
+                        let mut delete = false;
+                        if let Some(msg) = &mut paper.message {
+                            *msg = msg.trim().to_string();
+                            delete = msg.len() == 0;
+                        }
+                        if delete {
+                            paper.message = None;
+                        }
                     }
 
                     if let KeyCode::Char(c) = key.code {
@@ -514,15 +523,6 @@ fn sifting(papers: &Vec<RelevancePaper>, term: &mut DefaultTerminal) -> Result<b
                         if let Some(msg) = &mut paper.message {
                             msg.pop();
                         }
-                    }
-
-                    let mut delete = false;
-                    if let Some(msg) = &mut paper.message {
-                        *msg = msg.trim().to_string();
-                        delete = msg.len() == 0;
-                    }
-                    if delete {
-                        paper.message = None;
                     }
                 }
             }
@@ -636,7 +636,9 @@ async fn main() ->  Result<()> {
 
 
     let total = load_sifted_papers(&papers, false)?;
-    println!("Filtered count: {}", total.len());
+    println!("Total filtered: {}", total.len());
+    let core = load_sifted_papers(&papers, true)?;
+    println!("Core literature: {}", core.len());
 
     Ok(())
 }

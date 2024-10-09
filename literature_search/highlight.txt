@@ -1,5 +1,5 @@
 CPUs?
-processor(s|'s)?
+processor'?s?
 ISA
 fuzzer
 fuzzing
@@ -12,4 +12,10 @@ software
 hardware
 RISC-V
 Intel
+AMD
+ARM
 x86
+leak
+side.{0,3}channels?
+exploit
+MSR
