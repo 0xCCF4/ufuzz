@@ -257,12 +257,10 @@ fn sifting(papers: &Vec<RelevancePaper>, term: &mut DefaultTerminal) -> Result<b
             let instructions =
                 match mode {
                     Mode::Sifting => Title::from(Line::from(vec![
-                        " Back ".into(),
-                        "<LT>".blue().bold(),
-                        " Forward ".into(),
-                        "<RT>".blue().bold(),
+                        " Move ".into(),
+                        "<LT/RT>".blue().bold(),
                         " Side ".into(),
-                        "<Ent/S>".blue().bold(),
+                        "<S>".blue().bold(),
                         " Core ".into(),
                         "<C>".blue().bold(),
                         " Exclude ".into(),
@@ -275,6 +273,8 @@ fn sifting(papers: &Vec<RelevancePaper>, term: &mut DefaultTerminal) -> Result<b
                         "<Q> ".blue().bold(),
                         " Exit ".into(),
                         "<E> ".blue().bold(),
+                        " Analysis ".into(),
+                        "<A>".blue().bold(),
                         " Repaint ".into(),
                         "<R> ".blue().bold(),
                         " Msg ".into(),
@@ -282,7 +282,7 @@ fn sifting(papers: &Vec<RelevancePaper>, term: &mut DefaultTerminal) -> Result<b
                     ])),
                     Mode::Comment => Title::from(Line::from(vec![
                         " Finish ".into(),
-                        "<Return/ESC>".blue().bold(),
+                        "<Return/ESC> ".blue().bold(),
                     ])),
                 };
             let block = Block::bordered()
@@ -356,7 +356,7 @@ fn sifting(papers: &Vec<RelevancePaper>, term: &mut DefaultTerminal) -> Result<b
                         "".into(),
                         Line::from_iter(vec![Span::from("TLDR").bold().gray().underlined()].into_iter().chain(highlight(&highlights, format!(": {}", paper.tldr.clone().unwrap_or_default().text.unwrap_or("<no tldr>".into())).into()))),
                         "".into(),
-                        Line::from_iter(vec![Span::from("URL").bold().gray().underlined()].into_iter().chain(highlight(&highlights, format!(": {}", paper.url.clone().unwrap_or("<no url>".into())).into()))),
+                        Line::from_iter(vec![Span::from("URL").bold().gray().underlined(), Span::from(": "), Span::from(paper.url.clone().unwrap_or("<no url>".into())).italic()]),
                         "".into(),
                         Line::from_iter(vec![Span::from("Abstract").bold().gray().underlined()].into_iter().chain(highlight(&highlights, format!(": {}", paper.abstract_text.clone().unwrap_or("<no abstract>".into())).into()))),
                     ]
@@ -376,6 +376,9 @@ fn sifting(papers: &Vec<RelevancePaper>, term: &mut DefaultTerminal) -> Result<b
             }
             if mode == Mode::Sifting && key.kind == KeyEventKind::Press && key.code == KeyCode::Char('e') {
                 return Ok(false);
+            }
+            if mode == Mode::Sifting && key.kind == KeyEventKind::Press && key.code == KeyCode::Char('a') {
+                return Ok(true);
             }
             if mode == Mode::Sifting && key.kind == KeyEventKind::Press && key.code == KeyCode::Left {
                 loop {
@@ -438,7 +441,7 @@ fn sifting(papers: &Vec<RelevancePaper>, term: &mut DefaultTerminal) -> Result<b
             let excluded_paper_len = excluded_papers.len();
             let ok_paper_len = ok_papers.len();
 
-            if mode == Mode::Sifting && key.kind == KeyEventKind::Press && (key.code == KeyCode::Enter || key.code == KeyCode::Char('s')) {
+            if mode == Mode::Sifting && key.kind == KeyEventKind::Press && key.code == KeyCode::Char('s') {
                 if let Some(paper) = papers.get(index) {
                     ok_papers.retain(|p| p.paper.paper_id.is_none() || p.paper.paper_id != paper.paper.paper_id);
                     ok_papers.push(IncludedPaper {
