@@ -2,17 +2,18 @@ CPUs?
 (micro)?processor'?s?
 ISAs?|\(ISAs?\)
 fuzz(ers?|ing)?
-SMT
+SMT|\(SMT\)
 simultaneous.{0,3}multi.{0,3}threading
 instruction( set architectures?|s| set simulators?| sets?)?
 programs?
-RTL
+register transfer level
+RTL|\(RTL\)
 software
 hardware
 RISC-V
-Intel
-AMD
-ARM
+Intel(.?'s)?
+AMD(.?'s)?
+ARM(.?'s)?
 x86
 leak(ed|ages?|ing|s)?
 side.{0,3}channels?
