@@ -1,5 +1,5 @@
-use std::cmp::PartialEq;
-use std::collections::{HashSet};
+use std::cmp::{Ordering, PartialEq};
+use std::collections::{HashMap, HashSet};
 use error_chain::error_chain;
 use serde::{Deserialize, Serialize};
 use std::env;
@@ -18,7 +18,6 @@ use regex::{Regex, RegexBuilder};
 use reqwest::{Client, Method, RequestBuilder};
 use serde::de::DeserializeOwned;
 use tokio::sync::{Mutex};
-use crate::IncludedPaperStatus::CoreLiterature;
 
 error_chain! {
     foreign_links {
@@ -83,7 +82,7 @@ pub enum IncludedPaperStatus {
     SideInformation,
 }
 
-#[derive(Deserialize, Serialize, Clone, Debug)]
+#[derive(Deserialize, Serialize, Clone, Debug, PartialEq)]
 pub struct IncludedPaper {
     paper: RelevancePaperWeak,
     status: IncludedPaperStatus,
@@ -180,9 +179,102 @@ async fn query_paper_data<Id: AsRef<str>>(paper_id: Id) -> Result<RelevancePaper
 }
 
 fn read_paper_database() -> Result<Vec<RelevancePaper>> {
+    let ok_papers = std::fs::read_to_string("ok_papers.json")
+        .map(|data| serde_json::from_str::<Vec<IncludedPaper>>(&data).unwrap_or_default())
+        .unwrap_or_default();
+    let excluded_papers = std::fs::read_to_string("excluded_papers.json")
+        .map(|data| serde_json::from_str::<Vec<IncludedPaper>>(&data).unwrap_or_default())
+        .unwrap_or_default();
+
+    let mut found_ok_papers = Vec::with_capacity(ok_papers.len());
+
     let data = std::fs::read_to_string("database_papers.json")?;
     let papers: Vec<RelevancePaper> = serde_json::from_str(&data)?;
-    Ok(papers)
+    let mut result = Vec::with_capacity(papers.len());
+    let mut unique = HashSet::with_capacity(papers.len());
+
+    let mut titles = HashSet::with_capacity(papers.len());
+
+    let mut reference_count = HashMap::with_capacity(papers.len());
+
+    for paper in papers.into_iter() {
+        if paper.paper.paper_id.is_none() || !unique.contains(&paper.paper.paper_id.clone()) {
+
+            if let Some(ref title) = paper.paper.title {
+                if titles.contains(title) {
+                    println!("Already contains title: {}", title);
+                }
+                titles.insert(title.clone());
+            }
+
+            if let Some(paper_id) = &paper.paper.paper_id {
+                let literature_status = ok_papers.iter().find(|x| if let Some(id) = &x.paper.paper_id {
+                    id == paper_id
+                } else {false});
+
+                let excluded_find = excluded_papers.iter().find(|x| if let Some(id) = &x.paper.paper_id {
+                    id == paper_id
+                } else {false});
+
+                match literature_status {
+                    Some(_) => if excluded_find.is_some() {
+                        println!("Also found excluded version for {}", paper.paper.title.clone().unwrap_or("<unknown>".to_string()));
+                    },
+                    _ => {}
+                }
+
+                if let Some(status) = literature_status {
+                    found_ok_papers.push(status.clone());
+
+                    let multiplicator = match status.status {
+                        IncludedPaperStatus::CoreLiterature => 3,
+                        IncludedPaperStatus::SideInformation => 1,
+                    };
+                    for reference in paper.references.iter() {
+                        if let Some(id) = &reference.paper_id {
+                            let entry = reference_count.entry(id.clone()).or_insert(0u32);
+
+                            *entry += multiplicator * 2;
+                        }
+                    }
+                    for citation in paper.references.iter() {
+                        if let Some(id) = &citation.paper_id {
+                            let entry = reference_count.entry(id.clone()).or_insert(0u32);
+
+                            *entry += multiplicator * 1;
+                        }
+                    }
+                }
+            }
+
+            unique.insert(paper.paper.paper_id.clone());
+            result.push(paper);
+        }
+    }
+
+    let reference_count = reference_count;
+    result.sort_by(|a, b| {
+       if let (Some(id_a), Some(id_b)) = (&a.paper.paper_id, &b.paper.paper_id) {
+           let ord_a = reference_count.get(id_a).unwrap_or(&0).clone();
+           let ord_b = reference_count.get(id_b).unwrap_or(&0).clone();
+           ord_b.cmp(&ord_a)
+       } else if a.paper.paper_id.is_none() && b.paper.paper_id.is_some() {
+           Ordering::Greater
+       } else if a.paper.paper_id.is_some() && b.paper.paper_id.is_none() {
+           Ordering::Less
+       } else {
+           Ordering::Equal
+       }
+    });
+
+    let mut ok_papers = ok_papers;
+    ok_papers.retain(|x| !found_ok_papers.contains(x));
+
+    for paper in ok_papers {
+        println!("Found paper without reference {:?}", paper)
+    }
+
+    Ok(result)
 }
 
 #[allow(dead_code)]
@@ -302,6 +394,7 @@ fn sifting(papers: &Vec<RelevancePaper>, term: &mut DefaultTerminal) -> Result<b
                 None => vec![Line::from("No more papers")],
                 Some(paper) => {
                     let amount = papers.len();
+                    let progress = ok_papers.len() + excluded_papers.len();
                     let mut comment = None;
                     let status = if let Some(paper) = ok_papers.iter().find(|p| p.paper.paper_id == paper.paper.paper_id) {
                         comment = paper.message.clone();
@@ -350,7 +443,7 @@ fn sifting(papers: &Vec<RelevancePaper>, term: &mut DefaultTerminal) -> Result<b
                     vec![
                         status,
                         "".into(),
-                        format!("Paper ({index}/{amount})").into(),
+                        format!("Paper ({index}/{amount}) - {progress}").into(),
                         "".into(),
                         Line::from_iter(vec![Span::from("Title").bold().gray().underlined()].into_iter().chain(highlight(&highlights, format!(": {}", paper.paper.title.clone().unwrap_or("<no title>".into())).into()))),
                         "".into(),
@@ -417,8 +510,14 @@ fn sifting(papers: &Vec<RelevancePaper>, term: &mut DefaultTerminal) -> Result<b
 
                     let paper = papers.get(index).unwrap();
 
-                    if ok_papers.iter().any(|p| p.paper.paper_id == paper.paper.paper_id){
-                        break;
+                    if let Some(found) = ok_papers.iter().find(|p| p.paper.paper_id == paper.paper.paper_id){
+                        if !key.modifiers.contains(event::KeyModifiers::CONTROL) {
+                            break;
+                        }
+
+                        if found.status == IncludedPaperStatus::CoreLiterature {
+                            break;
+                        }
                     }
                 }
             }
@@ -561,7 +660,7 @@ fn load_sifted_papers(all_papers: &Vec<RelevancePaper>, only_core_literature: bo
     let mut full_paper_info: Vec<RelevancePaper> = Vec::with_capacity(papers_ok.len());
     for ipaper in &papers_ok {
         if let Some(paper) = all_papers.iter().find(|p| p.paper.paper_id == Some(ipaper.paper.paper_id.clone().unwrap())) {
-            if ipaper.status == CoreLiterature || !only_core_literature {
+            if ipaper.status == IncludedPaperStatus::CoreLiterature || !only_core_literature {
                 full_paper_info.push(paper.clone());
             }
         }
@@ -608,6 +707,14 @@ async fn expand_papers(all_papers: &mut Vec<RelevancePaper>) -> Result<()> {
         for related_paper in related {
             expand_paper(all_papers, related_paper).await?;
         }
+    }
+
+    let include_papers: Vec<String> = std::fs::read_to_string("inputs.txt").unwrap_or("".to_string()).lines().map(String::from).collect();
+    for paper in include_papers {
+        expand_paper(all_papers, RelevancePaperWeak {
+            paper_id: Some(paper.clone()),
+            title: Some(paper)
+        }).await?;
     }
 
     Ok(())

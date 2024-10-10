@@ -1,11 +1,10 @@
 CPUs?
-processor'?s?
-ISA
-fuzzer
-fuzzing
+(micro)?processor'?s?
+ISAs?|\(ISAs?\)
+fuzz(ers?|ing)?
 SMT
 simultaneous.{0,3}multi.{0,3}threading
-instruction( set architecture|s)?
+instruction( set architectures?|s| set simulators?| sets?)?
 programs?
 RTL
 software
@@ -15,8 +14,9 @@ Intel
 AMD
 ARM
 x86
-leak
+leak(ed|ages?|ing|s)?
 side.{0,3}channels?
-exploit
+exploit(ed|s|ing|ations?)?
 MSR
 binar(y|ies)
+speculative execution
