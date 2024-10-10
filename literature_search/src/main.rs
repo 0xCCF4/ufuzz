@@ -4,7 +4,7 @@ use error_chain::error_chain;
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::io::Write;
-use std::ops::{Add, Deref, DerefMut};
+use std::ops::{Deref, DerefMut};
 use crossterm::event;
 use crossterm::event::{KeyCode, KeyEventKind};
 use ratatui::DefaultTerminal;
@@ -65,6 +65,10 @@ pub struct RelevancePaper {
     influential_citation_count: u32,
     citations: Vec<RelevancePaperWeak>,
     references: Vec<RelevancePaperWeak>,
+    #[serde(alias = "citationStyles")]
+    citation_styles: Option<HashMap<String, String>>,
+    #[serde(alias = "externalIds")]
+    external_ids: Option<HashMap<String, serde_json::Value>>,
     tldr: Option<Tldr>,
 }
 
@@ -93,6 +97,8 @@ pub struct IncludedPaper {
 lazy_static::lazy_static! {
     static ref SEMANTIC_SCHOLAR_API_KEY: Mutex<Option<String>> = Mutex::new(None);
 }
+
+const PAPER_FIELD_QUERY: &str = "paperId,title,url,year,abstract,authors,citations,references,tldr,referenceCount,citationCount,influentialCitationCount,externalIds,citationStyles";
 
 async fn query_api_raw<Response>(url: &str, method: Method) -> Result<Response>
 where
@@ -147,8 +153,7 @@ where
 }
 
 async fn query_paper_relevance_raw(query: &str, offset: u32, limit: u32) -> Result<RelevanceResponse> {
-    let fields = "paperId,title,url,year,abstract,authors,citations,references,tldr,referenceCount,citationCount,influentialCitationCount";
-    let url = format!("graph/v1/paper/search?fields={}&query={}&offset={}&limit={}", fields, query, offset, limit);
+    let url = format!("graph/v1/paper/search?fields={}&query={}&offset={}&limit={}", PAPER_FIELD_QUERY, query, offset, limit);
     query_api_raw(&url, Method::GET).await
 }
 
@@ -172,13 +177,12 @@ async fn query_paper_relevance(query: &str) -> Result<Vec<RelevancePaper>> {
 }
 
 async fn query_paper_data<Id: AsRef<str>>(paper_id: Id) -> Result<RelevancePaper> {
-    let fields = "paperId,title,url,year,abstract,authors,citations,references,tldr,referenceCount,citationCount,influentialCitationCount";
-    let url = format!("graph/v1/paper/{paper_id}?fields={fields}", paper_id = paper_id.as_ref());
+    let url = format!("graph/v1/paper/{paper_id}?fields={PAPER_FIELD_QUERY}", paper_id = paper_id.as_ref());
 
     query_api_raw(&url, Method::GET).await
 }
 
-fn read_paper_database() -> Result<Vec<RelevancePaper>> {
+fn read_paper_database(sort_by_relevance: bool) -> Result<Vec<RelevancePaper>> {
     let ok_papers = std::fs::read_to_string("ok_papers.json")
         .map(|data| serde_json::from_str::<Vec<IncludedPaper>>(&data).unwrap_or_default())
         .unwrap_or_default();
@@ -253,19 +257,21 @@ fn read_paper_database() -> Result<Vec<RelevancePaper>> {
     }
 
     let reference_count = reference_count;
-    result.sort_by(|a, b| {
-       if let (Some(id_a), Some(id_b)) = (&a.paper.paper_id, &b.paper.paper_id) {
-           let ord_a = reference_count.get(id_a).unwrap_or(&0).clone();
-           let ord_b = reference_count.get(id_b).unwrap_or(&0).clone();
-           ord_b.cmp(&ord_a)
-       } else if a.paper.paper_id.is_none() && b.paper.paper_id.is_some() {
-           Ordering::Greater
-       } else if a.paper.paper_id.is_some() && b.paper.paper_id.is_none() {
-           Ordering::Less
-       } else {
-           Ordering::Equal
-       }
-    });
+    if sort_by_relevance {
+        result.sort_by(|a, b| {
+        if let (Some(id_a), Some(id_b)) = (&a.paper.paper_id, &b.paper.paper_id) {
+            let ord_a = reference_count.get(id_a).unwrap_or(&0).clone();
+            let ord_b = reference_count.get(id_b).unwrap_or(&0).clone();
+            ord_b.cmp(&ord_a)
+        } else if a.paper.paper_id.is_none() && b.paper.paper_id.is_some() {
+            Ordering::Greater
+        } else if a.paper.paper_id.is_some() && b.paper.paper_id.is_none() {
+            Ordering::Less
+        } else {
+            Ordering::Equal
+        }
+        });
+    }
 
     let mut ok_papers = ok_papers;
     ok_papers.retain(|x| !found_ok_papers.contains(x));
@@ -293,7 +299,7 @@ async fn keyword_search_all() -> Result<()> {
         }
     }
 
-    if let Ok(data) = read_paper_database() {
+    if let Ok(data) = read_paper_database(false) {
         data.into_iter().for_each(|paper| insert_paper(paper, &mut papers, &mut paper_ids));
     }
 
@@ -426,7 +432,6 @@ fn sifting(papers: &Vec<RelevancePaper>, term: &mut DefaultTerminal) -> Result<b
 
                                 if start > index {
                                     result.push(Span::from(String::from(&text[index..start])));
-                                    index = start;
                                 }
 
                                 result.push(Span::from(String::from(&text[start..end])).red());
@@ -653,15 +658,15 @@ fn sifting(papers: &Vec<RelevancePaper>, term: &mut DefaultTerminal) -> Result<b
     }
 }
 
-fn load_sifted_papers(all_papers: &Vec<RelevancePaper>, only_core_literature: bool) -> Result<Vec<RelevancePaper>> {
+fn load_sifted_papers(all_papers: &Vec<RelevancePaper>, only_core_literature: bool) -> Result<Vec<(RelevancePaper, IncludedPaper)>> {
     let papers_ok = std::fs::read_to_string("ok_papers.json")
         .map(|data| serde_json::from_str::<Vec<IncludedPaper>>(&data))??;
 
-    let mut full_paper_info: Vec<RelevancePaper> = Vec::with_capacity(papers_ok.len());
+    let mut full_paper_info: Vec<(RelevancePaper, IncludedPaper)> = Vec::with_capacity(papers_ok.len());
     for ipaper in &papers_ok {
         if let Some(paper) = all_papers.iter().find(|p| p.paper.paper_id == Some(ipaper.paper.paper_id.clone().unwrap())) {
             if ipaper.status == IncludedPaperStatus::CoreLiterature || !only_core_literature {
-                full_paper_info.push(paper.clone());
+                full_paper_info.push((paper.clone(), ipaper.clone()));
             }
         }
     }
@@ -701,8 +706,8 @@ async fn expand_papers(all_papers: &mut Vec<RelevancePaper>) -> Result<()> {
     }
 
     for core_paper in load_sifted_papers(&all_papers, true)? {
-        let mut related = core_paper.references.clone();
-        related.append(&mut core_paper.citations.clone());
+        let mut related = core_paper.0.references.clone();
+        related.append(&mut core_paper.0.citations.clone());
 
         for related_paper in related {
             expand_paper(all_papers, related_paper).await?;
@@ -720,6 +725,76 @@ async fn expand_papers(all_papers: &mut Vec<RelevancePaper>) -> Result<()> {
     Ok(())
 }
 
+#[allow(dead_code)]
+async fn update_database(all_papers: &mut Vec<RelevancePaper>) -> Result<()> {
+    let mut changes = 0;
+    let len = all_papers.len();
+
+    for (i, paper) in all_papers.iter_mut().enumerate() {
+        println!("Updating paper {i}/{len}");
+        let new_paper_data = paper.paper.paper_id.clone().map(|id| query_paper_data(id));
+        if let Some(new_paper_data) = new_paper_data {
+            let new_paper_data = new_paper_data.await?;
+
+            *paper = new_paper_data;
+            changes += 1;
+        }
+    }
+
+    if changes > 0 {
+        let data = serde_json::to_string_pretty(&all_papers)?;
+        std::fs::write("database_papers.json", data)?;
+    }
+
+    Ok(())
+}
+
+fn export_bibtex(papers: &Vec<(RelevancePaper, IncludedPaper)>) -> Result<()> {
+    let mut bibtex = String::new();
+
+    let mut post_text = String::new();
+
+    for (paper, status) in papers {
+        let doi = paper.external_ids.as_ref().and_then(|ids| ids.get("DOI")).and_then(|x| x.as_str());
+
+        if let Some(citations) = paper.citation_styles.as_ref() {
+            if let Some(text) = citations.get("bibtex") {
+                bibtex.push_str(&text[..text.rfind('}').unwrap_or(text.len())]);
+                bibtex.push_str(",groups = {");
+                bibtex.push_str(match status.status {
+                    IncludedPaperStatus::CoreLiterature => "core",
+                    IncludedPaperStatus::SideInformation => "side",
+                });
+                bibtex.push_str(",");
+                if doi.is_none() {
+                    bibtex.push_str("no-doi,");
+                }
+                bibtex.push_str(status.message.clone().unwrap_or("".into()).as_str());
+                bibtex.push_str("},\n");
+                if let Some(doi) = doi {
+                    bibtex.push_str(format!("doi = {{{}}},\n", &doi).as_str());
+                }
+                bibtex.push_str(format!("scholarid = {{{}}},\n", paper.paper.paper_id.clone().unwrap_or("".into())).as_str());
+                bibtex.push_str("},");
+                bibtex.push_str("\n\n");
+                continue;
+            }
+        }
+
+        println!("No bibtex for {}", paper.paper.title.clone().unwrap_or("<unknown>".to_string()));
+        if let Some(doi) = doi {
+            println!("  --> DOI: {}", doi);
+            post_text.push_str(format!("# DOI: {}\n", doi).as_str());
+        } else {
+            post_text.push_str(format!("# Title: {}\n", paper.paper.title.clone().unwrap_or("<unknown>".to_string())).as_str());
+        }
+    }
+
+    bibtex.push_str("\n\n");
+    bibtex.push_str(post_text.as_str());
+
+    Ok(std::fs::write("export.bib", bibtex)?)
+}
 
 #[tokio::main]
 async fn main() ->  Result<()> {
@@ -728,8 +803,10 @@ async fn main() ->  Result<()> {
 
     // keyword_search_all().await?;
 
-    let mut papers = read_paper_database()?;
+    let mut papers = read_paper_database(true)?;
     println!("Total papers in database: {}", papers.len());
+
+    // update_database(&mut papers).await?;
 
     loop {
         let mut terminal = ratatui::init();
@@ -749,6 +826,8 @@ async fn main() ->  Result<()> {
     println!("Total filtered: {}", total.len());
     let core = load_sifted_papers(&papers, true)?;
     println!("Core literature: {}", core.len());
+
+    export_bibtex(&core)?;
 
     Ok(())
 }
