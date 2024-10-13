@@ -775,6 +775,9 @@ fn export_bibtex(papers: &Vec<(RelevancePaper, IncludedPaper)>) -> Result<()> {
                     bibtex.push_str(format!("doi = {{{}}},\n", &doi).as_str());
                 }
                 bibtex.push_str(format!("scholarid = {{{}}},\n", paper.paper.paper_id.clone().unwrap_or("".into())).as_str());
+                if doi.is_none() {
+                    bibtex.push_str(format!("url = {{{}}},\n", paper.url.clone().unwrap_or("".into())).as_str());
+                }
                 bibtex.push_str("},");
                 bibtex.push_str("\n\n");
                 continue;
