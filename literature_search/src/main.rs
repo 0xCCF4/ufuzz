@@ -1,23 +1,23 @@
-use std::cmp::{Ordering, PartialEq};
-use std::collections::{HashMap, HashSet};
-use error_chain::error_chain;
-use serde::{Deserialize, Serialize};
-use std::env;
-use std::io::Write;
-use std::ops::{Deref, DerefMut};
 use crossterm::event;
 use crossterm::event::{KeyCode, KeyEventKind};
-use ratatui::DefaultTerminal;
-use ratatui::layout::{Alignment};
+use error_chain::error_chain;
+use ratatui::layout::Alignment;
 use ratatui::style::Stylize;
 use ratatui::symbols::border;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::block::{Position, Title};
 use ratatui::widgets::{Block, Paragraph, Widget, Wrap};
+use ratatui::DefaultTerminal;
 use regex::{Regex, RegexBuilder};
 use reqwest::{Client, Method, RequestBuilder};
 use serde::de::DeserializeOwned;
-use tokio::sync::{Mutex};
+use serde::{Deserialize, Serialize};
+use std::cmp::{Ordering, PartialEq};
+use std::collections::{HashMap, HashSet};
+use std::env;
+use std::io::Write;
+use std::ops::{Deref, DerefMut};
+use tokio::sync::Mutex;
 
 error_chain! {
     foreign_links {
@@ -93,7 +93,6 @@ pub struct IncludedPaper {
     message: Option<String>,
 }
 
-
 lazy_static::lazy_static! {
     static ref SEMANTIC_SCHOLAR_API_KEY: Mutex<Option<String>> = Mutex::new(None);
 }
@@ -102,11 +101,11 @@ const PAPER_FIELD_QUERY: &str = "paperId,title,url,year,abstract,authors,citatio
 
 async fn query_api_raw<Response>(url: &str, method: Method) -> Result<Response>
 where
-    Response: DeserializeOwned
+    Response: DeserializeOwned,
 {
     async fn build_query(method: Method, url: &str) -> RequestBuilder {
-        let query = Client::new()
-            .request(method, format!("https://api.semanticscholar.org/{}", url));
+        let query =
+            Client::new().request(method, format!("https://api.semanticscholar.org/{}", url));
 
         if let Some(key) = SEMANTIC_SCHOLAR_API_KEY.lock().await.deref() {
             query.header("x-api-key", key)
@@ -130,7 +129,9 @@ where
 
         if response.status().is_success() {
             return Ok(response.json().await?);
-        } else if response.status().as_u16() == 429 /* too many requests */ {
+        } else if response.status().as_u16() == 429
+        /* too many requests */
+        {
             tokio::time::sleep(tokio::time::Duration::from_secs(wait_time as u64)).await;
             wait_time *= 2;
             wait_time = wait_time.min(20);
@@ -152,8 +153,15 @@ where
     }
 }
 
-async fn query_paper_relevance_raw(query: &str, offset: u32, limit: u32) -> Result<RelevanceResponse> {
-    let url = format!("graph/v1/paper/search?fields={}&query={}&offset={}&limit={}", PAPER_FIELD_QUERY, query, offset, limit);
+async fn query_paper_relevance_raw(
+    query: &str,
+    offset: u32,
+    limit: u32,
+) -> Result<RelevanceResponse> {
+    let url = format!(
+        "graph/v1/paper/search?fields={}&query={}&offset={}&limit={}",
+        PAPER_FIELD_QUERY, query, offset, limit
+    );
     query_api_raw(&url, Method::GET).await
 }
 
@@ -177,7 +185,10 @@ async fn query_paper_relevance(query: &str) -> Result<Vec<RelevancePaper>> {
 }
 
 async fn query_paper_data<Id: AsRef<str>>(paper_id: Id) -> Result<RelevancePaper> {
-    let url = format!("graph/v1/paper/{paper_id}?fields={PAPER_FIELD_QUERY}", paper_id = paper_id.as_ref());
+    let url = format!(
+        "graph/v1/paper/{paper_id}?fields={PAPER_FIELD_QUERY}",
+        paper_id = paper_id.as_ref()
+    );
 
     query_api_raw(&url, Method::GET).await
 }
@@ -203,7 +214,6 @@ fn read_paper_database(sort_by_relevance: bool) -> Result<Vec<RelevancePaper>> {
 
     for paper in papers.into_iter() {
         if paper.paper.paper_id.is_none() || !unique.contains(&paper.paper.paper_id.clone()) {
-
             if let Some(ref title) = paper.paper.title {
                 if titles.contains(title) {
                     println!("Already contains title: {}", title);
@@ -212,18 +222,31 @@ fn read_paper_database(sort_by_relevance: bool) -> Result<Vec<RelevancePaper>> {
             }
 
             if let Some(paper_id) = &paper.paper.paper_id {
-                let literature_status = ok_papers.iter().find(|x| if let Some(id) = &x.paper.paper_id {
-                    id == paper_id
-                } else {false});
+                let literature_status = ok_papers.iter().find(|x| {
+                    if let Some(id) = &x.paper.paper_id {
+                        id == paper_id
+                    } else {
+                        false
+                    }
+                });
 
-                let excluded_find = excluded_papers.iter().find(|x| if let Some(id) = &x.paper.paper_id {
-                    id == paper_id
-                } else {false});
+                let excluded_find = excluded_papers.iter().find(|x| {
+                    if let Some(id) = &x.paper.paper_id {
+                        id == paper_id
+                    } else {
+                        false
+                    }
+                });
 
                 match literature_status {
-                    Some(_) => if excluded_find.is_some() {
-                        println!("Also found excluded version for {}", paper.paper.title.clone().unwrap_or("<unknown>".to_string()));
-                    },
+                    Some(_) => {
+                        if excluded_find.is_some() {
+                            println!(
+                                "Also found excluded version for {}",
+                                paper.paper.title.clone().unwrap_or("<unknown>".to_string())
+                            );
+                        }
+                    }
                     _ => {}
                 }
 
@@ -259,17 +282,17 @@ fn read_paper_database(sort_by_relevance: bool) -> Result<Vec<RelevancePaper>> {
     let reference_count = reference_count;
     if sort_by_relevance {
         result.sort_by(|a, b| {
-        if let (Some(id_a), Some(id_b)) = (&a.paper.paper_id, &b.paper.paper_id) {
-            let ord_a = reference_count.get(id_a).unwrap_or(&0).clone();
-            let ord_b = reference_count.get(id_b).unwrap_or(&0).clone();
-            ord_b.cmp(&ord_a)
-        } else if a.paper.paper_id.is_none() && b.paper.paper_id.is_some() {
-            Ordering::Greater
-        } else if a.paper.paper_id.is_some() && b.paper.paper_id.is_none() {
-            Ordering::Less
-        } else {
-            Ordering::Equal
-        }
+            if let (Some(id_a), Some(id_b)) = (&a.paper.paper_id, &b.paper.paper_id) {
+                let ord_a = reference_count.get(id_a).unwrap_or(&0).clone();
+                let ord_b = reference_count.get(id_b).unwrap_or(&0).clone();
+                ord_b.cmp(&ord_a)
+            } else if a.paper.paper_id.is_none() && b.paper.paper_id.is_some() {
+                Ordering::Greater
+            } else if a.paper.paper_id.is_some() && b.paper.paper_id.is_none() {
+                Ordering::Less
+            } else {
+                Ordering::Equal
+            }
         });
     }
 
@@ -292,7 +315,11 @@ async fn keyword_search_all() -> Result<()> {
     let mut papers = Vec::new();
     let mut paper_ids = HashSet::new();
 
-    fn insert_paper(paper: RelevancePaper, papers: &mut Vec<RelevancePaper>, paper_ids: &mut HashSet<String>) {
+    fn insert_paper(
+        paper: RelevancePaper,
+        papers: &mut Vec<RelevancePaper>,
+        paper_ids: &mut HashSet<String>,
+    ) {
         if !paper_ids.contains(&paper.paper.paper_id.clone().unwrap()) {
             paper_ids.insert(paper.paper.paper_id.clone().unwrap());
             papers.push(paper);
@@ -300,13 +327,16 @@ async fn keyword_search_all() -> Result<()> {
     }
 
     if let Ok(data) = read_paper_database(false) {
-        data.into_iter().for_each(|paper| insert_paper(paper, &mut papers, &mut paper_ids));
+        data.into_iter()
+            .for_each(|paper| insert_paper(paper, &mut papers, &mut paper_ids));
     }
 
     for (index, keyword) in keywords.iter().enumerate() {
         println!("{}/{}: {}", index, keywords.len(), keyword);
         let papers_queried = query_paper_relevance(keyword).await?;
-        papers_queried.into_iter().for_each(|paper| insert_paper(paper, &mut papers, &mut paper_ids));
+        papers_queried
+            .into_iter()
+            .for_each(|paper| insert_paper(paper, &mut papers, &mut paper_ids));
         let data = serde_json::to_string_pretty(&papers)?;
         std::fs::write("database_papers.json", data)?;
     }
@@ -329,7 +359,10 @@ fn sifting(papers: &Vec<RelevancePaper>, term: &mut DefaultTerminal) -> Result<b
     let binding = std::fs::read_to_string("highlight.txt").unwrap_or_default();
     let highlights: Vec<&str> = binding.lines().collect();
     let highlights = "(".to_string() + &*highlights.join(")|(") + ")";
-    let highlights = RegexBuilder::new(&highlights).case_insensitive(true).build().expect("Regex highlight compile error");
+    let highlights = RegexBuilder::new(&highlights)
+        .case_insensitive(true)
+        .build()
+        .expect("Regex highlight compile error");
 
     enum PaperStatus {
         None,
@@ -352,37 +385,36 @@ fn sifting(papers: &Vec<RelevancePaper>, term: &mut DefaultTerminal) -> Result<b
 
         term.draw(|frame| {
             let title = Title::from(" Literature sifting ".bold());
-            let instructions =
-                match mode {
-                    Mode::Sifting => Title::from(Line::from(vec![
-                        " Move ".into(),
-                        "<LT/RT>".blue().bold(),
-                        " Side ".into(),
-                        "<S>".blue().bold(),
-                        " Core ".into(),
-                        "<C>".blue().bold(),
-                        " Exclude ".into(),
-                        "<Return>".blue().bold(),
-                        " Untaint ".into(),
-                        "<Del>".blue().bold(),
-                        " Next ".into(),
-                        "<Space>".blue().bold(),
-                        " Quit ".into(),
-                        "<Q> ".blue().bold(),
-                        " Exit ".into(),
-                        "<E> ".blue().bold(),
-                        " Analysis ".into(),
-                        "<A>".blue().bold(),
-                        " Repaint ".into(),
-                        "<R> ".blue().bold(),
-                        " Msg ".into(),
-                        "<M> ".blue().bold(),
-                    ])),
-                    Mode::Comment => Title::from(Line::from(vec![
-                        " Finish ".into(),
-                        "<Return/ESC> ".blue().bold(),
-                    ])),
-                };
+            let instructions = match mode {
+                Mode::Sifting => Title::from(Line::from(vec![
+                    " Move ".into(),
+                    "<LT/RT>".blue().bold(),
+                    " Side ".into(),
+                    "<S>".blue().bold(),
+                    " Core ".into(),
+                    "<C>".blue().bold(),
+                    " Exclude ".into(),
+                    "<Return>".blue().bold(),
+                    " Untaint ".into(),
+                    "<Del>".blue().bold(),
+                    " Next ".into(),
+                    "<Space>".blue().bold(),
+                    " Quit ".into(),
+                    "<Q> ".blue().bold(),
+                    " Exit ".into(),
+                    "<E> ".blue().bold(),
+                    " Analysis ".into(),
+                    "<A>".blue().bold(),
+                    " Repaint ".into(),
+                    "<R> ".blue().bold(),
+                    " Msg ".into(),
+                    "<M> ".blue().bold(),
+                ])),
+                Mode::Comment => Title::from(Line::from(vec![
+                    " Finish ".into(),
+                    "<Return/ESC> ".blue().bold(),
+                ])),
+            };
             let block = Block::bordered()
                 .title(title.alignment(Alignment::Center))
                 .title(
@@ -402,13 +434,19 @@ fn sifting(papers: &Vec<RelevancePaper>, term: &mut DefaultTerminal) -> Result<b
                     let amount = papers.len();
                     let progress = ok_papers.len() + excluded_papers.len();
                     let mut comment = None;
-                    let status = if let Some(paper) = ok_papers.iter().find(|p| p.paper.paper_id == paper.paper.paper_id) {
+                    let status = if let Some(paper) = ok_papers
+                        .iter()
+                        .find(|p| p.paper.paper_id == paper.paper.paper_id)
+                    {
                         comment = paper.message.clone();
                         match paper.status {
                             IncludedPaperStatus::CoreLiterature => PaperStatus::Core,
                             IncludedPaperStatus::SideInformation => PaperStatus::Side,
                         }
-                    } else if excluded_papers.iter().any(|p| p.paper_id == paper.paper.paper_id) {
+                    } else if excluded_papers
+                        .iter()
+                        .any(|p| p.paper_id == paper.paper.paper_id)
+                    {
                         PaperStatus::Excluded
                     } else {
                         PaperStatus::None
@@ -419,7 +457,11 @@ fn sifting(papers: &Vec<RelevancePaper>, term: &mut DefaultTerminal) -> Result<b
                         PaperStatus::Core => Line::from("CORE").green().bold().underlined(),
                         PaperStatus::Side => Line::from("SIDE").yellow().bold().underlined(),
                     };
-                    status.extend(Line::from(comment.map(|x| ": ".to_string()+&x).unwrap_or("".to_string())));
+                    status.extend(Line::from(
+                        comment
+                            .map(|x| ": ".to_string() + &x)
+                            .unwrap_or("".to_string()),
+                    ));
                     fn highlight<'a, 'b>(regex: &'a Regex, text: String) -> Vec<Span<'b>> {
                         let mut result = Vec::new();
 
@@ -450,35 +492,93 @@ fn sifting(papers: &Vec<RelevancePaper>, term: &mut DefaultTerminal) -> Result<b
                         "".into(),
                         format!("Paper ({index}/{amount}) - {progress}").into(),
                         "".into(),
-                        Line::from_iter(vec![Span::from("Title").bold().gray().underlined()].into_iter().chain(highlight(&highlights, format!(": {}", paper.paper.title.clone().unwrap_or("<no title>".into())).into()))),
+                        Line::from_iter(
+                            vec![Span::from("Title").bold().gray().underlined()]
+                                .into_iter()
+                                .chain(highlight(
+                                    &highlights,
+                                    format!(
+                                        ": {}",
+                                        paper.paper.title.clone().unwrap_or("<no title>".into())
+                                    )
+                                    .into(),
+                                )),
+                        ),
                         "".into(),
-                        Line::from_iter(vec![Span::from("TLDR").bold().gray().underlined()].into_iter().chain(highlight(&highlights, format!(": {}", paper.tldr.clone().unwrap_or_default().text.unwrap_or("<no tldr>".into())).into()))),
+                        Line::from_iter(
+                            vec![Span::from("TLDR").bold().gray().underlined()]
+                                .into_iter()
+                                .chain(highlight(
+                                    &highlights,
+                                    format!(
+                                        ": {}",
+                                        paper
+                                            .tldr
+                                            .clone()
+                                            .unwrap_or_default()
+                                            .text
+                                            .unwrap_or("<no tldr>".into())
+                                    )
+                                    .into(),
+                                )),
+                        ),
                         "".into(),
-                        Line::from_iter(vec![Span::from("URL").bold().gray().underlined(), Span::from(": "), Span::from(paper.url.clone().unwrap_or("<no url>".into())).italic()]),
+                        Line::from_iter(vec![
+                            Span::from("URL").bold().gray().underlined(),
+                            Span::from(": "),
+                            Span::from(paper.url.clone().unwrap_or("<no url>".into())).italic(),
+                        ]),
                         "".into(),
-                        Line::from_iter(vec![Span::from("Abstract").bold().gray().underlined()].into_iter().chain(highlight(&highlights, format!(": {}", paper.abstract_text.clone().unwrap_or("<no abstract>".into())).into()))),
+                        Line::from_iter(
+                            vec![Span::from("Abstract").bold().gray().underlined()]
+                                .into_iter()
+                                .chain(highlight(
+                                    &highlights,
+                                    format!(
+                                        ": {}",
+                                        paper
+                                            .abstract_text
+                                            .clone()
+                                            .unwrap_or("<no abstract>".into())
+                                    )
+                                    .into(),
+                                )),
+                        ),
                     ]
                 }
             };
 
             Paragraph::new(counter_text)
                 .left_aligned()
-                .wrap(Wrap {trim:false})
+                .wrap(Wrap { trim: false })
                 .block(block)
                 .render(frame.area(), frame.buffer_mut());
         })?;
 
         if let event::Event::Key(key) = event::read()? {
-            if mode == Mode::Sifting && key.kind == KeyEventKind::Press && key.code == KeyCode::Char('q') {
-                return Ok(papers.iter().all(|p| ok_papers.iter().any(|op| &op.paper == &p.paper) || excluded_papers.iter().any(|op| op == &p.paper)));
+            if mode == Mode::Sifting
+                && key.kind == KeyEventKind::Press
+                && key.code == KeyCode::Char('q')
+            {
+                return Ok(papers.iter().all(|p| {
+                    ok_papers.iter().any(|op| &op.paper == &p.paper)
+                        || excluded_papers.iter().any(|op| op == &p.paper)
+                }));
             }
-            if mode == Mode::Sifting && key.kind == KeyEventKind::Press && key.code == KeyCode::Char('e') {
+            if mode == Mode::Sifting
+                && key.kind == KeyEventKind::Press
+                && key.code == KeyCode::Char('e')
+            {
                 return Ok(false);
             }
-            if mode == Mode::Sifting && key.kind == KeyEventKind::Press && key.code == KeyCode::Char('a') {
+            if mode == Mode::Sifting
+                && key.kind == KeyEventKind::Press
+                && key.code == KeyCode::Char('a')
+            {
                 return Ok(true);
             }
-            if mode == Mode::Sifting && key.kind == KeyEventKind::Press && key.code == KeyCode::Left {
+            if mode == Mode::Sifting && key.kind == KeyEventKind::Press && key.code == KeyCode::Left
+            {
                 loop {
                     if index < 1 {
                         break;
@@ -496,12 +596,18 @@ fn sifting(papers: &Vec<RelevancePaper>, term: &mut DefaultTerminal) -> Result<b
 
                     let paper = papers.get(index).unwrap();
 
-                    if ok_papers.iter().any(|p| p.paper.paper_id == paper.paper.paper_id){
+                    if ok_papers
+                        .iter()
+                        .any(|p| p.paper.paper_id == paper.paper.paper_id)
+                    {
                         break;
                     }
                 }
             }
-            if mode == Mode::Sifting && key.kind == KeyEventKind::Press && key.code == KeyCode::Right {
+            if mode == Mode::Sifting
+                && key.kind == KeyEventKind::Press
+                && key.code == KeyCode::Right
+            {
                 loop {
                     index += 1;
 
@@ -515,7 +621,10 @@ fn sifting(papers: &Vec<RelevancePaper>, term: &mut DefaultTerminal) -> Result<b
 
                     let paper = papers.get(index).unwrap();
 
-                    if let Some(found) = ok_papers.iter().find(|p| p.paper.paper_id == paper.paper.paper_id){
+                    if let Some(found) = ok_papers
+                        .iter()
+                        .find(|p| p.paper.paper_id == paper.paper.paper_id)
+                    {
                         if !key.modifiers.contains(event::KeyModifiers::CONTROL) {
                             break;
                         }
@@ -526,7 +635,10 @@ fn sifting(papers: &Vec<RelevancePaper>, term: &mut DefaultTerminal) -> Result<b
                     }
                 }
             }
-            if mode == Mode::Sifting && key.kind == KeyEventKind::Press && key.code == KeyCode::Char(' ') {
+            if mode == Mode::Sifting
+                && key.kind == KeyEventKind::Press
+                && key.code == KeyCode::Char(' ')
+            {
                 loop {
                     index += 1;
 
@@ -536,7 +648,13 @@ fn sifting(papers: &Vec<RelevancePaper>, term: &mut DefaultTerminal) -> Result<b
 
                     let paper = papers.get(index).unwrap();
 
-                    if !ok_papers.iter().any(|p| p.paper.paper_id == paper.paper.paper_id) && !excluded_papers.iter().any(|p| p.paper_id == paper.paper.paper_id) {
+                    if !ok_papers
+                        .iter()
+                        .any(|p| p.paper.paper_id == paper.paper.paper_id)
+                        && !excluded_papers
+                            .iter()
+                            .any(|p| p.paper_id == paper.paper.paper_id)
+                    {
                         break;
                     }
                 }
@@ -545,47 +663,74 @@ fn sifting(papers: &Vec<RelevancePaper>, term: &mut DefaultTerminal) -> Result<b
             let excluded_paper_len = excluded_papers.len();
             let ok_paper_len = ok_papers.len();
 
-            if mode == Mode::Sifting && key.kind == KeyEventKind::Press && key.code == KeyCode::Char('s') {
+            if mode == Mode::Sifting
+                && key.kind == KeyEventKind::Press
+                && key.code == KeyCode::Char('s')
+            {
                 if let Some(paper) = papers.get(index) {
-                    ok_papers.retain(|p| p.paper.paper_id.is_none() || p.paper.paper_id != paper.paper.paper_id);
+                    ok_papers.retain(|p| {
+                        p.paper.paper_id.is_none() || p.paper.paper_id != paper.paper.paper_id
+                    });
                     ok_papers.push(IncludedPaper {
                         paper: paper.paper.clone(),
                         status: IncludedPaperStatus::SideInformation,
                         message: None,
                     });
-                    excluded_papers.retain(|p| p.paper_id.is_none() || p.paper_id != paper.paper.paper_id);
+                    excluded_papers
+                        .retain(|p| p.paper_id.is_none() || p.paper_id != paper.paper.paper_id);
                     save = true;
                 }
             }
-            if mode == Mode::Sifting && key.kind == KeyEventKind::Press && key.code == KeyCode::Char('c') {
+            if mode == Mode::Sifting
+                && key.kind == KeyEventKind::Press
+                && key.code == KeyCode::Char('c')
+            {
                 if let Some(paper) = papers.get(index) {
-                    ok_papers.retain(|p| p.paper.paper_id.is_none() || p.paper.paper_id != paper.paper.paper_id);
+                    ok_papers.retain(|p| {
+                        p.paper.paper_id.is_none() || p.paper.paper_id != paper.paper.paper_id
+                    });
                     ok_papers.push(IncludedPaper {
                         paper: paper.paper.clone(),
                         status: IncludedPaperStatus::CoreLiterature,
                         message: None,
                     });
-                    excluded_papers.retain(|p| p.paper_id.is_none() || p.paper_id != paper.paper.paper_id);
+                    excluded_papers
+                        .retain(|p| p.paper_id.is_none() || p.paper_id != paper.paper.paper_id);
                     save = true;
                 }
             }
-            if mode == Mode::Sifting && key.kind == KeyEventKind::Press && key.code == KeyCode::Backspace {
+            if mode == Mode::Sifting
+                && key.kind == KeyEventKind::Press
+                && key.code == KeyCode::Backspace
+            {
                 if let Some(paper) = papers.get(index) {
-                    excluded_papers.retain(|p| p.paper_id.is_none() || p.paper_id != paper.paper.paper_id);
+                    excluded_papers
+                        .retain(|p| p.paper_id.is_none() || p.paper_id != paper.paper.paper_id);
                     excluded_papers.push(paper.paper.clone());
-                    ok_papers.retain(|p| p.paper.paper_id.is_none() || p.paper.paper_id != paper.paper.paper_id);
+                    ok_papers.retain(|p| {
+                        p.paper.paper_id.is_none() || p.paper.paper_id != paper.paper.paper_id
+                    });
                     save = true;
                 }
             }
-            if mode == Mode::Sifting && key.kind == KeyEventKind::Press && key.code == KeyCode::Delete {
+            if mode == Mode::Sifting
+                && key.kind == KeyEventKind::Press
+                && key.code == KeyCode::Delete
+            {
                 if let Some(paper) = papers.get(index) {
-                    excluded_papers.retain(|p| p.paper_id.is_none() || p.paper_id != paper.paper.paper_id);
-                    ok_papers.retain(|p| p.paper.paper_id.is_none() || p.paper.paper_id != paper.paper.paper_id);
+                    excluded_papers
+                        .retain(|p| p.paper_id.is_none() || p.paper_id != paper.paper.paper_id);
+                    ok_papers.retain(|p| {
+                        p.paper.paper_id.is_none() || p.paper.paper_id != paper.paper.paper_id
+                    });
                     save = true;
                 }
             }
 
-            if mode == Mode::Sifting && key.kind == KeyEventKind::Press && key.code == KeyCode::Char('r') {
+            if mode == Mode::Sifting
+                && key.kind == KeyEventKind::Press
+                && key.code == KeyCode::Char('r')
+            {
                 term.clear()?;
             }
 
@@ -594,7 +739,9 @@ fn sifting(papers: &Vec<RelevancePaper>, term: &mut DefaultTerminal) -> Result<b
             }
 
             let mut current_paper = if let Some(paper) = papers.get(index) {
-                ok_papers.iter_mut().find(|p| p.paper.paper_id == paper.paper.paper_id)
+                ok_papers
+                    .iter_mut()
+                    .find(|p| p.paper.paper_id == paper.paper.paper_id)
             } else {
                 None
             };
@@ -634,17 +781,24 @@ fn sifting(papers: &Vec<RelevancePaper>, term: &mut DefaultTerminal) -> Result<b
                 }
             }
 
-            if mode == Mode::Sifting && key.kind == KeyEventKind::Press && key.code == KeyCode::Char('m') {
+            if mode == Mode::Sifting
+                && key.kind == KeyEventKind::Press
+                && key.code == KeyCode::Char('m')
+            {
                 if current_paper.is_some() {
                     mode = Mode::Comment;
                 }
             }
 
             if save {
-                if excluded_papers.len() < excluded_paper_len.max(1)-1 || ok_papers.len() < ok_paper_len.max(1)-1 {
+                if excluded_papers.len() < excluded_paper_len.max(1) - 1
+                    || ok_papers.len() < ok_paper_len.max(1) - 1
+                {
                     panic!("Error: deleted more than one paper"); // failsafe
                 }
-                if excluded_papers.len() > excluded_paper_len+1 || ok_papers.len() > ok_paper_len+1 {
+                if excluded_papers.len() > excluded_paper_len + 1
+                    || ok_papers.len() > ok_paper_len + 1
+                {
                     panic!("Error: added more than one paper"); // failsafe
                 }
 
@@ -658,13 +812,20 @@ fn sifting(papers: &Vec<RelevancePaper>, term: &mut DefaultTerminal) -> Result<b
     }
 }
 
-fn load_sifted_papers(all_papers: &Vec<RelevancePaper>, only_core_literature: bool) -> Result<Vec<(RelevancePaper, IncludedPaper)>> {
+fn load_sifted_papers(
+    all_papers: &Vec<RelevancePaper>,
+    only_core_literature: bool,
+) -> Result<Vec<(RelevancePaper, IncludedPaper)>> {
     let papers_ok = std::fs::read_to_string("ok_papers.json")
         .map(|data| serde_json::from_str::<Vec<IncludedPaper>>(&data))??;
 
-    let mut full_paper_info: Vec<(RelevancePaper, IncludedPaper)> = Vec::with_capacity(papers_ok.len());
+    let mut full_paper_info: Vec<(RelevancePaper, IncludedPaper)> =
+        Vec::with_capacity(papers_ok.len());
     for ipaper in &papers_ok {
-        if let Some(paper) = all_papers.iter().find(|p| p.paper.paper_id == Some(ipaper.paper.paper_id.clone().unwrap())) {
+        if let Some(paper) = all_papers
+            .iter()
+            .find(|p| p.paper.paper_id == Some(ipaper.paper.paper_id.clone().unwrap()))
+        {
             if ipaper.status == IncludedPaperStatus::CoreLiterature || !only_core_literature {
                 full_paper_info.push((paper.clone(), ipaper.clone()));
             }
@@ -672,19 +833,29 @@ fn load_sifted_papers(all_papers: &Vec<RelevancePaper>, only_core_literature: bo
     }
 
     if !only_core_literature {
-        assert_eq!(full_paper_info.len(), papers_ok.len(), "paper not found in database");
+        assert_eq!(
+            full_paper_info.len(),
+            papers_ok.len(),
+            "paper not found in database"
+        );
     }
 
     Ok(full_paper_info)
 }
 
 async fn expand_papers(all_papers: &mut Vec<RelevancePaper>) -> Result<()> {
-    async fn expand_paper(all_papers: &mut Vec<RelevancePaper>, related_paper: RelevancePaperWeak) -> Result<()> {
+    async fn expand_paper(
+        all_papers: &mut Vec<RelevancePaper>,
+        related_paper: RelevancePaperWeak,
+    ) -> Result<()> {
         let mut changes = false;
 
         let paper_id = related_paper.paper_id.clone();
         if let Some(paper_id) = paper_id {
-            if all_papers.iter().any(|p| p.paper.paper_id == Some(paper_id.clone())) {
+            if all_papers
+                .iter()
+                .any(|p| p.paper.paper_id == Some(paper_id.clone()))
+            {
                 println!("SKIP {}", related_paper.title.unwrap_or("".into()));
                 return Ok(());
             }
@@ -714,12 +885,20 @@ async fn expand_papers(all_papers: &mut Vec<RelevancePaper>) -> Result<()> {
         }
     }
 
-    let include_papers: Vec<String> = std::fs::read_to_string("inputs.txt").unwrap_or("".to_string()).lines().map(String::from).collect();
+    let include_papers: Vec<String> = std::fs::read_to_string("inputs.txt")
+        .unwrap_or("".to_string())
+        .lines()
+        .map(String::from)
+        .collect();
     for paper in include_papers {
-        expand_paper(all_papers, RelevancePaperWeak {
-            paper_id: Some(paper.clone()),
-            title: Some(paper)
-        }).await?;
+        expand_paper(
+            all_papers,
+            RelevancePaperWeak {
+                paper_id: Some(paper.clone()),
+                title: Some(paper),
+            },
+        )
+        .await?;
     }
 
     Ok(())
@@ -755,7 +934,11 @@ fn export_bibtex(papers: &Vec<(RelevancePaper, IncludedPaper)>) -> Result<()> {
     let mut post_text = String::new();
 
     for (paper, status) in papers {
-        let doi = paper.external_ids.as_ref().and_then(|ids| ids.get("DOI")).and_then(|x| x.as_str());
+        let doi = paper
+            .external_ids
+            .as_ref()
+            .and_then(|ids| ids.get("DOI"))
+            .and_then(|x| x.as_str());
 
         if let Some(citations) = paper.citation_styles.as_ref() {
             if let Some(text) = citations.get("bibtex") {
@@ -774,9 +957,17 @@ fn export_bibtex(papers: &Vec<(RelevancePaper, IncludedPaper)>) -> Result<()> {
                 if let Some(doi) = doi {
                     bibtex.push_str(format!("doi = {{{}}},\n", &doi).as_str());
                 }
-                bibtex.push_str(format!("scholarid = {{{}}},\n", paper.paper.paper_id.clone().unwrap_or("".into())).as_str());
+                bibtex.push_str(
+                    format!(
+                        "scholarid = {{{}}},\n",
+                        paper.paper.paper_id.clone().unwrap_or("".into())
+                    )
+                    .as_str(),
+                );
                 if doi.is_none() {
-                    bibtex.push_str(format!("url = {{{}}},\n", paper.url.clone().unwrap_or("".into())).as_str());
+                    bibtex.push_str(
+                        format!("url = {{{}}},\n", paper.url.clone().unwrap_or("".into())).as_str(),
+                    );
                 }
                 bibtex.push_str("},");
                 bibtex.push_str("\n\n");
@@ -784,12 +975,21 @@ fn export_bibtex(papers: &Vec<(RelevancePaper, IncludedPaper)>) -> Result<()> {
             }
         }
 
-        println!("No bibtex for {}", paper.paper.title.clone().unwrap_or("<unknown>".to_string()));
+        println!(
+            "No bibtex for {}",
+            paper.paper.title.clone().unwrap_or("<unknown>".to_string())
+        );
         if let Some(doi) = doi {
             println!("  --> DOI: {}", doi);
             post_text.push_str(format!("# DOI: {}\n", doi).as_str());
         } else {
-            post_text.push_str(format!("# Title: {}\n", paper.paper.title.clone().unwrap_or("<unknown>".to_string())).as_str());
+            post_text.push_str(
+                format!(
+                    "# Title: {}\n",
+                    paper.paper.title.clone().unwrap_or("<unknown>".to_string())
+                )
+                .as_str(),
+            );
         }
     }
 
@@ -800,7 +1000,7 @@ fn export_bibtex(papers: &Vec<(RelevancePaper, IncludedPaper)>) -> Result<()> {
 }
 
 #[tokio::main]
-async fn main() ->  Result<()> {
+async fn main() -> Result<()> {
     let semantic_scholar_key = std::fs::read_to_string("api.key").map(Some).unwrap_or(None);
     *SEMANTIC_SCHOLAR_API_KEY.lock().await.deref_mut() = semantic_scholar_key;
 
@@ -823,7 +1023,6 @@ async fn main() ->  Result<()> {
 
         expand_papers(&mut papers).await?;
     }
-
 
     let total = load_sifted_papers(&papers, false)?;
     println!("Total filtered: {}", total.len());

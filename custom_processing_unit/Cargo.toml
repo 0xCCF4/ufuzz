@@ -1,0 +1,11 @@
+[package]
+name = "custom_processing_unit"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+error-chain = "0.12.4"
+ucode_compiler = { path = "../ucode_compiler" }
+
+[build-dependencies]
+ucode_compiler = { path = "../ucode_compiler", features = ["build"] }
