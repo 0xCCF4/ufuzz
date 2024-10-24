@@ -168,7 +168,6 @@ dependencies = [
 name = "custom_processing_unit"
 version = "0.1.0"
 dependencies = [
- "error-chain",
  "ucode_compiler",
 ]
 
@@ -178,6 +177,7 @@ version = "0.1.0"
 dependencies = [
  "custom_processing_unit",
  "log",
+ "ucode_compiler",
  "uefi",
 ]
 

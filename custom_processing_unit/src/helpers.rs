@@ -1,13 +1,17 @@
-use crate::arch;
-use std::arch::asm;
-use std::arch::x86_64::CpuidResult;
+use alloc::format;
+use alloc::string::ToString;
+use core::arch::asm;
+use ucode_compiler::UcodePatchBlob;
+use crate::{patches, Error};
 
 #[inline(always)]
+#[allow(unused)]
 fn mfence() {
     unsafe { asm!("mfence", options(nostack)) }
 }
 
 #[inline(always)]
+#[allow(unused)]
 fn lfence() {
     unsafe { asm!("lfence", options(nostack)) }
 }
@@ -18,20 +22,23 @@ fn lmfence() {
 }
 
 #[inline(always)]
+#[allow(unused)]
 fn wbinvd() {
-    unsafe { asm!("wbinvd", options(nostack)) }
+    unsafe { asm!("wbinvd", options(nostack, preserves_flags)) }
 }
 
 #[inline(always)]
+#[allow(unused)]
 fn barrier() {
     unsafe {
         asm!(
-        "push rbx",
+        "mov {rbx_tmp}, rbx",
         "xor rax, rax",
         "xor rcx, rcx",
         "cpuid",
-        "pop rbx",
-        out("rax") _, out("rcx") _, out("rdx") _,
+        "mov rbx, {rbx_tmp}",
+        out("rax") _, rbx_tmp = out(reg) _, out("rcx") _, out("rdx") _,
+        options(nostack, nomem)
         )
     }
 }
@@ -42,14 +49,14 @@ fn udebug_read(command: usize, address: usize) -> usize {
     lmfence();
     unsafe {
         asm!(
-        "push rbx",
-        ".byte 0x0f, 0x0e",
         "mov {rbx_tmp}, rbx",
-        "pop rbx",
+        ".byte 0x0f, 0x0e",
+        "xchg {rbx_tmp}, rbx",
         rbx_tmp = out(reg) res_high,
         out("rdx") res_low,
         in("rcx") command,
         in("rax") address,
+        options(nostack)
         );
     }
     lmfence();
@@ -62,14 +69,14 @@ fn udebug_write(command: usize, address: usize, value: usize) {
     lmfence();
     unsafe {
         asm!(
-        "push rbx",
-        "mov rbx, {rbx_tmp}",
+        "xchg {rbx_tmp}, rbx",
         ".byte 0x0f, 0x0f",
-        "pop rbx",
+        "mov rbx, {rbx_tmp}",
         in("rcx") command,
         in("rax") address,
         rbx_tmp = in(reg) val_high,
         in("rdx") val_low,
+        options(nostack)
         );
     }
     lmfence();
@@ -77,26 +84,22 @@ fn udebug_write(command: usize, address: usize, value: usize) {
 
 pub fn udebug_invoke(
     address: usize,
-    resA: &mut usize,
-    resB: &mut usize,
-    resC: &mut usize,
-    resD: &mut usize,
+    res_a: &mut usize,
+    res_b: &mut usize,
+    res_c: &mut usize,
+    res_d: &mut usize,
 ) {
     lmfence();
     unsafe {
         asm!(
-        "push rbx",
-        "xor rbx, rbx",
+        "xchg {rbx_tmp}, rbx",
         ".byte 0x0f, 0x0f",
-        "mov {rbx_tmp}, rbx",
-        "pop rbx",
-        lateout("rax") *resA,
-        rbx_tmp = lateout(reg) *resB,
-        lateout("rcx") *resC,
-        lateout("rdx") *resD,
-        in("rax") address,
-        in("rcx") 0xd8,
-        in("rdx") 0,
+        "xchg {rbx_tmp}, rbx",
+        inout("rax") address => *res_a,
+        rbx_tmp = inout(reg) 0usize => *res_b,
+        inout("rcx") 0xd8usize => *res_c,
+        inout("rdx") 0usize => *res_d,
+        options(nostack)
         );
     }
     lmfence();
@@ -112,14 +115,41 @@ fn wrmsr(msr: u32, value: u64) {
         in("ecx") msr,
         in("eax") low,
         in("edx") high,
-        options(nostack, nomem)
+        options(nostack, nomem, preserves_flags)
         );
     }
 }
 
-fn cpuid(leaf: u32, subleaf: u32) -> CpuidResult {
-    let arch::CpuidResult { eax, ebx, ecx, edx } = unsafe { arch::__cpuid_count(leaf, subleaf) };
-    return CpuidResult { eax, ebx, ecx, edx };
+#[derive(Copy, Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct CpuidResult {
+    pub eax: u32,
+    pub ebx: u32,
+    pub ecx: u32,
+    pub edx: u32,
+}
+
+impl CpuidResult {
+    pub fn query(leaf: u32, sub_leaf: u32) -> CpuidResult {
+        let eax;
+        let ebx;
+        let ecx;
+        let edx;
+
+        #[cfg(target_arch = "x86_64")]
+        unsafe {
+            asm!(
+                "mov {0:r}, rbx",
+                "cpuid",
+                "xchg {0:r}, rbx",
+                out(reg) ebx,
+                inout("eax") leaf => eax,
+                inout("ecx") sub_leaf => ecx,
+                out("edx") edx,
+                options(nostack, preserves_flags),
+            );
+        }
+        CpuidResult { eax, ebx, ecx, edx }
+    }
 }
 
 pub fn activate_udebug_insts() {
@@ -133,6 +163,15 @@ pub fn crbus_read(address: usize) -> usize {
 pub fn crbus_write(address: usize, value: usize) -> usize {
     udebug_write(0, address, value);
     udebug_read(0, address)
+}
+
+fn stgbuf_write(address: usize, value: usize) {
+    udebug_write(0x80, address, value)
+}
+
+#[allow(unused)]
+fn stgbuf_read(address: usize) -> usize {
+    udebug_read(0x80, address)
 }
 
 fn ldat_array_write(
@@ -166,6 +205,7 @@ pub fn ucode_addr_to_patch_addr(addr: usize) -> usize {
     ((base % 4) * 0x80 + (base / 4)) * 4
 }
 
+#[allow(unused)]
 fn patch_addr_to_ucode_addr(addr: usize) -> usize {
     // NOTICE: the ucode_addr_to_patch_addr has a *4 more, so this will not be
     // the inverse
@@ -194,6 +234,7 @@ pub fn ms_patch_ram_write(addr: usize, val: usize) {
     ms_array_write(4, 0, 0, addr, val)
 }
 
+#[allow(unused)]
 pub fn ms_match_patch_write(addr: usize, val: usize) {
     ms_array_write(3, 0, 0, addr, val)
 }
@@ -203,5 +244,69 @@ pub fn ms_const_write(addr: usize, val: usize) {
 }
 
 pub fn detect_glm_version() -> u32 {
-    cpuid(0x1, 0).eax
+    CpuidResult::query(0x1, 0).eax
+}
+
+pub fn patch_ucode(addr: usize, ucode_patch: &UcodePatchBlob) {
+    // format: uop0, uop1, uop2, seqword
+    // uop3 is fixed to a nop and cannot be overridden
+
+    for i in 0..ucode_patch.len() {
+        // patch ucode
+        ms_patch_ram_write(
+            crate::helpers::ucode_addr_to_patch_addr(addr + i * 4),
+            ucode_patch[i][0],
+        );
+        ms_patch_ram_write(
+            crate::helpers::ucode_addr_to_patch_addr(addr + i * 4) + 1,
+            ucode_patch[i][1],
+        );
+        ms_patch_ram_write(
+            crate::helpers::ucode_addr_to_patch_addr(addr + i * 4) + 2,
+            ucode_patch[i][2],
+        );
+
+        // patch seqword
+        ms_const_write(
+            crate::helpers::ucode_addr_to_patch_seqword_addr(addr) + i,
+            ucode_patch[i][3],
+        );
+    }
+}
+
+pub fn hook_match_and_patch(entry_idx: usize, ucode_addr: usize, patch_addr: usize) -> crate::Result<()> {
+    if ucode_addr % 2 != 0 {
+        return Err(Error::HookFailed("uop address must be even".to_string()).into());
+    }
+    if patch_addr % 2 != 0 || patch_addr < 0x7c00 {
+        return Err(Error::HookFailed("patch uop address must be even and >0x7c00".to_string()).into());
+    }
+
+    // todo more advanced range checks
+
+    //TODO: try to hook odd addresses!!
+    let poff = (patch_addr - 0x7c00) / 2;
+    let patch_value = 0x3e000000 | (poff << 16) | ucode_addr | 1;
+
+    let match_patch_hook = patches::match_patch_hook;
+    patch_ucode(match_patch_hook.addr, match_patch_hook.ucode_patch);
+
+    let mut res_a = 0;
+    let mut res_b = 0;
+    let mut res_c = 0;
+    let mut res_d = 0;
+    stgbuf_write(0xb800, patch_value); // write value to tmp0
+    stgbuf_write(0xb840, entry_idx*2); // write idx to tmp1
+
+    udebug_invoke(match_patch_hook.addr, &mut res_a, &mut res_b, &mut res_c, &mut res_d);
+
+    stgbuf_write(0xb800, 0); // restore tmp0
+    stgbuf_write(0xb840, 0); // restore tmp1
+
+    if res_a != 0x0000133700001337 {
+        return Err(Error::HookFailed(format!("invoke({:08x}) = {:016x}, {:016x}, {:016x}, {:016x}",
+                                                 match_patch_hook.addr, res_a, res_b, res_c, res_d)).into());
+    }
+
+    Ok(())
 }

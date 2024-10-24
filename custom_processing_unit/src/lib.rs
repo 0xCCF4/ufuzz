@@ -1,26 +1,36 @@
-mod arch;
+#![cfg_attr(feature = "no_std", no_std)]
 
-use error_chain::error_chain;
 use helpers::*;
-use ucode_compiler::{UcodePatchBlob, UcodePatchEntry};
+use ucode_compiler::{Patch, UcodePatchEntry};
+
+#[cfg(feature = "no_std")]
+extern crate alloc;
+#[cfg(feature = "no_std")]
+use alloc::{format,string::String};
 
 mod helpers;
 mod patches;
 
-error_chain! {
-    errors {
-        InvalidProcessor(t: String) {
-            description("Invalid processor")
-            display("Unsupported GLM version: '{}'", t)
-        }
-        InitMatchAndPatchFailed(t: String) {
-            description("Failed to initialize match and patch")
-            display("Failed to initialize match and patch: '{}'", t)
+#[derive(Debug)]
+pub enum Error {
+    InvalidProcessor(String),
+    InitMatchAndPatchFailed(String),
+    HookFailed(String),
+}
+
+impl core::fmt::Display for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Error::InvalidProcessor(t) => write!(f, "Unsupported GLM version: '{}'", t),
+            Error::InitMatchAndPatchFailed(t) => write!(f, "Failed to initialize match and patch: '{}'", t),
+            Error::HookFailed(t) => write!(f, "Failed to setup ucode hook: {}", t),
         }
     }
-
-    skip_msg_variant
 }
+
+impl core::error::Error for Error {}
+
+pub type Result<T> = core::result::Result<T, Error>;
 
 const GLM_OLD: u32 = 0x506c9;
 const GLM_NEW: u32 = 0x506ca;
@@ -30,33 +40,6 @@ pub struct CustomProcessingUnit {
 }
 
 use crate::helpers::detect_glm_version;
-
-fn patch_ucode(addr: usize, ucode_patch: &UcodePatchBlob) {
-    // format: uop0, uop1, uop2, seqword
-    // uop3 is fixed to a nop and cannot be overridden
-
-    for i in 0..ucode_patch.len() {
-        // patch ucode
-        ms_patch_ram_write(
-            crate::helpers::ucode_addr_to_patch_addr(addr + i * 4),
-            ucode_patch[i][0],
-        );
-        ms_patch_ram_write(
-            crate::helpers::ucode_addr_to_patch_addr(addr + i * 4) + 1,
-            ucode_patch[i][1],
-        );
-        ms_patch_ram_write(
-            crate::helpers::ucode_addr_to_patch_addr(addr + i * 4) + 2,
-            ucode_patch[i][2],
-        );
-
-        // patch seqword
-        ms_const_write(
-            crate::helpers::ucode_addr_to_patch_seqword_addr(addr) + i,
-            ucode_patch[i][3],
-        );
-    }
-}
 
 impl CustomProcessingUnit {
     pub fn new() -> Result<CustomProcessingUnit> {
@@ -71,7 +54,7 @@ impl CustomProcessingUnit {
                 current_glm_version,
             })
         } else {
-            Err(ErrorKind::InvalidProcessor(format!(
+            Err(Error::InvalidProcessor(format!(
                 "Unsupported GLM version: '{:08x}'",
                 current_glm_version
             ))
@@ -80,7 +63,7 @@ impl CustomProcessingUnit {
     }
 
     pub fn init(&self) {
-        setup_exceptions();
+        // setup_exceptions();
         activate_udebug_insts();
         self.enable_match_and_patch();
     }
@@ -95,29 +78,43 @@ impl CustomProcessingUnit {
         crbus_write(0x692, mp | 1usize);
     }
 
+    pub fn patch_ucode(&self, patch: &Patch) {
+        patch_ucode(patch.addr, patch.ucode_patch);
+
+        // todo
+    }
+
+    pub fn hook(&self, index: usize, uop_address: usize, patch_address: usize) -> Result<()> {
+        hook_match_and_patch(index, uop_address, patch_address)
+    }
+
+    pub fn zero_match_and_patch(&self) -> Result<()> {
+        self.init_match_and_patch()
+    }
+
     pub fn init_match_and_patch(&self) -> Result<()> {
         if self.current_glm_version == GLM_OLD {
             // Move the patch at U7c5c to U7dfc, since it seems important for the CPU
-            const existing_patch: [UcodePatchEntry; 1] = [
+            const EXISTING_PATCH: [UcodePatchEntry; 1] = [
                 // U7dfc: WRITEURAM(tmp5, 0x0037, 32) m2=1, NOP, NOP, SEQ_GOTO U60d2
                 [0xa04337080235, 0, 0, 0x2460d200],
             ];
-            patch_ucode(0x7dfc, &existing_patch);
+            patch_ucode(0x7dfc, &EXISTING_PATCH);
 
             // write and execute the patch that will zero out match&patch moving
             // the 0xc entry to last entry, which will make the hook call our moved patch
             let init_patch = patches::match_patch_init;
             patch_ucode(init_patch.addr, init_patch.ucode_patch);
 
-            let mut resA = 0;
-            let mut resB = 0;
-            let mut resC = 0;
-            let mut resD = 0;
-            udebug_invoke(init_patch.addr, &mut resA, &mut resB, &mut resC, &mut resD);
-            if resA != 0x0000133700001337 {
-                return Err(ErrorKind::InitMatchAndPatchFailed(format!(
+            let mut res_a = 0;
+            let mut res_b = 0;
+            let mut res_c = 0;
+            let mut res_d = 0;
+            udebug_invoke(init_patch.addr, &mut res_a, &mut res_b, &mut res_c, &mut res_d);
+            if res_a != 0x0000133700001337 {
+                return Err(Error::InitMatchAndPatchFailed(format!(
                     "invoke({:08x}) = {:016x}, {:016x}, {:016x}, {:016x}",
-                    init_patch.addr, resA, resB, resC, resD
+                    init_patch.addr, res_a, res_b, res_c, res_d
                 ))
                 .into());
             }
@@ -126,20 +123,20 @@ impl CustomProcessingUnit {
             let init_patch = patches::match_patch_init_glm_new;
             patch_ucode(init_patch.addr, init_patch.ucode_patch);
 
-            let mut resA = 0;
-            let mut resB = 0;
-            let mut resC = 0;
-            let mut resD = 0;
-            udebug_invoke(init_patch.addr, &mut resA, &mut resB, &mut resC, &mut resD);
-            if resA != 0x0000133700001337 {
-                return Err(ErrorKind::InitMatchAndPatchFailed(format!(
+            let mut res_a = 0;
+            let mut res_b = 0;
+            let mut res_c = 0;
+            let mut res_d = 0;
+            udebug_invoke(init_patch.addr, &mut res_a, &mut res_b, &mut res_c, &mut res_d);
+            if res_a != 0x0000133700001337 {
+                return Err(Error::InitMatchAndPatchFailed(format!(
                     "invoke({:08x}) = {:016x}, {:016x}, {:016x}, {:016x}",
-                    init_patch.addr, resA, resB, resC, resD
+                    init_patch.addr, res_a, res_b, res_c, res_d
                 ))
                 .into());
             }
         } else {
-            return Err(ErrorKind::InvalidProcessor(format!(
+            return Err(Error::InvalidProcessor(format!(
                 "Unsupported GLM version: '{:08x}'",
                 self.current_glm_version
             ))

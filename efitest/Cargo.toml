@@ -5,5 +5,9 @@ edition = "2021"
 
 [dependencies]
 log = "0.4.22"
-uefi = { version = "0.32.0", features = ["logger", "panic_handler"] }
-custom_processing_unit = { path = "../custom_processing_unit" }
+uefi = { version = "0.32.0", features = ["logger", "panic_handler", "alloc", "global_allocator"] }
+custom_processing_unit = { path = "../custom_processing_unit", features = ["no_std"] }
+ucode_compiler = { path = "../ucode_compiler", features = [] }
+
+[build-dependencies]
+ucode_compiler = { path = "../ucode_compiler", features = ["build"] }

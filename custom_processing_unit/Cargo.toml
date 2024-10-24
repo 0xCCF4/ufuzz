@@ -3,8 +3,10 @@ name = "custom_processing_unit"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+no_std = []
+
 [dependencies]
-error-chain = "0.12.4"
 ucode_compiler = { path = "../ucode_compiler" }
 
 [build-dependencies]
