@@ -78,14 +78,22 @@ impl CustomProcessingUnit {
         crbus_write(0x692, mp | 1usize);
     }
 
-    pub fn patch_ucode(&self, patch: &Patch) {
+    pub fn patch(&self, patch: &Patch) {
         patch_ucode(patch.addr, patch.ucode_patch);
-
-        // todo
     }
 
-    pub fn hook(&self, index: usize, uop_address: usize, patch_address: usize) -> Result<()> {
-        hook_match_and_patch(index, uop_address, patch_address)
+    pub fn hook_patch(&self, patch: &Patch) -> Result<()> {
+        if let Some(hook_address) = patch.hook_address {
+            let hook_entry = patch.hook_entry.unwrap_or(0);
+
+            self.hook(hook_entry, hook_address, patch.addr)
+        } else {
+            Err(Error::HookFailed("No hook address present in patch.".into()))
+        }
+    }
+
+    pub fn hook(&self, entry: usize, uop_address: usize, patch_address: usize) -> Result<()> {
+        hook_match_and_patch(entry, uop_address, patch_address)
     }
 
     pub fn zero_match_and_patch(&self) -> Result<()> {

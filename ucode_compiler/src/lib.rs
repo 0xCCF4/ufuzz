@@ -9,6 +9,8 @@ use std::process::Command;
 #[cfg(feature = "build")]
 use std::{env, fs};
 #[cfg(feature = "build")]
+use std::io::Read;
+#[cfg(feature = "build")]
 use std::path::Path;
 
 pub type UcodePatchEntry = [usize; 4];
@@ -96,14 +98,25 @@ impl UcodeCompiler {
             command.arg("--avoid_unk_256");
         }
 
-        let status = command
-            .status()
-            .map_err(|_| ErrorKind::CompilerInvocationError)?;
+        let mut cmd = command.spawn().map_err(|_| ErrorKind::CompilerInvocationError)?;
 
-        if status.success() {
+        let result = cmd.wait().map_err(|_| ErrorKind::CompilerInvocationError)?;
+
+        if let Some(mut stdout) = cmd.stdout {
+            let mut output = String::new();
+            stdout.read_to_string(&mut output).map_err(|_| ErrorKind::CompilerInvocationError)?;
+            println!("{}", output);
+        }
+        if let Some(mut stderr) = cmd.stderr {
+            let mut output = String::new();
+            stderr.read_to_string(&mut output).map_err(|_| ErrorKind::CompilerInvocationError)?;
+            eprintln!("{}", output);
+        }
+
+        if result.success() {
             Ok(())
         } else {
-            match status.code() {
+            match result.code() {
                 Some(code) => Err(ErrorKind::CompilationFailed(code).into()),
                 None => Err(ErrorKind::CompilerInvocationError.into()),
             }
@@ -179,6 +192,10 @@ pub fn build_script_convert_folder<P: AsRef<Path>, Q: AsRef<Path>>(patch_source_
 
     println!(
         "cargo::rerun-if-changed={}",
+        patch_source_folder.as_ref().to_string_lossy()
+    );
+    println!(
+        "cargo::rerun-if-changed={}/*",
         patch_source_folder.as_ref().to_string_lossy()
     );
 
@@ -287,12 +304,12 @@ fn transform_patch<P: AsRef<Path>, Q: AsRef<Path>>(patch: P, target: Q) {
 
         pub const PATCH: Patch<'static> = Patch {{
             addr: {},
-            ucode_patch: &UCODE_PATCH,
+            ucode_patch: &UCODE_PATCH_CONTENT,
             hook_address: {},
             hook_entry: {},
         }};
 
-        const UCODE_PATCH: [UcodePatchEntry; {length}] = [\n{}
+        const UCODE_PATCH_CONTENT: [UcodePatchEntry; {length}] = [\n{}
         ];
         ",
         addr.expect("No address found")
@@ -303,5 +320,13 @@ fn transform_patch<P: AsRef<Path>, Q: AsRef<Path>>(patch: P, target: Q) {
         patch
     );
 
-    std::fs::write(target, content).expect("Patch file not writable");
+    std::fs::write(&target, content).expect("Patch file not writable");
+
+    // run rustfmt
+    let _ = Command::new("rustfmt")
+        .arg(target.as_ref())
+        .spawn()
+        .expect("rustfmt not found")
+        .wait()
+        .expect("rustfmt failed");
 }
