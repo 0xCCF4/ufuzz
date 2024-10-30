@@ -165,12 +165,11 @@ pub fn crbus_write(address: usize, value: usize) -> usize {
     udebug_read(0, address)
 }
 
-fn stgbuf_write(address: usize, value: usize) {
+pub fn stgbuf_write(address: usize, value: usize) {
     udebug_write(0x80, address, value)
 }
 
-#[allow(unused)]
-fn stgbuf_read(address: usize) -> usize {
+pub fn stgbuf_read(address: usize) -> usize {
     udebug_read(0x80, address)
 }
 

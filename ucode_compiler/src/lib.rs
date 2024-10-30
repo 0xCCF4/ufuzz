@@ -131,7 +131,7 @@ const AUTOGEN: &'static str = "// AUTOGEN_NOTICE: this file is automatically gen
 const AUTOGEN_PREFIX: &'static str = "// AUTOGEN_NOTICE: ";
 
 #[cfg(feature = "build")]
-pub fn build_script<P: AsRef<Path>, Q: AsRef<Path>>(patch_source_folder: P, target_rust_folder: Q) {
+pub fn build_script<P: AsRef<Path>, Q: AsRef<Path>>(patch_source_folder: P, target_rust_folder: Q, allow_unused: bool) {
     if !target_rust_folder.as_ref().exists() {
         fs::create_dir(&target_rust_folder).expect("Failed to create target directory");
     } else {
@@ -165,18 +165,28 @@ pub fn build_script<P: AsRef<Path>, Q: AsRef<Path>>(patch_source_folder: P, targ
         }
     }
 
-    let names = crate::build_script_convert_folder(patch_source_folder, &target_rust_folder);
+    let names = crate::build_script_convert_folder(patch_source_folder, &target_rust_folder, allow_unused);
+
+    let allow_import = allow_unused.then_some("#[allow(unused_imports)]\n").unwrap_or("");
 
     let content = names.iter().fold(String::new(), |acc, name| {
-        acc + &format!("mod {name};\npub use {name}::PATCH as {name};\n")
+        acc + &format!("mod {name};\n{allow_import}pub use {name}::PATCH as {name};\n")
     });
-    std::fs::write(module_path,
+    std::fs::write(&module_path,
                    format!("{AUTOGEN}\n\n{content}")
-                       .as_str()).expect("Failed to write patches.rs");
+                       .as_str()).expect(format!("Failed to write {module_path:?}").as_str());
+
+    // run rustfmt
+    let _ = Command::new("rustfmt")
+        .arg(module_path)
+        .spawn()
+        .expect("rustfmt not found")
+        .wait()
+        .expect("rustfmt failed");
 }
 
 #[cfg(feature = "build")]
-pub fn build_script_convert_folder<P: AsRef<Path>, Q: AsRef<Path>>(patch_source_folder: P, target_rust_folder: Q) -> Vec<String> {
+pub fn build_script_convert_folder<P: AsRef<Path>, Q: AsRef<Path>>(patch_source_folder: P, target_rust_folder: Q, allow_unused: bool) -> Vec<String> {
     let current_directory =
         PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("Cargo must include Manifest dir"));
 
@@ -244,6 +254,7 @@ pub fn build_script_convert_folder<P: AsRef<Path>, Q: AsRef<Path>>(patch_source_
             transform_patch(
                 &target_file.with_extension("h"),
                 &target_file.with_extension("rs"),
+                allow_unused
             );
             fs::remove_file(&target_file.with_extension("h")).expect("Patch file not removed");
         }
@@ -253,7 +264,7 @@ pub fn build_script_convert_folder<P: AsRef<Path>, Q: AsRef<Path>>(patch_source_
 }
 
 #[cfg(feature = "build")]
-fn transform_patch<P: AsRef<Path>, Q: AsRef<Path>>(patch: P, target: Q) {
+fn transform_patch<P: AsRef<Path>, Q: AsRef<Path>>(patch: P, target: Q, allow_unused: bool) {
     // Transform the patch file from C-header to rust
 
     let content = std::fs::read_to_string(patch).expect("Patch file not readable");
@@ -261,6 +272,8 @@ fn transform_patch<P: AsRef<Path>, Q: AsRef<Path>>(patch: P, target: Q) {
     let mut addr = None;
     let mut hook_address = None;
     let mut hook_entry = None;
+
+    let allow_dead = allow_unused.then_some("#[allow(dead_code)]").unwrap_or("");
 
     let regex_variables =
         regex::Regex::new("unsigned long (addr|hook_address|hook_entry) = (0[xX][0-9a-fA-F]+);")
@@ -302,6 +315,7 @@ fn transform_patch<P: AsRef<Path>, Q: AsRef<Path>>(patch: P, target: Q) {
 
         use ucode_compiler::{{UcodePatchEntry, Patch}};
 
+        {allow_dead}
         pub const PATCH: Patch<'static> = Patch {{
             addr: {},
             ucode_patch: &UCODE_PATCH_CONTENT,
@@ -309,6 +323,7 @@ fn transform_patch<P: AsRef<Path>, Q: AsRef<Path>>(patch: P, target: Q) {
             hook_entry: {},
         }};
 
+        {allow_dead}
         const UCODE_PATCH_CONTENT: [UcodePatchEntry; {length}] = [\n{}
         ];
         ",

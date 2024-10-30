@@ -1,0 +1,18 @@
+.org 0x7c00
+.patch 0x0428
+.entry 0
+
+let [address] := tmp1
+let [data]    := tmp0
+let [offset]  := tmp2
+
+[address] := ZEROEXT_MACRO(0x10000)
+[offset]  := ZEROEXT_MACRO(0x0)
+[data]    := LDPPHYS_DSZ64_ASZ64_SC1([address])
+
+[data] := ADD_DSZ64([data], 0x1)
+
+                                #dst        offset  src
+STADPPHYSTICKLE_DSZ64_ASZ64_SC1([address], [offset], [data])
+
+rax := ZEROEXT_MACRO(0x2a)

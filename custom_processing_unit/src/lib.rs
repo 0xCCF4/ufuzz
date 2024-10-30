@@ -1,6 +1,5 @@
 #![cfg_attr(feature = "no_std", no_std)]
 
-use helpers::*;
 use ucode_compiler::{Patch, UcodePatchEntry};
 
 #[cfg(feature = "no_std")]
@@ -9,6 +8,7 @@ extern crate alloc;
 use alloc::{format,string::String};
 
 mod helpers;
+pub use helpers::*;
 mod patches;
 
 #[derive(Debug)]
@@ -38,8 +38,6 @@ const GLM_NEW: u32 = 0x506ca;
 pub struct CustomProcessingUnit {
     pub current_glm_version: u32,
 }
-
-use crate::helpers::detect_glm_version;
 
 impl CustomProcessingUnit {
     pub fn new() -> Result<CustomProcessingUnit> {
