@@ -4,48 +4,91 @@
 extern crate alloc;
 
 use core::arch::asm;
+use core::ptr::NonNull;
 use log::info;
+use uefi::boot::{AllocateType, MemoryType};
+use uefi::data_types::PhysicalAddress;
 use uefi::prelude::*;
 use custom_processing_unit::{stgbuf_read, stgbuf_write, CustomProcessingUnit};
 
 mod patches;
 
+struct PageAllocation {
+    base: NonNull<u8>,
+    count: usize,
+}
+
+impl Drop for PageAllocation {
+    fn drop(&mut self) {
+        unsafe { uefi::boot::free_pages(self.base, self.count).error_unwrap() }
+    }
+}
+
+impl PageAllocation {
+    pub fn alloc_address(address: PhysicalAddress, count: usize) -> uefi::Result<PageAllocation> {
+        let data = uefi::boot::allocate_pages(AllocateType::Address(address), MemoryType::LOADER_DATA, count)?;
+        Ok(PageAllocation {
+            count,
+            base: data
+        })
+    }
+    pub fn ptr(&self) -> &NonNull<u8> {
+        &self.base
+    }
+}
+
+impl AsRef<NonNull<u8>> for PageAllocation {
+    fn as_ref(&self) -> &NonNull<u8> {
+        &self.base
+    }
+}
+
 #[allow(dead_code)]
 unsafe fn random_counter() {
-    const COUNTER: *mut u64 = 0x10000 as *mut u64;
+    let allocation = PageAllocation::alloc_address(0x10000, 1).error_unwrap();
+    info!("Allocated: {:?}", allocation.ptr());
 
+    const COUNTER: *mut u64 = 0x10000 as *mut u64;
     *COUNTER = 0;
 
-    info!("Initial random 1: {:?}, {}", rdrand(), *COUNTER);
-    info!("Initial random 2: {:?}, {}", rdrand(), *COUNTER);
+    info!("Random 1: {:?}, {}", rdrand(), *COUNTER);
+    info!("Random 2: {:?}, {}", rdrand(), *COUNTER);
+
+    info!("Patching...");
 
     let cpu = CustomProcessingUnit::new().error_unwrap();
     cpu.init();
     cpu.zero_match_and_patch().error_unwrap();
 
-    info!("After start 0: {:?}, {}", rdrand(), *COUNTER);
-    info!("After start 1: {:?}, {}", rdrand(), *COUNTER);
-    info!("After start 2: {:?}, {}", rdrand(), *COUNTER);
-    info!("After start 3: {:?}, {}", rdrand(), *COUNTER);
-    info!("After start 4: {:?}, {}", rdrand(), *COUNTER);
+    info!("Random 3: {:?}, {}", rdrand(), *COUNTER);
+    info!("Random 4: {:?}, {}", rdrand(), *COUNTER);
+    info!("Random 5: {:?}, {}", rdrand(), *COUNTER);
+    info!("Random 6: {:?}, {}", rdrand(), *COUNTER);
+    info!("Random 7: {:?}, {}", rdrand(), *COUNTER);
+
+    info!("Hooking...");
 
     let patch = crate::patches::rdrand_patch;
     cpu.patch(&patch);
     cpu.hook(0, 0x0428, 0x7c00).error_unwrap();
 
-    info!("After patch 0: {:?}, {}", rdrand(), *COUNTER);
-    info!("After patch 1: {:?}, {}", rdrand(), *COUNTER);
-    info!("After patch 2: {:?}, {}", rdrand(), *COUNTER);
-    info!("After patch 3: {:?}, {}", rdrand(), *COUNTER);
-    info!("After patch 4: {:?}, {}", rdrand(), *COUNTER);
+    info!("Random 8: {:?}, {}", rdrand(), *COUNTER);
+    info!("Random 9: {:?}, {}", rdrand(), *COUNTER);
+    info!("Random 10: {:?}, {}", rdrand(), *COUNTER);
+    info!("Random 11: {:?}, {}", rdrand(), *COUNTER);
+    info!("Random 12: {:?}, {}", rdrand(), *COUNTER);
+
+    info!("Restoring...");
 
     cpu.zero_match_and_patch().error_unwrap();
 
-    info!("After finish 0: {:?}, {}", rdrand(), *COUNTER);
-    info!("After finish 1: {:?}, {}", rdrand(), *COUNTER);
-    info!("After finish 2: {:?}, {}", rdrand(), *COUNTER);
-    info!("After finish 3: {:?}, {}", rdrand(), *COUNTER);
-    info!("After finish 4: {:?}, {}", rdrand(), *COUNTER);
+    info!("Random 13: {:?}, {}", rdrand(), *COUNTER);
+    info!("Random 14: {:?}, {}", rdrand(), *COUNTER);
+    info!("Random 15: {:?}, {}", rdrand(), *COUNTER);
+    info!("Random 16: {:?}, {}", rdrand(), *COUNTER);
+    info!("Random 17: {:?}, {}", rdrand(), *COUNTER);
+
+    drop(allocation)
 }
 
 unsafe fn random_coverage() {
@@ -56,9 +99,9 @@ unsafe fn random_coverage() {
         stgbuf_write(0xba00, val)
     }
 
-    info!("Initial random 1: {:?}, {}", rdrand(), read_buf());
+    info!("Random 1: {:?}, {}", rdrand(), read_buf());
     write_buf(0);
-    info!("Initial random 2: {:?}, {}", rdrand(), read_buf());
+    info!("Random 2: {:?}, {}", rdrand(), read_buf());
 
     let cpu = CustomProcessingUnit::new().error_unwrap();
     cpu.init();
@@ -68,17 +111,17 @@ unsafe fn random_coverage() {
     cpu.patch(&patch);
     cpu.hook(0, 0x0428, patch.addr).error_unwrap();
 
-    info!("Patched random 1: {:?}, {}", rdrand(), read_buf());
-    info!("Patched random 2: {:?}, {}", rdrand(), read_buf());
-    info!("Patched random 3: {:?}, {}", rdrand(), read_buf());
+    info!("Random 3: {:?}, {}", rdrand(), read_buf());
+    info!("Random 4: {:?}, {}", rdrand(), read_buf());
+    info!("Random 5: {:?}, {}", rdrand(), read_buf());
 
     cpu.hook(0, 0x0428, patch.addr).error_unwrap();
 
     info!("Re-enabled coverage hook");
 
-    info!("Patched random 4: {:?}, {}", rdrand(), read_buf());
-    info!("Patched random 5: {:?}, {}", rdrand(), read_buf());
-    info!("Patched random 6: {:?}, {}", rdrand(), read_buf());
+    info!("Random 6: {:?}, {}", rdrand(), read_buf());
+    info!("Random 7: {:?}, {}", rdrand(), read_buf());
+    info!("Random 8: {:?}, {}", rdrand(), read_buf());
 
     cpu.zero_match_and_patch().error_unwrap();
 }
