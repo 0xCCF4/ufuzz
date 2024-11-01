@@ -4,8 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-error-chain = { version = "0.12.4", optional = true }
-regex = { version = "1.11.0", optional = true }
-
-[features]
-build = ["dep:error-chain", "dep:regex"]
+error-chain = { version = "0.12.4" }
+regex = { version = "1.11.0"}
+data_types = { path = "../data_types" }

@@ -7,7 +7,7 @@ edition = "2021"
 log = "0.4.22"
 uefi = { version = "0.32.0", features = ["logger", "panic_handler", "alloc", "global_allocator"] }
 custom_processing_unit = { path = "../custom_processing_unit", features = ["no_std"] }
-ucode_compiler = { path = "../ucode_compiler", features = [] }
+data_types = { path = "../data_types", features = ["nostd"] }
 
 [build-dependencies]
-ucode_compiler = { path = "../ucode_compiler", features = ["build"] }
+ucode_compiler = { path = "../ucode_compiler" }

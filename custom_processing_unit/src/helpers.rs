@@ -1,8 +1,21 @@
+use crate::StagingBufferAddress::{RegTmp0, RegTmp1, RegTmp2};
+use crate::{patches, Error};
 use alloc::format;
 use alloc::string::ToString;
 use core::arch::asm;
-use ucode_compiler::UcodePatchBlob;
-use crate::{patches, Error};
+use data_types::addresses::{
+    Address, MSRAMAddress, MSRAMHookAddress, MSRAMInstructionAddress, MSRAMSequenceWordAddress,
+    UCInstructionAddress,
+};
+use data_types::UcodePatchBlob;
+
+#[derive(Copy, Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum StagingBufferAddress {
+    RegTmp0 = 0xb800,
+    RegTmp1 = 0xb840,
+    RegTmp2 = 0xb880,
+    // todo: check further values
+}
 
 #[inline(always)]
 #[allow(unused)]
@@ -43,6 +56,7 @@ fn barrier() {
     }
 }
 
+#[inline(always)]
 fn udebug_read(command: usize, address: usize) -> usize {
     let mut res_high: usize;
     let mut res_low: usize;
@@ -63,6 +77,7 @@ fn udebug_read(command: usize, address: usize) -> usize {
     (res_high << 32) | res_low
 }
 
+#[inline(always)]
 fn udebug_write(command: usize, address: usize, value: usize) {
     let val_high = value >> 32;
     let val_low = value as u32;
@@ -82,8 +97,9 @@ fn udebug_write(command: usize, address: usize, value: usize) {
     lmfence();
 }
 
+#[inline(always)]
 pub fn udebug_invoke(
-    address: usize,
+    address: UCInstructionAddress,
     res_a: &mut usize,
     res_b: &mut usize,
     res_c: &mut usize,
@@ -95,7 +111,7 @@ pub fn udebug_invoke(
         "xchg {rbx_tmp}, rbx",
         ".byte 0x0f, 0x0f",
         "xchg {rbx_tmp}, rbx",
-        inout("rax") address => *res_a,
+        inout("rax") address.address() => *res_a,
         rbx_tmp = inout(reg) 0usize => *res_b,
         inout("rcx") 0xd8usize => *res_c,
         inout("rdx") 0usize => *res_d,
@@ -152,23 +168,33 @@ impl CpuidResult {
     }
 }
 
+#[inline(always)]
 pub fn activate_udebug_insts() {
     wrmsr(0x1e6, 0x200);
 }
 
+#[inline(always)]
 pub fn crbus_read(address: usize) -> usize {
     udebug_read(0, address)
 }
 
+#[inline(always)]
 pub fn crbus_write(address: usize, value: usize) -> usize {
     udebug_write(0, address, value);
     udebug_read(0, address)
 }
 
-pub fn stgbuf_write(address: usize, value: usize) {
+#[inline(always)]
+pub fn stgbuf_write_raw(address: usize, value: usize) {
     udebug_write(0x80, address, value)
 }
 
+#[inline(always)]
+pub fn stgbuf_write(address: StagingBufferAddress, value: usize) {
+    stgbuf_write_raw(address as usize, value)
+}
+
+#[inline(always)]
 pub fn stgbuf_read(address: usize) -> usize {
     udebug_read(0x80, address)
 }
@@ -197,6 +223,74 @@ fn ldat_array_write(
     crbus_write(0x692, prev);
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct FunctionResult {
+    pub rax: usize,
+    pub rbx: usize,
+    pub rcx: usize,
+    pub rdx: usize,
+}
+
+/// Calls to ucode. The target ucode is expected to take 3 arguments.
+/// Provided to it in the registers `TMP0...TMP2`.
+/// Output has to be stored in the registers `rax...rdx`.
+fn call_custom_ucode_function(
+    func_address: UCInstructionAddress,
+    args: [usize; 3],
+) -> FunctionResult {
+    let mut result = FunctionResult::default();
+
+    stgbuf_write(RegTmp0, args[0]);
+    stgbuf_write(RegTmp1, args[1]);
+    stgbuf_write(RegTmp2, args[2]);
+
+    udebug_invoke(
+        func_address,
+        &mut result.rax,
+        &mut result.rbx,
+        &mut result.rcx,
+        &mut result.rdx,
+    );
+
+    stgbuf_write(RegTmp0, 0);
+    stgbuf_write(RegTmp1, 0);
+    stgbuf_write(RegTmp2, 0);
+
+    result
+}
+
+fn ldat_array_read(
+    ucode_read_function: UCInstructionAddress,
+    pdat_reg: usize,
+    array_sel: usize,
+    bank_sel: usize,
+    dword_idx: usize,
+    fast_addr: usize,
+) -> usize {
+    // PSEUDO CODE
+    // does not work when executing from outside of microcode
+    // probably CRBUS reg are used in instruction decode or something
+    //
+    // let adr_selector: usize = pdat_reg + 1;
+    // let adr_addr: usize = pdat_reg + 0;
+    // let adr_value: usize = pdat_reg + 2;
+    //
+    // let _ = crbus_read(adr_selector);
+    // crbus_write(
+    //     adr_selector,
+    //     0x10000 | ((dword_idx & 0xf) << 12) | ((array_sel & 0xf) << 8) | (bank_sel & 0xf),
+    // );
+    // crbus_write(adr_addr, 0xC00000 | (fast_addr & 0xffff));
+    // let value = crbus_read(adr_value);
+    // crbus_write(adr_selector, 0);
+
+    let array_bank_sel =
+        0x10000 | ((dword_idx & 0xf) << 12) | ((array_sel & 0xf) << 8) | (bank_sel & 0xf);
+    let array_addr = 0xC00000 | (fast_addr & 0xffff);
+
+    call_custom_ucode_function(ucode_read_function, [pdat_reg, array_bank_sel, array_addr]).rax
+}
+
 pub fn ucode_addr_to_patch_addr(addr: usize) -> usize {
     let base = addr - 0x7c00;
     // the last *4 does not make any sense but the CPU divides the address where
@@ -219,73 +313,131 @@ pub fn ucode_addr_to_patch_seqword_addr(addr: usize) -> usize {
     seq_addr % 0x80
 }
 
-fn ms_array_write(
+fn ms_array_write<A: MSRAMAddress>(
     array_sel: usize,
     bank_sel: usize,
     dword_idx: usize,
-    fast_addr: usize,
+    fast_addr: A,
     val: usize,
 ) {
-    ldat_array_write(0x6a0, array_sel, bank_sel, dword_idx, fast_addr, val)
+    ldat_array_write(
+        0x6a0,
+        array_sel,
+        bank_sel,
+        dword_idx,
+        fast_addr.address(),
+        val,
+    )
 }
 
-pub fn ms_patch_ram_write(addr: usize, val: usize) {
-    ms_array_write(4, 0, 0, addr, val)
+fn ms_array_read<A: MSRAMAddress>(
+    ucode_read_function: UCInstructionAddress,
+    array_sel: usize,
+    bank_sel: usize,
+    dword_idx: usize,
+    fast_addr: A,
+) -> usize {
+    ldat_array_read(
+        ucode_read_function,
+        0x6a0,
+        array_sel,
+        bank_sel,
+        dword_idx,
+        fast_addr.address(),
+    )
 }
 
-#[allow(unused)]
-pub fn ms_match_patch_write(addr: usize, val: usize) {
-    ms_array_write(3, 0, 0, addr, val)
+pub fn ms_patch_ram_write<A: Into<MSRAMInstructionAddress>>(addr: A, val: usize) {
+    ms_array_write(4, 0, 0, addr.into(), val)
 }
 
-pub fn ms_const_write(addr: usize, val: usize) {
-    ms_array_write(2, 0, 0, addr, val)
+pub fn ms_patch_ram_read<A: Into<MSRAMInstructionAddress>>(
+    ucode_read_function: UCInstructionAddress,
+    addr: A,
+) -> usize {
+    ms_array_read(ucode_read_function, 4, 0, 0, addr.into())
+}
+
+pub fn ms_match_patch_write<A: Into<MSRAMHookAddress>>(addr: A, val: usize) {
+    ms_array_write(3, 0, 0, addr.into(), val)
+}
+
+pub fn ms_match_patch_read<A: Into<MSRAMHookAddress>>(
+    ucode_read_function: UCInstructionAddress,
+    addr: A,
+) -> usize {
+    ms_array_read(ucode_read_function, 3, 0, 0, addr.into())
+}
+
+pub fn ms_const_write<A: Into<MSRAMSequenceWordAddress>>(addr: A, val: usize) {
+    ms_array_write(2, 0, 0, addr.into(), val)
+}
+
+pub fn ms_const_read<A: Into<MSRAMSequenceWordAddress>>(
+    ucode_read_function: UCInstructionAddress,
+    addr: A,
+) -> usize {
+    ms_array_read(ucode_read_function, 2, 0, 0, addr.into())
 }
 
 pub fn detect_glm_version() -> u32 {
     CpuidResult::query(0x1, 0).eax
 }
 
-pub fn patch_ucode(addr: usize, ucode_patch: &UcodePatchBlob) {
+pub fn patch_ucode<A: Into<UCInstructionAddress>>(addr: A, ucode_patch: &UcodePatchBlob) {
     // format: uop0, uop1, uop2, seqword
     // uop3 is fixed to a nop and cannot be overridden
 
+    let addr = addr.into();
+
+    let ucode_patch = ucode_patch.as_ref();
+
     for i in 0..ucode_patch.len() {
         // patch ucode
-        ms_patch_ram_write(
-            crate::helpers::ucode_addr_to_patch_addr(addr + i * 4),
-            ucode_patch[i][0],
-        );
-        ms_patch_ram_write(
-            crate::helpers::ucode_addr_to_patch_addr(addr + i * 4) + 1,
-            ucode_patch[i][1],
-        );
-        ms_patch_ram_write(
-            crate::helpers::ucode_addr_to_patch_addr(addr + i * 4) + 2,
-            ucode_patch[i][2],
-        );
+        for offset in 0..3 {
+            ms_patch_ram_write(addr + i * 4 + offset, ucode_patch[i][offset]);
+        }
 
         // patch seqword
-        ms_const_write(
-            crate::helpers::ucode_addr_to_patch_seqword_addr(addr) + i,
-            ucode_patch[i][3],
-        );
+        ms_const_write(addr + i, ucode_patch[i][3]);
     }
 }
 
-pub fn hook_match_and_patch(entry_idx: usize, ucode_addr: usize, patch_addr: usize) -> crate::Result<()> {
-    if ucode_addr % 2 != 0 {
+pub fn read_patch(
+    ucode_read_function: UCInstructionAddress,
+    addr: UCInstructionAddress,
+    ucode_patch: &mut UcodePatchBlob,
+) {
+    for i in 0..ucode_patch.len() {
+        for offset in 0..3 {
+            let read_val = ms_patch_ram_read(ucode_read_function, addr + i * 4 + offset);
+            ucode_patch[i][offset] = read_val;
+        }
+
+        let read_val = ms_const_read(ucode_read_function, addr + i);
+        ucode_patch[i][3] = read_val;
+    }
+}
+
+pub fn hook_match_and_patch(
+    hook_idx: MSRAMHookAddress,
+    ucode_addr: UCInstructionAddress,
+    patch_addr: UCInstructionAddress,
+) -> crate::Result<()> {
+    if ucode_addr.address() % 2 != 0 {
         return Err(Error::HookFailed("uop address must be even".to_string()).into());
     }
-    if patch_addr % 2 != 0 || patch_addr < 0x7c00 {
-        return Err(Error::HookFailed("patch uop address must be even and >0x7c00".to_string()).into());
+    if patch_addr.address() % 2 != 0 || patch_addr.address() < 0x7c00 {
+        return Err(
+            Error::HookFailed("patch uop address must be even and >0x7c00".to_string()).into(),
+        );
     }
 
     // todo more advanced range checks
 
     //TODO: try to hook odd addresses!!
-    let poff = (patch_addr - 0x7c00) / 2;
-    let patch_value = 0x3e000000 | (poff << 16) | ucode_addr | 1;
+    let poff = (patch_addr.address() - 0x7c00) / 2;
+    let patch_value = 0x3e000000 | (poff << 16) | ucode_addr.address() | 1;
 
     let match_patch_hook = patches::match_patch_hook;
     patch_ucode(match_patch_hook.addr, match_patch_hook.ucode_patch);
@@ -294,17 +446,26 @@ pub fn hook_match_and_patch(entry_idx: usize, ucode_addr: usize, patch_addr: usi
     let mut res_b = 0;
     let mut res_c = 0;
     let mut res_d = 0;
-    stgbuf_write(0xb800, patch_value); // write value to tmp0
-    stgbuf_write(0xb840, entry_idx*2); // write idx to tmp1
+    stgbuf_write(RegTmp0, patch_value); // write value to tmp0
+    stgbuf_write(RegTmp1, hook_idx.address()); // write idx to tmp1
 
-    udebug_invoke(match_patch_hook.addr, &mut res_a, &mut res_b, &mut res_c, &mut res_d);
+    udebug_invoke(
+        match_patch_hook.addr,
+        &mut res_a,
+        &mut res_b,
+        &mut res_c,
+        &mut res_d,
+    );
 
-    stgbuf_write(0xb800, 0); // restore tmp0
-    stgbuf_write(0xb840, 0); // restore tmp1
+    stgbuf_write(RegTmp0, 0); // restore tmp0
+    stgbuf_write(RegTmp1, 0); // restore tmp1
 
     if res_a != 0x0000133700001337 {
-        return Err(Error::HookFailed(format!("invoke({:08x}) = {:016x}, {:016x}, {:016x}, {:016x}",
-                                                 match_patch_hook.addr, res_a, res_b, res_c, res_d)).into());
+        return Err(Error::HookFailed(format!(
+            "invoke({}) = {:016x}, {:016x}, {:016x}, {:016x}",
+            match_patch_hook.addr, res_a, res_b, res_c, res_d
+        ))
+        .into());
     }
 
     Ok(())

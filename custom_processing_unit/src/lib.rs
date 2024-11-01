@@ -1,14 +1,16 @@
 #![cfg_attr(feature = "no_std", no_std)]
 
-use ucode_compiler::{Patch, UcodePatchEntry};
+use data_types::{Patch, UcodePatchEntry};
 
 #[cfg(feature = "no_std")]
 extern crate alloc;
 #[cfg(feature = "no_std")]
-use alloc::{format,string::String};
+use alloc::{format, string::String};
+use data_types::addresses::{MSRAMHookAddress, UCInstructionAddress};
 
 mod helpers;
 pub use helpers::*;
+pub mod labels;
 mod patches;
 
 #[derive(Debug)]
@@ -22,7 +24,9 @@ impl core::fmt::Display for Error {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Error::InvalidProcessor(t) => write!(f, "Unsupported GLM version: '{}'", t),
-            Error::InitMatchAndPatchFailed(t) => write!(f, "Failed to initialize match and patch: '{}'", t),
+            Error::InitMatchAndPatchFailed(t) => {
+                write!(f, "Failed to initialize match and patch: '{}'", t)
+            }
             Error::HookFailed(t) => write!(f, "Failed to setup ucode hook: {}", t),
         }
     }
@@ -82,16 +86,23 @@ impl CustomProcessingUnit {
 
     pub fn hook_patch(&self, patch: &Patch) -> Result<()> {
         if let Some(hook_address) = patch.hook_address {
-            let hook_entry = patch.hook_entry.unwrap_or(0);
+            let hook_index = patch.hook_index.unwrap_or(MSRAMHookAddress::ZERO);
 
-            self.hook(hook_entry, hook_address, patch.addr)
+            self.hook(hook_index, hook_address, patch.addr)
         } else {
-            Err(Error::HookFailed("No hook address present in patch.".into()))
+            Err(Error::HookFailed(
+                "No hook address present in patch.".into(),
+            ))
         }
     }
 
-    pub fn hook(&self, entry: usize, uop_address: usize, patch_address: usize) -> Result<()> {
-        hook_match_and_patch(entry, uop_address, patch_address)
+    pub fn hook(
+        &self,
+        hook_idx: MSRAMHookAddress,
+        uop_address: UCInstructionAddress,
+        patch_address: UCInstructionAddress,
+    ) -> Result<()> {
+        hook_match_and_patch(hook_idx, uop_address, patch_address)
     }
 
     pub fn zero_match_and_patch(&self) -> Result<()> {
@@ -116,10 +127,16 @@ impl CustomProcessingUnit {
             let mut res_b = 0;
             let mut res_c = 0;
             let mut res_d = 0;
-            udebug_invoke(init_patch.addr, &mut res_a, &mut res_b, &mut res_c, &mut res_d);
+            udebug_invoke(
+                init_patch.addr,
+                &mut res_a,
+                &mut res_b,
+                &mut res_c,
+                &mut res_d,
+            );
             if res_a != 0x0000133700001337 {
                 return Err(Error::InitMatchAndPatchFailed(format!(
-                    "invoke({:08x}) = {:016x}, {:016x}, {:016x}, {:016x}",
+                    "invoke({}) = {:016x}, {:016x}, {:016x}, {:016x}",
                     init_patch.addr, res_a, res_b, res_c, res_d
                 ))
                 .into());
@@ -133,10 +150,16 @@ impl CustomProcessingUnit {
             let mut res_b = 0;
             let mut res_c = 0;
             let mut res_d = 0;
-            udebug_invoke(init_patch.addr, &mut res_a, &mut res_b, &mut res_c, &mut res_d);
+            udebug_invoke(
+                init_patch.addr,
+                &mut res_a,
+                &mut res_b,
+                &mut res_c,
+                &mut res_d,
+            );
             if res_a != 0x0000133700001337 {
                 return Err(Error::InitMatchAndPatchFailed(format!(
-                    "invoke({:08x}) = {:016x}, {:016x}, {:016x}, {:016x}",
+                    "invoke({}) = {:016x}, {:016x}, {:016x}, {:016x}",
                     init_patch.addr, res_a, res_b, res_c, res_d
                 ))
                 .into());

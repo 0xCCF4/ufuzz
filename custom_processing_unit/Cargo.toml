@@ -4,10 +4,11 @@ version = "0.1.0"
 edition = "2021"
 
 [features]
-no_std = []
+no_std = ["data_types/nostd"]
 
 [dependencies]
-ucode_compiler = { path = "../ucode_compiler" }
+log = "0.4.22"
+data_types = { path = "../data_types" }
 
 [build-dependencies]
-ucode_compiler = { path = "../ucode_compiler", features = ["build"] }
+ucode_compiler = { path = "../ucode_compiler" }

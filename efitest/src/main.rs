@@ -3,45 +3,21 @@
 
 extern crate alloc;
 
+use crate::helpers::PageAllocation;
 use core::arch::asm;
-use core::ptr::NonNull;
+use custom_processing_unit::{
+    labels, ms_patch_ram_read, ms_patch_ram_write, stgbuf_read, stgbuf_write_raw,
+    CustomProcessingUnit,
+};
+use data_types::addresses::{LinearAddress, MSRAMHookAddress, MSRAMInstructionAddress};
 use log::info;
-use uefi::boot::{AllocateType, MemoryType};
-use uefi::data_types::PhysicalAddress;
+use uefi::boot::ScopedProtocol;
 use uefi::prelude::*;
-use custom_processing_unit::{stgbuf_read, stgbuf_write, CustomProcessingUnit};
+use uefi::proto::console::text::Input;
+use uefi::{print, println};
 
+mod helpers;
 mod patches;
-
-struct PageAllocation {
-    base: NonNull<u8>,
-    count: usize,
-}
-
-impl Drop for PageAllocation {
-    fn drop(&mut self) {
-        unsafe { uefi::boot::free_pages(self.base, self.count).error_unwrap() }
-    }
-}
-
-impl PageAllocation {
-    pub fn alloc_address(address: PhysicalAddress, count: usize) -> uefi::Result<PageAllocation> {
-        let data = uefi::boot::allocate_pages(AllocateType::Address(address), MemoryType::LOADER_DATA, count)?;
-        Ok(PageAllocation {
-            count,
-            base: data
-        })
-    }
-    pub fn ptr(&self) -> &NonNull<u8> {
-        &self.base
-    }
-}
-
-impl AsRef<NonNull<u8>> for PageAllocation {
-    fn as_ref(&self) -> &NonNull<u8> {
-        &self.base
-    }
-}
 
 #[allow(dead_code)]
 unsafe fn random_counter() {
@@ -70,7 +46,8 @@ unsafe fn random_counter() {
 
     let patch = crate::patches::rdrand_patch;
     cpu.patch(&patch);
-    cpu.hook(0, 0x0428, 0x7c00).error_unwrap();
+    cpu.hook(MSRAMHookAddress::ZERO, labels::rdrand_xlat, patch.addr)
+        .error_unwrap();
 
     info!("Random 8: {:?}, {}", rdrand(), *COUNTER);
     info!("Random 9: {:?}, {}", rdrand(), *COUNTER);
@@ -91,12 +68,13 @@ unsafe fn random_counter() {
     drop(allocation)
 }
 
+#[allow(dead_code)]
 unsafe fn random_coverage() {
     fn read_buf() -> usize {
         stgbuf_read(0xba00)
     }
     fn write_buf(val: usize) {
-        stgbuf_write(0xba00, val)
+        stgbuf_write_raw(0xba00, val)
     }
 
     info!("Random 1: {:?}, {}", rdrand(), read_buf());
@@ -109,13 +87,15 @@ unsafe fn random_coverage() {
 
     let patch = crate::patches::coverage_handler;
     cpu.patch(&patch);
-    cpu.hook(0, 0x0428, patch.addr).error_unwrap();
+    cpu.hook(MSRAMHookAddress::ZERO, labels::rdrand_xlat, patch.addr)
+        .error_unwrap();
 
     info!("Random 3: {:?}, {}", rdrand(), read_buf());
     info!("Random 4: {:?}, {}", rdrand(), read_buf());
     info!("Random 5: {:?}, {}", rdrand(), read_buf());
 
-    cpu.hook(0, 0x0428, patch.addr).error_unwrap();
+    cpu.hook(MSRAMHookAddress::ZERO, labels::rdrand_xlat, patch.addr)
+        .error_unwrap();
 
     info!("Re-enabled coverage hook");
 
@@ -126,12 +106,76 @@ unsafe fn random_coverage() {
     cpu.zero_match_and_patch().error_unwrap();
 }
 
+fn ldat_read() {
+    let ldat_read = crate::patches::ldat_read;
+    let cpu = CustomProcessingUnit::new().error_unwrap();
+    cpu.init();
+    cpu.zero_match_and_patch().error_unwrap();
+
+    /*
+    cpu.patch(&ldat_read);
+
+    let rdrand_patch = crate::patches::rdrand_patch;
+    let mut rdrand_patch_read_before = [[0usize; 4]; 8];
+    assert_eq!(rdrand_patch.ucode_patch.len(), rdrand_patch_read_before.len());
+    read_patch(ldat_read.addr, rdrand_patch.addr, &mut rdrand_patch_read_before);
+    cpu.patch(&rdrand_patch);
+    let mut rdrand_patch_read = [[0usize; 4]; 8];
+    assert_eq!(rdrand_patch.ucode_patch.len(), rdrand_patch_read.len());
+    read_patch(ldat_read.addr, rdrand_patch.addr, &mut rdrand_patch_read);
+
+    println!(" ADR. | SHOULD_BE   | READ_VALUE  | BEFORE");
+    for (i, ((should_be, read_value), before_value)) in rdrand_patch.ucode_patch.iter().zip(rdrand_patch_read.iter()).zip(rdrand_patch_read_before.iter()).enumerate() {
+        let address = rdrand_patch.addr + i*4;
+
+        for offset in 0..3 {
+            let address = address + offset;
+
+            let different = if should_be[offset] == read_value[offset] {
+                ""
+            } else {
+                "<"
+            };
+            println!("[{:04x}] {:013x} {:013x} {:013x} {}", address, should_be[offset], read_value[offset], before_value[offset], different);
+        }
+    }
+    */
+
+    for i in 0..128 * 3 {
+        print!("[{i:04x}] Writing... ");
+        ms_patch_ram_write(LinearAddress::from_const(i), i);
+        println!("OK");
+    }
+
+    cpu.patch(&ldat_read);
+
+    for i in 0..128 * 3 {
+        print!("[{i:04x}] ");
+        let val = ms_patch_ram_read(ldat_read.addr, LinearAddress::from_const(i));
+        let difference = if val != i { "<" } else { "" };
+        println!("{val:013x} {difference}");
+
+        if i % 10 == 0 {
+            wait_for_key_press();
+        }
+    }
+}
+
 #[entry]
 unsafe fn main() -> Status {
     uefi::helpers::init().unwrap();
     info!("Hello world!");
 
-    random_coverage();
+    info!("Random counter test");
+    //random_counter();
+    //wait_for_key_press();
+
+    info!("Random coverage test");
+    //random_coverage();
+    //wait_for_key_press();
+
+    info!("Check patch integrity");
+    ldat_read();
 
     Status::SUCCESS
 }
@@ -151,15 +195,43 @@ fn rdrand() -> (u64, bool) {
     (rnd32, flags > 0)
 }
 
+fn wait_for_key_press() {
+    let handle = uefi::boot::get_handle_for_protocol::<Input>().error_unwrap();
+    let mut keyboard: ScopedProtocol<Input> =
+        uefi::boot::open_protocol_exclusive(handle).error_unwrap();
+
+    loop {
+        let event = keyboard.wait_for_key_event().error_unwrap();
+        uefi::boot::wait_for_event(&mut [event]).error_unwrap();
+        if keyboard.read_key().error_unwrap().is_some() {
+            return;
+        }
+    }
+}
+
 trait ErrorUnwrap<T> {
     fn error_unwrap(self) -> T;
 }
 
-impl<T, E> ErrorUnwrap<T> for Result<T, E> where E: core::fmt::Display {
+impl<T, E> ErrorUnwrap<T> for Result<T, E>
+where
+    E: core::fmt::Display,
+{
+    #[track_caller]
     fn error_unwrap(self) -> T {
         match self {
-            Err(e) => panic!("Unwrap error: {}", e),
+            Err(e) => panic!("Result unwrap error: {}", e),
             Ok(content) => content,
+        }
+    }
+}
+
+impl<T> ErrorUnwrap<T> for Option<T> {
+    #[track_caller]
+    fn error_unwrap(self) -> T {
+        match self {
+            None => panic!("Option unwrap error: None"),
+            Some(content) => content,
         }
     }
 }
