@@ -45,10 +45,14 @@ fn generate_labels() {
             continue;
         }
 
-        labels.push_str("#[allow(non_camel_case_types)]\n");
+        labels.push_str(&format!(
+            "/// Ucode address of the instruction {}\n",
+            label.split("_").next().unwrap_or("UNKNOWN")
+        ));
+
         labels.push_str(&format!(
             "pub const {}: UCInstructionAddress = UCInstructionAddress::from_const(0x{});\n",
-            label, address
+            label.to_uppercase(), address
         ));
     }
 

@@ -321,6 +321,7 @@ fn transform_patch<P: AsRef<Path>, Q: AsRef<Path>>(patch: P, target: Q, allow_un
         "{AUTOGEN}
 
         use data_types::{{UcodePatchEntry, Patch}};
+        #[allow(unused_imports)]
         use data_types::addresses::{{UCInstructionAddress, MSRAMHookAddress}};
 
         {allow_dead}

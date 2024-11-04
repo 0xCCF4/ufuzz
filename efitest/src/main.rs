@@ -9,7 +9,7 @@ use custom_processing_unit::{
     labels, ms_patch_ram_read, ms_patch_ram_write, stgbuf_read, stgbuf_write_raw,
     CustomProcessingUnit,
 };
-use data_types::addresses::{LinearAddress, MSRAMHookAddress, MSRAMInstructionAddress};
+use data_types::addresses::{LinearAddress, MSRAMHookAddress};
 use log::info;
 use uefi::boot::ScopedProtocol;
 use uefi::prelude::*;
@@ -46,7 +46,7 @@ unsafe fn random_counter() {
 
     let patch = crate::patches::rdrand_patch;
     cpu.patch(&patch);
-    cpu.hook(MSRAMHookAddress::ZERO, labels::rdrand_xlat, patch.addr)
+    cpu.hook(MSRAMHookAddress::ZERO, labels::RDRAND_XLAT, patch.addr)
         .error_unwrap();
 
     info!("Random 8: {:?}, {}", rdrand(), *COUNTER);
@@ -87,14 +87,14 @@ unsafe fn random_coverage() {
 
     let patch = crate::patches::coverage_handler;
     cpu.patch(&patch);
-    cpu.hook(MSRAMHookAddress::ZERO, labels::rdrand_xlat, patch.addr)
+    cpu.hook(MSRAMHookAddress::ZERO, labels::RDRAND_XLAT, patch.addr)
         .error_unwrap();
 
     info!("Random 3: {:?}, {}", rdrand(), read_buf());
     info!("Random 4: {:?}, {}", rdrand(), read_buf());
     info!("Random 5: {:?}, {}", rdrand(), read_buf());
 
-    cpu.hook(MSRAMHookAddress::ZERO, labels::rdrand_xlat, patch.addr)
+    cpu.hook(MSRAMHookAddress::ZERO, labels::RDRAND_XLAT, patch.addr)
         .error_unwrap();
 
     info!("Re-enabled coverage hook");
