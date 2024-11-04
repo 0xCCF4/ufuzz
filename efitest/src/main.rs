@@ -167,12 +167,12 @@ unsafe fn main() -> Status {
     info!("Hello world!");
 
     info!("Random counter test");
-    //random_counter();
-    //wait_for_key_press();
+    random_counter();
+    wait_for_key_press();
 
     info!("Random coverage test");
-    //random_coverage();
-    //wait_for_key_press();
+    random_coverage();
+    wait_for_key_press();
 
     info!("Check patch integrity");
     ldat_read();

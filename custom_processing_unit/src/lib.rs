@@ -56,6 +56,10 @@ impl CustomProcessingUnit {
                 current_glm_version,
             })
         } else {
+            if cfg!(feature = "emulation") {
+                return Ok(CustomProcessingUnit { current_glm_version: GLM_OLD});
+            }
+
             Err(Error::InvalidProcessor(format!(
                 "Unsupported GLM version: '{:08x}'",
                 current_glm_version
@@ -134,7 +138,7 @@ impl CustomProcessingUnit {
                 &mut res_c,
                 &mut res_d,
             );
-            if res_a != 0x0000133700001337 {
+            if res_a != 0x0000133700001337 && cfg!(not(feature = "emulation")) {
                 return Err(Error::InitMatchAndPatchFailed(format!(
                     "invoke({}) = {:016x}, {:016x}, {:016x}, {:016x}",
                     init_patch.addr, res_a, res_b, res_c, res_d
@@ -157,7 +161,7 @@ impl CustomProcessingUnit {
                 &mut res_c,
                 &mut res_d,
             );
-            if res_a != 0x0000133700001337 {
+            if res_a != 0x0000133700001337 && cfg!(not(feature = "emulation")) {
                 return Err(Error::InitMatchAndPatchFailed(format!(
                     "invoke({}) = {:016x}, {:016x}, {:016x}, {:016x}",
                     init_patch.addr, res_a, res_b, res_c, res_d

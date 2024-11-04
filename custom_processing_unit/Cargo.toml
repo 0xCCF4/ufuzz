@@ -5,6 +5,7 @@ edition = "2021"
 
 [features]
 no_std = ["data_types/nostd"]
+emulation = []
 
 [dependencies]
 log = "0.4.22"

@@ -1,8 +1,15 @@
 use crate::StagingBufferAddress::{RegTmp0, RegTmp1, RegTmp2};
 use crate::{patches, Error};
+#[cfg(feature = "no_std")]
 use alloc::format;
+#[cfg(feature = "no_std")]
 use alloc::string::ToString;
+#[cfg(not(feature = "no_std"))]
+use std::string::ToString;
+#[cfg(not(feature = "no_std"))]
+use std::format;
 use core::arch::asm;
+use log::trace;
 use data_types::addresses::{
     Address, MSRAMAddress, MSRAMHookAddress, MSRAMInstructionAddress, MSRAMSequenceWordAddress,
     UCInstructionAddress,
@@ -58,6 +65,10 @@ fn barrier() {
 
 #[inline(always)]
 fn udebug_read(command: usize, address: usize) -> usize {
+    if cfg!(feature = "emulation") {
+        return 0;
+    }
+
     let mut res_high: usize;
     let mut res_low: usize;
     lmfence();
@@ -79,6 +90,10 @@ fn udebug_read(command: usize, address: usize) -> usize {
 
 #[inline(always)]
 fn udebug_write(command: usize, address: usize, value: usize) {
+    if cfg!(feature = "emulation") {
+        return;
+    }
+
     let val_high = value >> 32;
     let val_low = value as u32;
     lmfence();
@@ -105,6 +120,14 @@ pub fn udebug_invoke(
     res_c: &mut usize,
     res_d: &mut usize,
 ) {
+    if cfg!(feature = "emulation") {
+        *res_a = 0;
+        *res_b = 0;
+        *res_c = 0;
+        *res_d = 0;
+        return;
+    }
+
     lmfence();
     unsafe {
         asm!(
@@ -123,6 +146,10 @@ pub fn udebug_invoke(
 
 #[inline(always)]
 fn wrmsr(msr: u32, value: u64) {
+    if cfg!(feature = "emulation") {
+        return;
+    }
+
     let low = (value & 0xFFFFFFFF) as u32;
     let high = (value >> 32) as u32;
     unsafe {
@@ -175,11 +202,20 @@ pub fn activate_udebug_insts() {
 
 #[inline(always)]
 pub fn crbus_read(address: usize) -> usize {
+    if cfg!(feature = "emulation") {
+        trace!("read CRBUS[{:08x}]", address);
+        return 0;
+    }
+
     udebug_read(0, address)
 }
 
 #[inline(always)]
 pub fn crbus_write(address: usize, value: usize) -> usize {
+    if cfg!(feature = "emulation") {
+        trace!("CRBUS[{:08x}] = {:08x}", address, value);
+    }
+
     udebug_write(0, address, value);
     udebug_read(0, address)
 }
@@ -348,36 +384,48 @@ fn ms_array_read<A: MSRAMAddress>(
 }
 
 pub fn ms_patch_ram_write<A: Into<MSRAMInstructionAddress>>(addr: A, val: usize) {
-    ms_array_write(4, 0, 0, addr.into(), val)
+    let addr = addr.into();
+    trace!("Writing to MSRAM at {:x} = {:x}", addr.address(), val);
+    ms_array_write(4, 0, 0, addr, val)
 }
 
 pub fn ms_patch_ram_read<A: Into<MSRAMInstructionAddress>>(
     ucode_read_function: UCInstructionAddress,
     addr: A,
 ) -> usize {
-    ms_array_read(ucode_read_function, 4, 0, 0, addr.into())
+    let addr = addr.into();
+    trace!("Reading from MSRAM at {:x}", addr.address());
+    ms_array_read(ucode_read_function, 4, 0, 0, addr)
 }
 
 pub fn ms_match_patch_write<A: Into<MSRAMHookAddress>>(addr: A, val: usize) {
-    ms_array_write(3, 0, 0, addr.into(), val)
+    let addr = addr.into();
+    trace!("Writing to MSRAM hook at {:x} = {:x}", addr.address(), val);
+    ms_array_write(3, 0, 0, addr, val)
 }
 
 pub fn ms_match_patch_read<A: Into<MSRAMHookAddress>>(
     ucode_read_function: UCInstructionAddress,
     addr: A,
 ) -> usize {
-    ms_array_read(ucode_read_function, 3, 0, 0, addr.into())
+    let addr = addr.into();
+    trace!("Reading from MSRAM hook at {:x}", addr.address());
+    ms_array_read(ucode_read_function, 3, 0, 0, addr)
 }
 
 pub fn ms_const_write<A: Into<MSRAMSequenceWordAddress>>(addr: A, val: usize) {
-    ms_array_write(2, 0, 0, addr.into(), val)
+    let addr = addr.into();
+    trace!("Writing to MSRAM SEQW at {:x} = {:x}", addr.address(), val);
+    ms_array_write(2, 0, 0, addr, val)
 }
 
 pub fn ms_const_read<A: Into<MSRAMSequenceWordAddress>>(
     ucode_read_function: UCInstructionAddress,
     addr: A,
 ) -> usize {
-    ms_array_read(ucode_read_function, 2, 0, 0, addr.into())
+    let addr = addr.into();
+    trace!("Reading from MSRAM SEQW at {:x}", addr.address());
+    ms_array_read(ucode_read_function, 2, 0, 0, addr)
 }
 
 pub fn detect_glm_version() -> u32 {
@@ -389,6 +437,8 @@ pub fn patch_ucode<A: Into<UCInstructionAddress>>(addr: A, ucode_patch: &UcodePa
     // uop3 is fixed to a nop and cannot be overridden
 
     let addr = addr.into();
+
+    trace!("Writing ucode patch to {:x}", addr.address());
 
     let ucode_patch = ucode_patch.as_ref();
 
@@ -460,7 +510,7 @@ pub fn hook_match_and_patch(
     stgbuf_write(RegTmp0, 0); // restore tmp0
     stgbuf_write(RegTmp1, 0); // restore tmp1
 
-    if res_a != 0x0000133700001337 {
+    if res_a != 0x0000133700001337 && cfg!(not(feature = "emulation")) {
         return Err(Error::HookFailed(format!(
             "invoke({}) = {:016x}, {:016x}, {:016x}, {:016x}",
             match_patch_hook.addr, res_a, res_b, res_c, res_d
