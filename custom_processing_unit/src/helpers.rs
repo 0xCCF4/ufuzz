@@ -63,10 +63,21 @@ fn barrier() {
     }
 }
 
-#[inline(always)]
+// #[inline(always)]
 fn udebug_read(command: usize, address: usize) -> usize {
     if cfg!(feature = "emulation") {
-        return 0;
+        let res_high: usize = 0;
+        let res_low: usize;
+        unsafe {
+            asm!(
+            "nop",
+            out("rdx") res_low,
+            in("rcx") command,
+            in("rax") address,
+            options(nostack)
+            );
+        }
+        return res_low | (res_high << 32);
     }
 
     let mut res_high: usize;
@@ -88,9 +99,21 @@ fn udebug_read(command: usize, address: usize) -> usize {
     (res_high << 32) | res_low
 }
 
-#[inline(always)]
+// #[inline(always)]
 fn udebug_write(command: usize, address: usize, value: usize) {
     if cfg!(feature = "emulation") {
+        let val_low = value as u32;
+        lmfence();
+        unsafe {
+            asm!(
+            "nop",
+            in("rcx") command,
+            in("rax") address,
+            in("rdx") val_low,
+            options(nostack)
+            );
+        }
+        lmfence();
         return;
     }
 
@@ -112,7 +135,7 @@ fn udebug_write(command: usize, address: usize, value: usize) {
     lmfence();
 }
 
-#[inline(always)]
+// #[inline(always)]
 pub fn udebug_invoke(
     address: UCInstructionAddress,
     res_a: &mut usize,
@@ -121,6 +144,17 @@ pub fn udebug_invoke(
     res_d: &mut usize,
 ) {
     if cfg!(feature = "emulation") {
+        lmfence();
+        unsafe {
+            asm!(
+            "nop",
+            inout("rax") address.address() => *res_a,
+            inout("rcx") 0xd8usize => *res_c,
+            inout("rdx") 0usize => *res_d,
+            options(nostack)
+            );
+        }
+        lmfence();
         *res_a = 0;
         *res_b = 0;
         *res_c = 0;
@@ -147,6 +181,17 @@ pub fn udebug_invoke(
 #[inline(always)]
 fn wrmsr(msr: u32, value: u64) {
     if cfg!(feature = "emulation") {
+        let low = (value & 0xFFFFFFFF) as u32;
+        let high = (value >> 32) as u32;
+        unsafe {
+            asm!(
+            "nop",
+            in("ecx") msr,
+            in("eax") low,
+            in("edx") high,
+            options(nostack, nomem, preserves_flags)
+            );
+        }
         return;
     }
 
@@ -195,44 +240,44 @@ impl CpuidResult {
     }
 }
 
-#[inline(always)]
+// #[inline(always)]
 pub fn activate_udebug_insts() {
     wrmsr(0x1e6, 0x200);
 }
 
-#[inline(always)]
+// #[inline(always)]
 pub fn crbus_read(address: usize) -> usize {
     if cfg!(feature = "emulation") {
         trace!("read CRBUS[{:08x}]", address);
         return 0;
     }
 
-    udebug_read(0, address)
+    core::hint::black_box(udebug_read(0, address))
 }
 
-#[inline(always)]
+// #[inline(always)]
 pub fn crbus_write(address: usize, value: usize) -> usize {
     if cfg!(feature = "emulation") {
         trace!("CRBUS[{:08x}] = {:08x}", address, value);
     }
 
-    udebug_write(0, address, value);
-    udebug_read(0, address)
+    core::hint::black_box(udebug_write)(0, address, value);
+    core::hint::black_box(udebug_read)(0, address)
 }
 
 #[inline(always)]
 pub fn stgbuf_write_raw(address: usize, value: usize) {
-    udebug_write(0x80, address, value)
+    core::hint::black_box(udebug_write)(0x80, address, value)
 }
 
 #[inline(always)]
 pub fn stgbuf_write(address: StagingBufferAddress, value: usize) {
-    stgbuf_write_raw(address as usize, value)
+    core::hint::black_box(stgbuf_write_raw)(address as usize, value)
 }
 
 #[inline(always)]
 pub fn stgbuf_read(address: usize) -> usize {
-    udebug_read(0x80, address)
+    core::hint::black_box(udebug_read(0x80, address))
 }
 
 fn ldat_array_write(
@@ -385,7 +430,7 @@ fn ms_array_read<A: MSRAMAddress>(
 
 pub fn ms_patch_ram_write<A: Into<MSRAMInstructionAddress>>(addr: A, val: usize) {
     let addr = addr.into();
-    trace!("Writing to MSRAM at {:x} = {:x}", addr.address(), val);
+    trace!("Writing to MSRAM patch at {} = {:x}", addr, val);
     ms_array_write(4, 0, 0, addr, val)
 }
 
@@ -438,7 +483,7 @@ pub fn patch_ucode<A: Into<UCInstructionAddress>>(addr: A, ucode_patch: &UcodePa
 
     let addr = addr.into();
 
-    trace!("Writing ucode patch to {:x}", addr.address());
+    trace!("Writing ucode patch to {}", addr);
 
     let ucode_patch = ucode_patch.as_ref();
 
