@@ -185,16 +185,16 @@ unsafe fn main() -> Status {
     uefi::helpers::init().unwrap();
     info!("Hello world!");
 
-    //info!("Random counter test");
-    //random_counter();
-    //wait_for_key_press();
+    info!("Random counter test");
+    random_counter();
+    wait_for_key_press();
 
-    //info!("Random coverage test");
-    //random_coverage();
-    //wait_for_key_press();
+    info!("Random coverage test");
+    random_coverage();
+    wait_for_key_press();
 
-    //info!("Check patch integrity");
-    //ldat_read();
+    info!("Check patch integrity");
+    ldat_read();
 
     Status::SUCCESS
 }

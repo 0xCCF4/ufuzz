@@ -114,7 +114,7 @@ impl CustomProcessingUnit {
     }
 
     pub fn init_match_and_patch(&self) -> Result<()> {
-        if self.current_glm_version == GLM_OLD {
+        let result = if self.current_glm_version == GLM_OLD {
             // Move the patch at U7c5c to U7dfc, since it seems important for the CPU
             const EXISTING_PATCH: [UcodePatchEntry; 1] = [
                 // U7dfc: WRITEURAM(tmp5, 0x0037, 32) m2=1, NOP, NOP, SEQ_GOTO U60d2
@@ -127,54 +127,29 @@ impl CustomProcessingUnit {
             let init_patch = patches::match_patch_init;
             patch_ucode(init_patch.addr, init_patch.ucode_patch);
 
-            let mut res_a = 0;
-            let mut res_b = 0;
-            let mut res_c = 0;
-            let mut res_d = 0;
-            udebug_invoke(
-                init_patch.addr,
-                &mut res_a,
-                &mut res_b,
-                &mut res_c,
-                &mut res_d,
-            );
-            if res_a != 0x0000133700001337 && cfg!(not(feature = "emulation")) {
-                return Err(Error::InitMatchAndPatchFailed(format!(
-                    "invoke({}) = {:016x}, {:016x}, {:016x}, {:016x}",
-                    init_patch.addr, res_a, res_b, res_c, res_d
-                ))
-                .into());
-            }
+            call_custom_ucode_function(init_patch.addr, [0; 3])
         } else if self.current_glm_version == GLM_NEW {
             // write and execute the patch that will zero out match&patch
             let init_patch = patches::match_patch_init_glm_new;
             patch_ucode(init_patch.addr, init_patch.ucode_patch);
 
-            let mut res_a = 0;
-            let mut res_b = 0;
-            let mut res_c = 0;
-            let mut res_d = 0;
-            udebug_invoke(
-                init_patch.addr,
-                &mut res_a,
-                &mut res_b,
-                &mut res_c,
-                &mut res_d,
-            );
-            if res_a != 0x0000133700001337 && cfg!(not(feature = "emulation")) {
-                return Err(Error::InitMatchAndPatchFailed(format!(
-                    "invoke({}) = {:016x}, {:016x}, {:016x}, {:016x}",
-                    init_patch.addr, res_a, res_b, res_c, res_d
-                ))
-                .into());
-            }
+            call_custom_ucode_function(init_patch.addr, [0; 3])
         } else {
             return Err(Error::InvalidProcessor(format!(
                 "Unsupported GLM version: '{:08x}'",
                 self.current_glm_version
             ))
             .into());
+        };
+
+        if result.rax != 0x0000133700001337 && cfg!(not(feature = "emulation")) {
+            return Err(Error::InitMatchAndPatchFailed(format!(
+                "invoke(U{:04x}) = {:016x}, {:016x}, {:016x}, {:016x}",
+                0x7da0, result.rax, result.rbx, result.rcx, result.rdx
+            ))
+                .into());
         }
+
         self.enable_match_and_patch();
 
         Ok(())

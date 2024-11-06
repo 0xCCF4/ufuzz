@@ -312,7 +312,7 @@ pub struct FunctionResult {
 /// Calls to ucode. The target ucode is expected to take 3 arguments.
 /// Provided to it in the registers `TMP0...TMP2`.
 /// Output has to be stored in the registers `rax...rdx`.
-fn call_custom_ucode_function(
+pub fn call_custom_ucode_function(
     func_address: UCInstructionAddress,
     args: [usize; 3],
 ) -> FunctionResult {
@@ -533,28 +533,12 @@ pub fn hook_match_and_patch(
     let match_patch_hook = patches::match_patch_hook;
     patch_ucode(match_patch_hook.addr, match_patch_hook.ucode_patch);
 
-    let mut res_a = 0;
-    let mut res_b = 0;
-    let mut res_c = 0;
-    let mut res_d = 0;
-    stgbuf_write(RegTmp0, patch_value); // write value to tmp0
-    stgbuf_write(RegTmp1, hook_idx.address()); // write idx to tmp1
+    let result = call_custom_ucode_function(match_patch_hook.addr, [patch_value, hook_idx.address(), 0]);
 
-    udebug_invoke(
-        match_patch_hook.addr,
-        &mut res_a,
-        &mut res_b,
-        &mut res_c,
-        &mut res_d,
-    );
-
-    stgbuf_write(RegTmp0, 0); // restore tmp0
-    stgbuf_write(RegTmp1, 0); // restore tmp1
-
-    if res_a != 0x0000133700001337 && cfg!(not(feature = "emulation")) {
+    if result.rax != 0x0000133700001337 && cfg!(not(feature = "emulation")) {
         return Err(Error::HookFailed(format!(
             "invoke({}) = {:016x}, {:016x}, {:016x}, {:016x}",
-            match_patch_hook.addr, res_a, res_b, res_c, res_d
+            match_patch_hook.addr, result.rax, result.rbx, result.rcx, result.rdx
         ))
         .into());
     }
