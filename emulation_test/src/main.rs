@@ -1,10 +1,8 @@
 use std::env;
-use custom_processing_unit::{
-    labels,
-    CustomProcessingUnit,
-};
-use data_types::addresses::{MSRAMHookAddress};
+use custom_processing_unit::{labels, CustomProcessingUnit};
 use log::info;
+use std::io::Write;
+use data_types::addresses::MSRAMHookAddress;
 
 mod patches;
 
@@ -39,7 +37,9 @@ fn random_counter() {
 fn main() {
     // setup logger
     env::set_var("RUST_LOG", "trace");
-    env_logger::init();
+    env_logger::builder().format(|buf, record| {
+        writeln!(buf, "{}", record.args())
+    }).init();
 
     info!("Hello world!");
 

@@ -145,9 +145,10 @@ impl Sub<usize> for UCInstructionAddress {
 
 /// An address of a location in the patch RAM.
 /// This address is used when writing or reading patch code.
-/// Addresses are multiples of 4 and start at 0.
-/// Layout is as follows: [0x00, 0x80\*4, 0x100\*4, 0x180\*4, 0x01\*4, 0x80\*4, ...]
-/// Probably 4 bytes on each memory location * 128 commands * (3+1 entries per command 3 instr + 1 SEQW)?
+/// Addresses start at 0, incrementing by one, skipping each forth value
+/// 0 corresponds to U7c00
+/// A mapping from Linear to InstructionAddress looks like this:
+/// [0,1,2,3,4,5,...] -> [0,1,2,4,5,6,8,...]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct MSRAMInstructionAddress(usize);
 impl Address for MSRAMInstructionAddress {
@@ -157,10 +158,10 @@ impl Address for MSRAMInstructionAddress {
 }
 impl MSRAMInstructionAddress {
     pub const fn from_const(value: usize) -> Self {
-        if value > 128*4*4 {
-            panic!("Address out of bounds exception")
+        if (value & 3) == 3 {
+            // panic!("Address invalid")
         }
-        MSRAMInstructionAddress(value & !0x3)
+        MSRAMInstructionAddress(value)
     }
 }
 impl MSRAMAddress for MSRAMInstructionAddress {}
@@ -179,11 +180,7 @@ impl From<LinearAddress> for MSRAMInstructionAddress {
         // see custom processing unit
         let base = value.address();
 
-        let offset = base % 4;
-        let row = base / 4;
-        // the last *4 does not make any sense but the CPU divides the address where
-        // to write by 4, still unknown reasons
-        MSRAMInstructionAddress::from_const((offset * 0x80 + row) * 4)
+        MSRAMInstructionAddress::from_const(base)
     }
 }
 impl From<UCInstructionAddress> for MSRAMInstructionAddress {
@@ -197,10 +194,7 @@ impl From<UCInstructionAddress> for MSRAMInstructionAddress {
 }
 impl From<MSRAMInstructionAddress> for LinearAddress {
     fn from(value: MSRAMInstructionAddress) -> Self {
-        let addr = value.0 / 4;
-        let offset = addr / 0x80;
-        let base = addr % 0x80;
-        LinearAddress::from_const(base * 4 + offset)
+        LinearAddress::from_const(value.0)
     }
 }
 impl From<MSRAMInstructionAddress> for UCInstructionAddress {

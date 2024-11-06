@@ -248,7 +248,7 @@ pub fn activate_udebug_insts() {
 // #[inline(always)]
 pub fn crbus_read(address: usize) -> usize {
     if cfg!(feature = "emulation") {
-        trace!("read CRBUS[{:08x}]", address);
+        // trace!("read CRBUS[{:08x}]", address);
         return 0;
     }
 
@@ -258,7 +258,7 @@ pub fn crbus_read(address: usize) -> usize {
 // #[inline(always)]
 pub fn crbus_write(address: usize, value: usize) -> usize {
     if cfg!(feature = "emulation") {
-        trace!("CRBUS[{:08x}] = {:08x}", address, value);
+        // trace!("CRBUS[{:08x}] = {:08x}", address, value);
     }
 
     core::hint::black_box(udebug_write)(0, address, value);
@@ -272,10 +272,10 @@ pub fn stgbuf_write_raw(address: usize, value: usize) {
 
 #[inline(always)]
 pub fn stgbuf_write(address: StagingBufferAddress, value: usize) {
-    core::hint::black_box(stgbuf_write_raw)(address as usize, value)
+    stgbuf_write_raw(address as usize, value)
 }
 
-#[inline(always)]
+//#[inline(always)]
 pub fn stgbuf_read(address: usize) -> usize {
     core::hint::black_box(udebug_read(0x80, address))
 }
@@ -430,7 +430,9 @@ fn ms_array_read<A: MSRAMAddress>(
 
 pub fn ms_patch_ram_write<A: Into<MSRAMInstructionAddress>>(addr: A, val: usize) {
     let addr = addr.into();
-    trace!("Writing to MSRAM patch at {} = {:x}", addr, val);
+    if cfg!(feature = "emulation") {
+        trace!("Writing to MSRAM patch at {} = {:x}", addr, val);
+    }
     ms_array_write(4, 0, 0, addr, val)
 }
 
@@ -439,13 +441,17 @@ pub fn ms_patch_ram_read<A: Into<MSRAMInstructionAddress>>(
     addr: A,
 ) -> usize {
     let addr = addr.into();
-    trace!("Reading from MSRAM at {:x}", addr.address());
+    if cfg!(feature = "emulation") {
+        trace!("Reading from MSRAM at {:x}", addr.address());
+    }
     ms_array_read(ucode_read_function, 4, 0, 0, addr)
 }
 
 pub fn ms_match_patch_write<A: Into<MSRAMHookAddress>>(addr: A, val: usize) {
     let addr = addr.into();
-    trace!("Writing to MSRAM hook at {:x} = {:x}", addr.address(), val);
+    if cfg!(feature = "emulation") {
+        trace!("Writing to MSRAM hook at {:x} = {:x}", addr.address(), val);
+    }
     ms_array_write(3, 0, 0, addr, val)
 }
 
@@ -454,13 +460,17 @@ pub fn ms_match_patch_read<A: Into<MSRAMHookAddress>>(
     addr: A,
 ) -> usize {
     let addr = addr.into();
-    trace!("Reading from MSRAM hook at {:x}", addr.address());
+    if cfg!(feature = "emulation") {
+        trace!("Reading from MSRAM hook at {:x}", addr.address());
+    }
     ms_array_read(ucode_read_function, 3, 0, 0, addr)
 }
 
 pub fn ms_const_write<A: Into<MSRAMSequenceWordAddress>>(addr: A, val: usize) {
     let addr = addr.into();
-    trace!("Writing to MSRAM SEQW at {:x} = {:x}", addr.address(), val);
+    if cfg!(feature = "emulation") {
+        trace!("Writing to MSRAM SEQW at {:x} = {:x}", addr.address(), val);
+    }
     ms_array_write(2, 0, 0, addr, val)
 }
 
@@ -469,7 +479,9 @@ pub fn ms_const_read<A: Into<MSRAMSequenceWordAddress>>(
     addr: A,
 ) -> usize {
     let addr = addr.into();
-    trace!("Reading from MSRAM SEQW at {:x}", addr.address());
+    if cfg!(feature = "emulation") {
+        trace!("Reading from MSRAM SEQW at {:x}", addr.address());
+    }
     ms_array_read(ucode_read_function, 2, 0, 0, addr)
 }
 
@@ -483,18 +495,20 @@ pub fn patch_ucode<A: Into<UCInstructionAddress>>(addr: A, ucode_patch: &UcodePa
 
     let addr = addr.into();
 
-    trace!("Writing ucode patch to {}", addr);
+    if cfg!(feature = "emulation") {
+        trace!("Writing ucode patch to {}", addr);
+    }
 
     let ucode_patch = ucode_patch.as_ref();
 
     for i in 0..ucode_patch.len() {
         // patch ucode
         for offset in 0..3 {
-            ms_patch_ram_write(addr + i * 4 + offset, ucode_patch[i][offset]);
+            ms_patch_ram_write(addr + i*4 + offset, ucode_patch[i][offset]);
         }
 
         // patch seqword
-        ms_const_write(addr + i, ucode_patch[i][3]);
+        ms_const_write(addr + i*4, ucode_patch[i][3]);
     }
 }
 

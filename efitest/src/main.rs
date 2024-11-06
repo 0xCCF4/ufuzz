@@ -149,9 +149,17 @@ fn ldat_read() {
 
     cpu.patch(&ldat_read);
 
+    fn ucode_addr_to_patch_addr(ucode_addr: usize) -> usize {
+        // from custom processing unit
+        let base = ucode_addr;
+        let offset = base % 4;
+        let row = base / 4;
+        (offset * 0x80 + row)
+    }
+
     for i in 0..128 * 3 {
         print!("[{i:04x}] ");
-        let val = ms_patch_ram_read(ldat_read.addr, LinearAddress::from_const(i));
+        let val = ms_patch_ram_read(ldat_read.addr, LinearAddress::from_const(ucode_addr_to_patch_addr(i)));
         let difference = if val != i { "<" } else { "" };
         println!("{val:013x} {difference}");
 
@@ -166,13 +174,13 @@ unsafe fn main() -> Status {
     uefi::helpers::init().unwrap();
     info!("Hello world!");
 
-    info!("Random counter test");
-    random_counter();
-    wait_for_key_press();
+    //info!("Random counter test");
+    //random_counter();
+    //wait_for_key_press();
 
-    info!("Random coverage test");
-    random_coverage();
-    wait_for_key_press();
+    //info!("Random coverage test");
+    //random_coverage();
+    //wait_for_key_press();
 
     info!("Check patch integrity");
     ldat_read();

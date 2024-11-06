@@ -1,5 +1,5 @@
 [package]
-name = "rdrand_test"
+name = "emulation_test"
 version = "0.1.0"
 edition = "2021"
 
