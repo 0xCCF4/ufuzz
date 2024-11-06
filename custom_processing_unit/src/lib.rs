@@ -11,7 +11,7 @@ use data_types::addresses::{MSRAMHookAddress, UCInstructionAddress};
 mod helpers;
 pub use helpers::*;
 pub mod labels;
-mod patches;
+pub mod patches;
 
 #[derive(Debug)]
 pub enum Error {
@@ -106,7 +106,7 @@ impl CustomProcessingUnit {
         uop_address: UCInstructionAddress,
         patch_address: UCInstructionAddress,
     ) -> Result<()> {
-        hook_match_and_patch(hook_idx, uop_address, patch_address)
+        hook_match_and_patch(hook_idx, uop_address, patch_address, true)
     }
 
     pub fn zero_match_and_patch(&self) -> Result<()> {

@@ -10,10 +10,7 @@ use std::string::ToString;
 use std::format;
 use core::arch::asm;
 use log::trace;
-use data_types::addresses::{
-    Address, MSRAMAddress, MSRAMHookAddress, MSRAMInstructionPartAddress, MSRAMSequenceWordAddress,
-    UCInstructionAddress,
-};
+use data_types::addresses::{Address, MSRAMAddress, MSRAMHookAddress, MSRAMInstructionPartReadAddress, MSRAMInstructionPartWriteAddress, MSRAMSequenceWordAddress, UCInstructionAddress};
 use data_types::UcodePatchBlob;
 
 #[derive(Copy, Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -372,28 +369,6 @@ fn ldat_array_read(
     call_custom_ucode_function(ucode_read_function, [pdat_reg, array_bank_sel, array_addr]).rax
 }
 
-pub fn ucode_addr_to_patch_addr(addr: usize) -> usize {
-    let base = addr - 0x7c00;
-    // the last *4 does not make any sense but the CPU divides the address where
-    // to write by 4, still unknown reasons
-    ((base % 4) * 0x80 + (base / 4)) * 4
-}
-
-#[allow(unused)]
-fn patch_addr_to_ucode_addr(addr: usize) -> usize {
-    // NOTICE: the ucode_addr_to_patch_addr has a *4 more, so this will not be
-    // the inverse
-    let mul = addr % 0x80;
-    let off = addr / 0x80;
-    0x7c00 + mul * 4 + off
-}
-
-pub fn ucode_addr_to_patch_seqword_addr(addr: usize) -> usize {
-    let base = addr - 0x7c00;
-    let seq_addr = (base % 4) * 0x80 + (base / 4);
-    seq_addr % 0x80
-}
-
 fn ms_array_write<A: MSRAMAddress>(
     array_sel: usize,
     bank_sel: usize,
@@ -428,7 +403,7 @@ fn ms_array_read<A: MSRAMAddress>(
     )
 }
 
-pub fn ms_patch_ram_write<A: Into<MSRAMInstructionPartAddress>>(addr: A, val: usize) {
+pub fn ms_patch_ram_write<A: Into<MSRAMInstructionPartWriteAddress>>(addr: A, val: usize) {
     let addr = addr.into();
     if cfg!(feature = "emulation") {
         trace!("Writing to MSRAM patch at {} = {:x}", addr, val);
@@ -436,7 +411,7 @@ pub fn ms_patch_ram_write<A: Into<MSRAMInstructionPartAddress>>(addr: A, val: us
     ms_array_write(4, 0, 0, addr, val)
 }
 
-pub fn ms_patch_ram_read<A: Into<MSRAMInstructionPartAddress>>(
+pub fn ms_patch_ram_read<A: Into<MSRAMInstructionPartReadAddress>>(
     ucode_read_function: UCInstructionAddress,
     addr: A,
 ) -> usize {
@@ -500,16 +475,19 @@ pub fn patch_ucode<A: Into<UCInstructionAddress>>(addr: A, ucode_patch: &UcodePa
     }
 
     let ucode_patch = ucode_patch.as_ref();
-    let seqw_origin: MSRAMSequenceWordAddress = addr.into();
+
+    let addr = addr;
+    let seqw: MSRAMSequenceWordAddress = addr.into();
 
     for i in 0..ucode_patch.len() {
         // patch ucode
         for offset in 0..3 {
-            ms_patch_ram_write(addr.patch_address(i*3 + offset), ucode_patch[i][offset]);
+            let addr = addr.patch_offset(i * 3 + offset);
+            ms_patch_ram_write(addr, ucode_patch[i][offset]);
         }
 
         // patch seqword
-        ms_const_write(seqw_origin + i, ucode_patch[i][3]);
+        ms_const_write(seqw + i, ucode_patch[i][3]);
     }
 }
 
@@ -518,15 +496,15 @@ pub fn read_patch(
     addr: UCInstructionAddress,
     ucode_patch: &mut UcodePatchBlob,
 ) {
-    let seqw_origin: MSRAMSequenceWordAddress = addr.into();
+    let seqw: MSRAMSequenceWordAddress = addr.into();
 
     for i in 0..ucode_patch.len() {
         for offset in 0..3 {
-            let read_val = ms_patch_ram_read(ucode_read_function, addr.patch_address(i * 3 + offset));
+            let read_val = ms_patch_ram_read(ucode_read_function, addr.patch_offset(i * 3 + offset));
             ucode_patch[i][offset] = read_val;
         }
 
-        let read_val = ms_const_read(ucode_read_function, seqw_origin + i);
+        let read_val = ms_const_read(ucode_read_function, seqw + i);
         ucode_patch[i][3] = read_val;
     }
 }
@@ -535,6 +513,7 @@ pub fn hook_match_and_patch(
     hook_idx: MSRAMHookAddress,
     ucode_addr: UCInstructionAddress,
     patch_addr: UCInstructionAddress,
+    enabled: bool,
 ) -> crate::Result<()> {
     if ucode_addr.address() % 2 != 0 {
         return Err(Error::HookFailed("uop address must be even".to_string()).into());
@@ -549,7 +528,7 @@ pub fn hook_match_and_patch(
 
     //TODO: try to hook odd addresses!!
     let poff = (patch_addr.address() - 0x7c00) / 2;
-    let patch_value = 0x3e000000 | (poff << 16) | ucode_addr.address() | 1;
+    let patch_value = 0x3e000000 | (poff << 16) | ucode_addr.address() | enabled.then_some(1).unwrap_or(0);
 
     let match_patch_hook = patches::match_patch_hook;
     patch_ucode(match_patch_hook.addr, match_patch_hook.ucode_patch);

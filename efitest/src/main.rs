@@ -5,11 +5,8 @@ extern crate alloc;
 
 use crate::helpers::PageAllocation;
 use core::arch::asm;
-use custom_processing_unit::{
-    labels, ms_patch_ram_read, ms_patch_ram_write, stgbuf_read, stgbuf_write_raw,
-    CustomProcessingUnit,
-};
-use data_types::addresses::{LinearAddress, MSRAMHookAddress};
+use custom_processing_unit::{labels, ms_const_read, ms_const_write, ms_patch_ram_read, ms_patch_ram_write, read_patch, stgbuf_read, stgbuf_write_raw, CustomProcessingUnit};
+use data_types::addresses::{MSRAMHookAddress, MSRAMSequenceWordAddress, UCInstructionAddress};
 use log::info;
 use uefi::boot::ScopedProtocol;
 use uefi::prelude::*;
@@ -44,7 +41,7 @@ unsafe fn random_counter() {
 
     info!("Hooking...");
 
-    let patch = crate::patches::rdrand_patch;
+    let patch = crate::patches::test_rdrand_counter_patch;
     cpu.patch(&patch);
     cpu.hook(MSRAMHookAddress::ZERO, labels::RDRAND_XLAT, patch.addr)
         .error_unwrap();
@@ -85,7 +82,7 @@ unsafe fn random_coverage() {
     cpu.init();
     cpu.zero_match_and_patch().error_unwrap();
 
-    let patch = crate::patches::coverage_handler;
+    let patch = crate::patches::test_coverage_counter;
     cpu.patch(&patch);
     cpu.hook(MSRAMHookAddress::ZERO, labels::RDRAND_XLAT, patch.addr)
         .error_unwrap();
@@ -106,16 +103,16 @@ unsafe fn random_coverage() {
     cpu.zero_match_and_patch().error_unwrap();
 }
 
+#[allow(dead_code)]
 fn ldat_read() {
-    let ldat_read = crate::patches::ldat_read;
+    let ldat_read = custom_processing_unit::patches::ldat_read;
     let cpu = CustomProcessingUnit::new().error_unwrap();
     cpu.init();
     cpu.zero_match_and_patch().error_unwrap();
 
-    /*
     cpu.patch(&ldat_read);
 
-    let rdrand_patch = crate::patches::rdrand_patch;
+    let rdrand_patch = crate::patches::test_rdrand_counter_patch;
     let mut rdrand_patch_read_before = [[0usize; 4]; 8];
     assert_eq!(rdrand_patch.ucode_patch.len(), rdrand_patch_read_before.len());
     read_patch(ldat_read.addr, rdrand_patch.addr, &mut rdrand_patch_read_before);
@@ -126,45 +123,59 @@ fn ldat_read() {
 
     println!(" ADR. | SHOULD_BE   | READ_VALUE  | BEFORE");
     for (i, ((should_be, read_value), before_value)) in rdrand_patch.ucode_patch.iter().zip(rdrand_patch_read.iter()).zip(rdrand_patch_read_before.iter()).enumerate() {
-        let address = rdrand_patch.addr + i*4;
-
         for offset in 0..3 {
-            let address = address + offset;
+            let address = rdrand_patch.addr.patch_offset(i*3 + offset);
 
             let different = if should_be[offset] == read_value[offset] {
                 ""
             } else {
                 "<"
             };
-            println!("[{:04x}] {:013x} {:013x} {:013x} {}", address, should_be[offset], read_value[offset], before_value[offset], different);
+            println!("[{}] {:013x} {:013x} {:013x} {}", address, should_be[offset], read_value[offset], before_value[offset], different);
         }
     }
-    */
 
-    for i in 0..128 * 3 {
-        print!("[{i:04x}] Writing... ");
-        ms_patch_ram_write(LinearAddress::from_const(i), i);
-        println!("OK");
+    println!("Read write test patch memory");
+    wait_for_key_press();
+
+    for i in 0..128*3 {
+        ms_patch_ram_write(UCInstructionAddress::MSRAM_START.patch_offset(i), i);
     }
 
     cpu.patch(&ldat_read);
 
-    fn ucode_addr_to_patch_addr(ucode_addr: usize) -> usize {
-        // from custom processing unit
-        let base = ucode_addr;
-        let offset = base % 4;
-        let row = base / 4;
-        offset * 0x80 + row
-    }
-
+    let mut mismatch = false;
     for i in 0..128 * 3 {
+        if i % 4 == 0 {
+            continue
+        }
         print!("[{i:04x}] ");
-        let val = ms_patch_ram_read(ldat_read.addr, LinearAddress::from_const(ucode_addr_to_patch_addr(i)));
-        let difference = if val != i { "<" } else { "" };
+        let val = ms_patch_ram_read(ldat_read.addr, UCInstructionAddress::MSRAM_START.patch_offset(i));
+        let difference = if val != i { mismatch = true; "<" } else { "" };
         println!("{val:013x} {difference}");
 
-        if i % 10 == 0 {
+        if i % 10 == 0 && mismatch {
             wait_for_key_press();
+            mismatch = false;
+        }
+    }
+
+    println!("Read write test seqw memory");
+    wait_for_key_press();
+
+    for i in 0..128 {
+        ms_const_write(MSRAMSequenceWordAddress::ZERO + i, i);
+    }
+    cpu.patch(&ldat_read);
+    for i in 0..128 {
+        print!("[{i:04x}] ");
+        let val = ms_const_read(ldat_read.addr, MSRAMSequenceWordAddress::ZERO + i);
+        let difference = if val != i { mismatch = true; "<" } else { "" };
+        println!("{val:013x} {difference}");
+
+        if i % 10 == 0 && mismatch {
+            wait_for_key_press();
+            mismatch = false;
         }
     }
 }
@@ -182,8 +193,8 @@ unsafe fn main() -> Status {
     //random_coverage();
     //wait_for_key_press();
 
-    info!("Check patch integrity");
-    ldat_read();
+    //info!("Check patch integrity");
+    //ldat_read();
 
     Status::SUCCESS
 }
