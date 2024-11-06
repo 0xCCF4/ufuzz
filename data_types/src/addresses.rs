@@ -94,6 +94,10 @@ impl UCInstructionAddress {
 
         UCInstructionAddress(value)
     }
+
+    pub fn patch_address(&self, offset: usize) -> MSRAMInstructionPartAddress {
+        MSRAMInstructionPartAddress::from(LinearAddress::from(MSRAMInstructionPartAddress::from(*self)).add(offset))
+    }
 }
 
 impl fmt::Display for UCInstructionAddress {
@@ -149,56 +153,68 @@ impl Sub<usize> for UCInstructionAddress {
 /// 0 corresponds to U7c00
 /// A mapping from Linear to InstructionAddress looks like this:
 /// [0,1,2,3,4,5,...] -> [0,1,2,4,5,6,8,...]
+/// Since each forth entry is not available
+/// Instructions map like this
+/// 7c00+[0,1,2,4,5,6,8,9,a,...] -> [0,1,2,4,5,6,8,9,a,...]
+/// todo: question does jumps exist from addresses ending by 0b01?
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct MSRAMInstructionAddress(usize);
-impl Address for MSRAMInstructionAddress {
+pub struct MSRAMInstructionPartAddress(usize);
+impl Address for MSRAMInstructionPartAddress {
     fn address(&self) -> usize {
         self.0
     }
 }
-impl MSRAMInstructionAddress {
+impl MSRAMInstructionPartAddress {
     pub const fn from_const(value: usize) -> Self {
         if (value & 3) == 3 {
             // panic!("Address invalid")
         }
-        MSRAMInstructionAddress(value)
+        MSRAMInstructionPartAddress(value)
     }
 }
-impl MSRAMAddress for MSRAMInstructionAddress {}
-impl fmt::Display for MSRAMInstructionAddress {
+impl MSRAMAddress for MSRAMInstructionPartAddress {}
+impl fmt::Display for MSRAMInstructionPartAddress {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "I{:04x}", self.0)
     }
 }
-impl fmt::Debug for MSRAMInstructionAddress {
+impl fmt::Debug for MSRAMInstructionPartAddress {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "I{:04x}", self.0)
     }
 }
-impl From<LinearAddress> for MSRAMInstructionAddress {
+impl From<LinearAddress> for MSRAMInstructionPartAddress {
     fn from(value: LinearAddress) -> Self {
         // see custom processing unit
         let base = value.address();
 
-        MSRAMInstructionAddress::from_const(base)
+        let mult = base / 3;
+        let offset = base % 3;
+
+        MSRAMInstructionPartAddress::from_const(mult * 4 + offset)
     }
 }
-impl From<UCInstructionAddress> for MSRAMInstructionAddress {
+impl From<UCInstructionAddress> for MSRAMInstructionPartAddress {
     fn from(value: UCInstructionAddress) -> Self {
         let addr = value.address();
         if addr < 0x7c00 {
             panic!("Address is not in the ucode RAM: {}", addr);
         }
-        MSRAMInstructionAddress::from(LinearAddress::from(addr - 0x7c00))
+        MSRAMInstructionPartAddress::from_const(addr - 0x7c00)
     }
 }
-impl From<MSRAMInstructionAddress> for LinearAddress {
-    fn from(value: MSRAMInstructionAddress) -> Self {
-        LinearAddress::from_const(value.0)
+impl From<MSRAMInstructionPartAddress> for LinearAddress {
+    fn from(value: MSRAMInstructionPartAddress) -> Self {
+        let addr = value.0;
+
+        let mult = addr / 4;
+        let offset = addr % 4;
+
+        LinearAddress::from_const(mult * 3 + offset)
     }
 }
-impl From<MSRAMInstructionAddress> for UCInstructionAddress {
-    fn from(value: MSRAMInstructionAddress) -> Self {
+impl From<MSRAMInstructionPartAddress> for UCInstructionAddress {
+    fn from(value: MSRAMInstructionPartAddress) -> Self {
         UCInstructionAddress::from(LinearAddress::from(value) + 0x7c00)
     }
 }
@@ -235,8 +251,8 @@ impl fmt::Debug for MSRAMSequenceWordAddress {
 }
 impl From<UCInstructionAddress> for MSRAMSequenceWordAddress {
     fn from(value: UCInstructionAddress) -> Self {
-        let addr: MSRAMInstructionAddress = value.into();
-        MSRAMSequenceWordAddress::from_const((addr.0 / 4) % 0x80)
+        let addr: MSRAMInstructionPartAddress = value.into();
+        MSRAMSequenceWordAddress::from_const(addr.0 / 4)
     }
 }
 impl From<LinearAddress> for MSRAMSequenceWordAddress {
@@ -247,12 +263,18 @@ impl From<LinearAddress> for MSRAMSequenceWordAddress {
 }
 impl From<MSRAMSequenceWordAddress> for UCInstructionAddress {
     fn from(value: MSRAMSequenceWordAddress) -> Self {
-        UCInstructionAddress::from(MSRAMInstructionAddress(value.0 * 4))
+        UCInstructionAddress::from(MSRAMInstructionPartAddress(value.0 * 4))
     }
 }
 impl From<MSRAMSequenceWordAddress> for LinearAddress {
     fn from(value: MSRAMSequenceWordAddress) -> Self {
         LinearAddress::from(value.0)
+    }
+}
+impl Add<usize> for MSRAMSequenceWordAddress {
+    type Output = MSRAMSequenceWordAddress;
+    fn add(self, rhs: usize) -> Self::Output {
+        MSRAMSequenceWordAddress::from_const(self.0 + rhs)
     }
 }
 
@@ -385,7 +407,7 @@ mod tests {
         let mut tests = Vec::default();
         for i in 0..0xFF {
             let la = LinearAddress(i);
-            let patch_addr = MSRAMInstructionAddress::from_const(ucode_addr_to_patch_addr(i+0x7c00));
+            let patch_addr = MSRAMInstructionPartAddress::from_const(ucode_addr_to_patch_addr(i+0x7c00));
             tests.push((la, patch_addr));
         }
         conversion_harness(&tests);
@@ -396,7 +418,7 @@ mod tests {
         let mut tests = Vec::default();
         for i in 0x7c00..0x7c00+0xFF {
             let la = UCInstructionAddress(i);
-            let patch_addr = MSRAMInstructionAddress::from_const(ucode_addr_to_patch_addr(i));
+            let patch_addr = MSRAMInstructionPartAddress::from_const(ucode_addr_to_patch_addr(i));
             tests.push((la, patch_addr));
         }
         conversion_harness(&tests);

@@ -11,7 +11,7 @@ use std::format;
 use core::arch::asm;
 use log::trace;
 use data_types::addresses::{
-    Address, MSRAMAddress, MSRAMHookAddress, MSRAMInstructionAddress, MSRAMSequenceWordAddress,
+    Address, MSRAMAddress, MSRAMHookAddress, MSRAMInstructionPartAddress, MSRAMSequenceWordAddress,
     UCInstructionAddress,
 };
 use data_types::UcodePatchBlob;
@@ -428,7 +428,7 @@ fn ms_array_read<A: MSRAMAddress>(
     )
 }
 
-pub fn ms_patch_ram_write<A: Into<MSRAMInstructionAddress>>(addr: A, val: usize) {
+pub fn ms_patch_ram_write<A: Into<MSRAMInstructionPartAddress>>(addr: A, val: usize) {
     let addr = addr.into();
     if cfg!(feature = "emulation") {
         trace!("Writing to MSRAM patch at {} = {:x}", addr, val);
@@ -436,7 +436,7 @@ pub fn ms_patch_ram_write<A: Into<MSRAMInstructionAddress>>(addr: A, val: usize)
     ms_array_write(4, 0, 0, addr, val)
 }
 
-pub fn ms_patch_ram_read<A: Into<MSRAMInstructionAddress>>(
+pub fn ms_patch_ram_read<A: Into<MSRAMInstructionPartAddress>>(
     ucode_read_function: UCInstructionAddress,
     addr: A,
 ) -> usize {
@@ -500,15 +500,16 @@ pub fn patch_ucode<A: Into<UCInstructionAddress>>(addr: A, ucode_patch: &UcodePa
     }
 
     let ucode_patch = ucode_patch.as_ref();
+    let seqw_origin: MSRAMSequenceWordAddress = addr.into();
 
     for i in 0..ucode_patch.len() {
         // patch ucode
         for offset in 0..3 {
-            ms_patch_ram_write(addr + i*4 + offset, ucode_patch[i][offset]);
+            ms_patch_ram_write(addr.patch_address(i*3 + offset), ucode_patch[i][offset]);
         }
 
         // patch seqword
-        ms_const_write(addr + i*4, ucode_patch[i][3]);
+        ms_const_write(seqw_origin + i, ucode_patch[i][3]);
     }
 }
 
@@ -517,13 +518,15 @@ pub fn read_patch(
     addr: UCInstructionAddress,
     ucode_patch: &mut UcodePatchBlob,
 ) {
+    let seqw_origin: MSRAMSequenceWordAddress = addr.into();
+
     for i in 0..ucode_patch.len() {
         for offset in 0..3 {
-            let read_val = ms_patch_ram_read(ucode_read_function, addr + i * 4 + offset);
+            let read_val = ms_patch_ram_read(ucode_read_function, addr.patch_address(i * 3 + offset));
             ucode_patch[i][offset] = read_val;
         }
 
-        let read_val = ms_const_read(ucode_read_function, addr + i);
+        let read_val = ms_const_read(ucode_read_function, seqw_origin + i);
         ucode_patch[i][3] = read_val;
     }
 }

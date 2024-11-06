@@ -154,7 +154,7 @@ fn ldat_read() {
         let base = ucode_addr;
         let offset = base % 4;
         let row = base / 4;
-        (offset * 0x80 + row)
+        offset * 0x80 + row
     }
 
     for i in 0..128 * 3 {
