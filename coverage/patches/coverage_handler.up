@@ -1,33 +1,3 @@
-.org 0x7c00
-
-let [adr_stg_trace_result] := 0xba00
-let [adr_ucode_rdrand] := 0x0428
-
-let [adr_stg_r10] := 0xba40
-let [adr_stg_r11] := 0xba80
-let [adr_stg_r12] := 0xbac0
-let [adr_stg_r13] := 0xbb00
-
-let [in_hook_index] := r10
-let [in_ucode_exit] := r11
-let [frontend_prev] := r12
-let [tmp] := r13
-
-# -------------- ENTRY
-
-STADSTGBUF_DSZ64_ASZ16_SC1([adr_stg_r10], , r10) !m2 # save original value of r10, r11
-STADSTGBUF_DSZ64_ASZ16_SC1([adr_stg_r11], , r11) !m2
-
-[in_ucode_exit] := ZEROEXT_DSZ32(<exit>)   # ucode exit handler address
-[in_hook_index] := ZEROEXT_DSZ32(0x00)    # hook index
-
-NOP SEQW GOTO <handler>
-
-# --------------
-
-# NOTICE: assume no one else uses [0xba00, 0xbb00] in the staging buffer
-
-<handler>
 STADSTGBUF_DSZ64_ASZ16_SC1([adr_stg_r12], , r12) !m2 # save original value of r12, 13
 STADSTGBUF_DSZ64_ASZ16_SC1([adr_stg_r13], , r13) !m2
 
@@ -76,16 +46,3 @@ r12 := LDSTGBUF_DSZ64_ASZ16_SC1([adr_stg_r12]) !m2
 r13 := LDSTGBUF_DSZ64_ASZ16_SC1([adr_stg_r13]) !m2
 
 UJMP(,[in_ucode_exit]) SEQW NOP
-
-
-# --------------- EXIT
-
-<exit>
-
-# restore r11
-r11 := LDSTGBUF_DSZ64_ASZ16_SC1([adr_stg_r11]) !m2
-
-# exit and goto original instruction
-NOP SEQW GOTO 0x0428 # rdrand
-
-# ---------------

@@ -1,12 +1,11 @@
 #![cfg_attr(feature = "no_std", no_std)]
 
-use data_types::{Patch, UcodePatchEntry};
+use data_types::{UcodePatchEntry};
 
 #[cfg(feature = "no_std")]
 extern crate alloc;
 #[cfg(feature = "no_std")]
 use alloc::{format, string::String};
-use data_types::addresses::{MSRAMHookAddress, UCInstructionAddress};
 
 mod helpers;
 pub use helpers::*;
@@ -36,8 +35,8 @@ impl core::error::Error for Error {}
 
 pub type Result<T> = core::result::Result<T, Error>;
 
-const GLM_OLD: u32 = 0x506c9;
-const GLM_NEW: u32 = 0x506ca;
+pub const GLM_OLD: u32 = 0x506c9;
+pub const GLM_NEW: u32 = 0x506ca;
 
 pub struct CustomProcessingUnit {
     pub current_glm_version: u32,
@@ -68,52 +67,15 @@ impl CustomProcessingUnit {
         }
     }
 
-    pub fn init(&self) {
-        // setup_exceptions();
+    pub fn init(&self) -> Result<()> {
         activate_udebug_insts();
-        self.enable_match_and_patch();
+        self.zero_hooks()?;
+        enable_hooks();
+        Ok(())
     }
 
-    pub fn enable_match_and_patch(&self) {
-        let mp = crbus_read(0x692);
-        crbus_write(0x692, mp & !1usize);
-    }
-
-    pub fn disable_match_and_patch(&self) {
-        let mp = crbus_read(0x692);
-        crbus_write(0x692, mp | 1usize);
-    }
-
-    pub fn patch(&self, patch: &Patch) {
-        patch_ucode(patch.addr, patch.ucode_patch);
-    }
-
-    pub fn hook_patch(&self, patch: &Patch) -> Result<()> {
-        if let Some(hook_address) = patch.hook_address {
-            let hook_index = patch.hook_index.unwrap_or(MSRAMHookAddress::ZERO);
-
-            self.hook(hook_index, hook_address, patch.addr)
-        } else {
-            Err(Error::HookFailed(
-                "No hook address present in patch.".into(),
-            ))
-        }
-    }
-
-    pub fn hook(
-        &self,
-        hook_idx: MSRAMHookAddress,
-        uop_address: UCInstructionAddress,
-        patch_address: UCInstructionAddress,
-    ) -> Result<()> {
-        hook_match_and_patch(hook_idx, uop_address, patch_address, true)
-    }
-
-    pub fn zero_match_and_patch(&self) -> Result<()> {
-        self.init_match_and_patch()
-    }
-
-    pub fn init_match_and_patch(&self) -> Result<()> {
+    /// Zeros all hook registers.
+    pub fn zero_hooks(&self) -> Result<()> {
         let result = if self.current_glm_version == GLM_OLD {
             // Move the patch at U7c5c to U7dfc, since it seems important for the CPU
             const EXISTING_PATCH: [UcodePatchEntry; 1] = [
@@ -124,13 +86,13 @@ impl CustomProcessingUnit {
 
             // write and execute the patch that will zero out match&patch moving
             // the 0xc entry to last entry, which will make the hook call our moved patch
-            let init_patch = patches::match_patch_init;
+            let init_patch = patches::func_init;
             patch_ucode(init_patch.addr, init_patch.ucode_patch);
 
             call_custom_ucode_function(init_patch.addr, [0; 3])
         } else if self.current_glm_version == GLM_NEW {
             // write and execute the patch that will zero out match&patch
-            let init_patch = patches::match_patch_init_glm_new;
+            let init_patch = patches::func_init_glm_new;
             patch_ucode(init_patch.addr, init_patch.ucode_patch);
 
             call_custom_ucode_function(init_patch.addr, [0; 3])
@@ -149,8 +111,6 @@ impl CustomProcessingUnit {
             ))
                 .into());
         }
-
-        self.enable_match_and_patch();
 
         Ok(())
     }

@@ -1,0 +1,23 @@
+diff --git a/uasm-lib/uasm.py b/uasm-lib/uasm.py
+index 8cb98cf..71d1675 100755
+--- a/uasm-lib/uasm.py
++++ b/uasm-lib/uasm.py
+@@ -1499,6 +1499,9 @@ def assemble_seqword(partial_seqwords, labels, is_last):
+     sync_ctrls = {**lfence_sync_ctrls, **oooe_sync_ctrls}
+ 
+     for uidx, _seqw in enumerate(partial_seqwords):
++        if _seqw == 'NOP':
++            return NOP_SEQWORD
++
+         for seqw in _seqw.split(", "):
+             if "GOTO" in seqw:
+                 if tetrad_ctrl_uidx != 0x03:
+@@ -1680,6 +1683,8 @@ def assemble_ucode(ucode, avoid_unk_256, output):
+         tee(f'unsigned long hook_address = 0x{hook_address:04x};')
+     if not hook_entry is None:
+         tee(f'unsigned long hook_entry = 0x{hook_entry:02x};')
++    for k,v in labels.items():
++        tee(f'unsigned long LABEL_{k[1:-1]} = 0x{v:04x};')
+     tee('unsigned long ucode_patch[][4] = {')
+     for i, (triad, partial_seqwords, instruction) in enumerate(zip(triads, seqws, instructions)):
+         is_last = i == len(triads)-1

@@ -17,10 +17,12 @@ pub mod addresses;
 
 pub type UcodePatchEntry = [usize; 4];
 pub type UcodePatchBlob = [UcodePatchEntry];
+pub type LabelMapping<'a> = (&'a str, UCInstructionAddress);
 
-pub struct Patch<'a> {
+pub struct Patch<'a, 'b, 'c> {
     pub addr: UCInstructionAddress,
     pub hook_address: Option<UCInstructionAddress>,
     pub hook_index: Option<MSRAMHookAddress>,
     pub ucode_patch: &'a UcodePatchBlob,
+    pub labels: &'b [LabelMapping<'c>]
 }

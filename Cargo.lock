@@ -195,6 +195,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "coverage"
+version = "0.1.0"
+dependencies = [
+ "custom_processing_unit",
+ "data_types",
+ "log",
+ "regex",
+ "ucode_compiler",
+ "uefi",
+]
+
+[[package]]
 name = "crossterm"
 version = "0.28.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

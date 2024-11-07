@@ -25,6 +25,8 @@ impl LinearAddress {
     pub const fn from_const(value: usize) -> Self {
         LinearAddress(value)
     }
+    pub const ZERO: LinearAddress = LinearAddress::from_const(0);
+    pub const MIN: LinearAddress = LinearAddress::ZERO;
 }
 impl From<usize> for LinearAddress {
     fn from(value: usize) -> Self {
@@ -124,7 +126,9 @@ impl UCInstructionAddress {
         })
     }
 
+    pub const MIN: UCInstructionAddress = UCInstructionAddress::from_const(0);
     pub const MSRAM_START: UCInstructionAddress = UCInstructionAddress::from_const(0x7c00);
+    pub const MAX: UCInstructionAddress = UCInstructionAddress::from_const(0x7c00 + 4*128 - 1);
 }
 
 impl fmt::Display for UCInstructionAddress {
@@ -199,6 +203,9 @@ impl MSRAMInstructionPartWriteAddress {
         }
         MSRAMInstructionPartWriteAddress(value)
     }
+    pub const ZERO: MSRAMInstructionPartWriteAddress = MSRAMInstructionPartWriteAddress::from_const(0);
+    pub const MIN: MSRAMInstructionPartWriteAddress = MSRAMInstructionPartWriteAddress::ZERO;
+    pub const MAX: MSRAMInstructionPartWriteAddress = MSRAMInstructionPartWriteAddress::from_const(128 * 4 - 2);
 }
 impl MSRAMAddress for MSRAMInstructionPartWriteAddress {}
 impl fmt::Display for MSRAMInstructionPartWriteAddress {
@@ -257,6 +264,9 @@ impl MSRAMInstructionPartReadAddress {
 
         MSRAMInstructionPartReadAddress(value)
     }
+    pub const ZERO: MSRAMInstructionPartReadAddress = MSRAMInstructionPartReadAddress::from_const(0);
+    pub const MIN: MSRAMInstructionPartReadAddress = MSRAMInstructionPartReadAddress::ZERO;
+    pub const MAX: MSRAMInstructionPartReadAddress = MSRAMInstructionPartReadAddress::from_const(128 * 3 -1);
 }
 impl MSRAMAddress for MSRAMInstructionPartReadAddress {}
 impl From<MSRAMInstructionPartWriteAddress> for MSRAMInstructionPartReadAddress {
@@ -314,6 +324,8 @@ impl MSRAMSequenceWordAddress {
         MSRAMSequenceWordAddress(value)
     }
     pub const ZERO: MSRAMSequenceWordAddress = MSRAMSequenceWordAddress::from_const(0);
+    pub const MIN: MSRAMSequenceWordAddress = MSRAMSequenceWordAddress::ZERO;
+    pub const MAX: MSRAMSequenceWordAddress = MSRAMSequenceWordAddress::from_const(128 - 1);
 }
 impl MSRAMAddress for MSRAMSequenceWordAddress {}
 impl fmt::Display for MSRAMSequenceWordAddress {
@@ -382,7 +394,9 @@ impl MSRAMHookAddress {
 
         MSRAMHookAddress(value)
     }
-    pub const ZERO: Self = MSRAMHookAddress(0);
+    pub const ZERO: Self = MSRAMHookAddress::from_const(0);
+    pub const MIN: Self = MSRAMHookAddress::ZERO;
+    pub const MAX: Self = MSRAMHookAddress::from_const(64 - 2);
 }
 impl MSRAMAddress for MSRAMHookAddress {}
 impl fmt::Display for MSRAMHookAddress {

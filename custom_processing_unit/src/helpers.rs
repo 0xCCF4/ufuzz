@@ -1,5 +1,5 @@
 use crate::StagingBufferAddress::{RegTmp0, RegTmp1, RegTmp2};
-use crate::{patches, Error};
+use crate::{Error};
 #[cfg(feature = "no_std")]
 use alloc::format;
 #[cfg(feature = "no_std")]
@@ -11,7 +11,7 @@ use std::format;
 use core::arch::asm;
 use log::trace;
 use data_types::addresses::{Address, MSRAMAddress, MSRAMHookAddress, MSRAMInstructionPartReadAddress, MSRAMInstructionPartWriteAddress, MSRAMSequenceWordAddress, UCInstructionAddress};
-use data_types::UcodePatchBlob;
+use data_types::{Patch, UcodePatchBlob};
 
 #[derive(Copy, Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum StagingBufferAddress {
@@ -312,6 +312,7 @@ pub struct FunctionResult {
 /// Calls to ucode. The target ucode is expected to take 3 arguments.
 /// Provided to it in the registers `TMP0...TMP2`.
 /// Output has to be stored in the registers `rax...rdx`.
+/// The ucode function signals termination by SEQW LFNCEWAIT, UEND0
 pub fn call_custom_ucode_function(
     func_address: UCInstructionAddress,
     args: [usize; 3],
@@ -509,39 +510,70 @@ pub fn read_patch(
     }
 }
 
-pub fn hook_match_and_patch(
+pub fn hook(
+    apply_hook_func: UCInstructionAddress,
     hook_idx: MSRAMHookAddress,
-    ucode_addr: UCInstructionAddress,
-    patch_addr: UCInstructionAddress,
+    to_hook_ucode_addr: UCInstructionAddress,
+    redirect_to_addr: UCInstructionAddress,
     enabled: bool,
 ) -> crate::Result<()> {
-    if ucode_addr.address() % 2 != 0 {
+
+    if to_hook_ucode_addr.address() % 2 != 0 {
         return Err(Error::HookFailed("uop address must be even".to_string()).into());
     }
-    if patch_addr.address() % 2 != 0 || patch_addr.address() < 0x7c00 {
+    if redirect_to_addr.address() % 2 != 0 || redirect_to_addr.address() < 0x7c00 {
         return Err(
             Error::HookFailed("patch uop address must be even and >0x7c00".to_string()).into(),
         );
     }
 
-    // todo more advanced range checks
-
     //TODO: try to hook odd addresses!!
-    let poff = (patch_addr.address() - 0x7c00) / 2;
-    let patch_value = 0x3e000000 | (poff << 16) | ucode_addr.address() | enabled.then_some(1).unwrap_or(0);
+    let poff = (redirect_to_addr.address() - 0x7c00) / 2;
+    let patch_value = 0x3e000000 | (poff << 16) | to_hook_ucode_addr.address() | enabled.then_some(1).unwrap_or(0);
 
-    let match_patch_hook = patches::match_patch_hook;
-    patch_ucode(match_patch_hook.addr, match_patch_hook.ucode_patch);
-
-    let result = call_custom_ucode_function(match_patch_hook.addr, [patch_value, hook_idx.address(), 0]);
+    let result = call_custom_ucode_function(apply_hook_func, [patch_value, hook_idx.address(), 0]);
 
     if result.rax != 0x0000133700001337 && cfg!(not(feature = "emulation")) {
         return Err(Error::HookFailed(format!(
             "invoke({}) = {:016x}, {:016x}, {:016x}, {:016x}",
-            match_patch_hook.addr, result.rax, result.rbx, result.rcx, result.rdx
+            apply_hook_func, result.rax, result.rbx, result.rcx, result.rdx
         ))
         .into());
     }
 
     Ok(())
+}
+
+pub fn apply_patch(patch: &Patch) {
+    patch_ucode(patch.addr, patch.ucode_patch);
+}
+
+pub fn apply_hook_patch_func() -> UCInstructionAddress {
+    let patch = crate::patches::func_hook;
+    apply_patch(&patch);
+    patch.addr
+}
+
+pub fn hook_patch(apply_hook_func: UCInstructionAddress, patch: &Patch) -> crate::Result<()> {
+    if let Some(hook_address) = patch.hook_address {
+        let hook_index = patch.hook_index.unwrap_or(MSRAMHookAddress::ZERO);
+
+        hook(apply_hook_func, hook_index, hook_address, patch.addr, true)
+    } else {
+        Err(Error::HookFailed(
+            "No hook address present in patch.".into(),
+        ))
+    }
+}
+
+pub fn enable_hooks() -> usize {
+    let mp = crbus_read(0x692);
+    crbus_write(0x692, mp & !1usize);
+    mp
+}
+
+pub fn disable_all_hooks() -> usize {
+    let mp = crbus_read(0x692);
+    crbus_write(0x692, mp | 1usize);
+    mp
 }

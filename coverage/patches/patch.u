@@ -1,0 +1,15 @@
+.org 0x7c00
+
+#include <coverage_vars.up>
+
+<entry>
+#include <coverage_entry.up>
+
+<handler>
+#include <coverage_handler.up>
+
+<exit>
+#include <coverage_exit.up>
+
+<func_hook>
+#include <func_hook.up>

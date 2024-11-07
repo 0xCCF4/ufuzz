@@ -5,7 +5,7 @@ extern crate alloc;
 
 use crate::helpers::PageAllocation;
 use core::arch::asm;
-use custom_processing_unit::{labels, ms_const_read, ms_const_write, ms_patch_ram_read, ms_patch_ram_write, read_patch, stgbuf_read, stgbuf_write_raw, CustomProcessingUnit};
+use custom_processing_unit::{apply_hook_patch_func, apply_patch, hook, labels, ms_const_read, ms_const_write, ms_patch_ram_read, ms_patch_ram_write, read_patch, stgbuf_read, stgbuf_write_raw, CustomProcessingUnit};
 use data_types::addresses::{MSRAMHookAddress, MSRAMSequenceWordAddress, UCInstructionAddress};
 use log::info;
 use uefi::boot::ScopedProtocol;
@@ -30,8 +30,7 @@ unsafe fn random_counter() {
     info!("Patching...");
 
     let cpu = CustomProcessingUnit::new().error_unwrap();
-    cpu.init();
-    cpu.zero_match_and_patch().error_unwrap();
+    cpu.init().error_unwrap();
 
     info!("Random 3: {:?}, {}", rdrand(), *COUNTER);
     info!("Random 4: {:?}, {}", rdrand(), *COUNTER);
@@ -42,8 +41,8 @@ unsafe fn random_counter() {
     info!("Hooking...");
 
     let patch = crate::patches::test_rdrand_counter_patch;
-    cpu.patch(&patch);
-    cpu.hook(MSRAMHookAddress::ZERO, labels::RDRAND_XLAT, patch.addr)
+    apply_patch(&patch);
+    hook(apply_hook_patch_func(), MSRAMHookAddress::ZERO, labels::RDRAND_XLAT, patch.addr, true)
         .error_unwrap();
 
     info!("Random 8: {:?}, {}", rdrand(), *COUNTER);
@@ -54,7 +53,7 @@ unsafe fn random_counter() {
 
     info!("Restoring...");
 
-    cpu.zero_match_and_patch().error_unwrap();
+    cpu.zero_hooks().error_unwrap();
 
     info!("Random 13: {:?}, {}", rdrand(), *COUNTER);
     info!("Random 14: {:?}, {}", rdrand(), *COUNTER);
@@ -79,19 +78,18 @@ unsafe fn random_coverage() {
     info!("Random 2: {:?}, {}", rdrand(), read_buf());
 
     let cpu = CustomProcessingUnit::new().error_unwrap();
-    cpu.init();
-    cpu.zero_match_and_patch().error_unwrap();
+    cpu.init().error_unwrap();
 
     let patch = crate::patches::test_coverage_counter;
-    cpu.patch(&patch);
-    cpu.hook(MSRAMHookAddress::ZERO, labels::RDRAND_XLAT, patch.addr)
+    apply_patch(&patch);
+    hook(apply_hook_patch_func(), MSRAMHookAddress::ZERO, labels::RDRAND_XLAT, patch.addr, true)
         .error_unwrap();
 
     info!("Random 3: {:?}, {}", rdrand(), read_buf());
     info!("Random 4: {:?}, {}", rdrand(), read_buf());
     info!("Random 5: {:?}, {}", rdrand(), read_buf());
 
-    cpu.hook(MSRAMHookAddress::ZERO, labels::RDRAND_XLAT, patch.addr)
+    hook(apply_hook_patch_func(), MSRAMHookAddress::ZERO, labels::RDRAND_XLAT, patch.addr, true)
         .error_unwrap();
 
     info!("Re-enabled coverage hook");
@@ -100,23 +98,23 @@ unsafe fn random_coverage() {
     info!("Random 7: {:?}, {}", rdrand(), read_buf());
     info!("Random 8: {:?}, {}", rdrand(), read_buf());
 
-    cpu.zero_match_and_patch().error_unwrap();
+    cpu.zero_hooks().error_unwrap();
 }
 
 #[allow(dead_code)]
 fn ldat_read() {
-    let ldat_read = custom_processing_unit::patches::ldat_read;
+    let ldat_read = custom_processing_unit::patches::func_ldat_read;
     let cpu = CustomProcessingUnit::new().error_unwrap();
-    cpu.init();
-    cpu.zero_match_and_patch().error_unwrap();
+    cpu.init().error_unwrap();
+    cpu.zero_hooks().error_unwrap();
 
-    cpu.patch(&ldat_read);
+    apply_patch(&ldat_read);
 
     let rdrand_patch = crate::patches::test_rdrand_counter_patch;
     let mut rdrand_patch_read_before = [[0usize; 4]; 8];
     assert_eq!(rdrand_patch.ucode_patch.len(), rdrand_patch_read_before.len());
     read_patch(ldat_read.addr, rdrand_patch.addr, &mut rdrand_patch_read_before);
-    cpu.patch(&rdrand_patch);
+    apply_patch(&rdrand_patch);
     let mut rdrand_patch_read = [[0usize; 4]; 8];
     assert_eq!(rdrand_patch.ucode_patch.len(), rdrand_patch_read.len());
     read_patch(ldat_read.addr, rdrand_patch.addr, &mut rdrand_patch_read);
@@ -142,7 +140,7 @@ fn ldat_read() {
         ms_patch_ram_write(UCInstructionAddress::MSRAM_START.patch_offset(i), i);
     }
 
-    cpu.patch(&ldat_read);
+    apply_patch(&ldat_read);
 
     let mut mismatch = false;
     for i in 0..128 * 3 {
@@ -166,7 +164,7 @@ fn ldat_read() {
     for i in 0..128 {
         ms_const_write(MSRAMSequenceWordAddress::ZERO + i, i);
     }
-    cpu.patch(&ldat_read);
+    apply_patch(&ldat_read);
     for i in 0..128 {
         print!("[{i:04x}] ");
         let val = ms_const_read(ldat_read.addr, MSRAMSequenceWordAddress::ZERO + i);

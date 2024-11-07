@@ -275,6 +275,18 @@ fn transform_patch<P: AsRef<Path>, Q: AsRef<Path>>(patch: P, target: Q, allow_un
 
     let allow_dead = allow_unused.then_some("#[allow(dead_code)]").unwrap_or("");
 
+    let mut labels = Vec::default();
+
+    let regex_labels = regex::Regex::new("unsigned long LABEL_([^ ]+) = (0[xX][0-9a-fA-F]+);").expect("regex compile error");
+    for capture in regex_labels.captures_iter(&content) {
+        let name = capture.get(1).expect("Capture not found").as_str();
+        let address = capture.get(2).expect("Capture not found").as_str();
+        labels.push((name.to_uppercase(), address));
+    }
+    let labels_count = labels.len();
+    let labels_const = labels.iter().map(|(label, value)| format!("#[allow(dead_code)]\npub const LABEL_{label}: UCInstructionAddress = UCInstructionAddress::from_const({value});")).collect::<Vec<String>>().join("\n");
+    let labels_array = labels.iter().map(|(label, _value)| format!("({label:?}, LABEL_{label}),")).collect::<Vec<String>>().join("\n");
+
     let regex_variables =
         regex::Regex::new("unsigned long (addr|hook_address|hook_entry) = (0[xX][0-9a-fA-F]+);")
             .expect("regex compile error");
@@ -320,16 +332,21 @@ fn transform_patch<P: AsRef<Path>, Q: AsRef<Path>>(patch: P, target: Q, allow_un
     let content = format!(
         "{AUTOGEN}
 
-        use data_types::{{UcodePatchEntry, Patch}};
+        use data_types::{{UcodePatchEntry, Patch, LabelMapping}};
         #[allow(unused_imports)]
         use data_types::addresses::{{UCInstructionAddress, MSRAMHookAddress}};
 
+        {labels_const}
+
+        const LABELS: [LabelMapping<'static>; {labels_count}] = [{labels_array}];
+
         {allow_dead}
-        pub const PATCH: Patch<'static> = Patch {{
+        pub const PATCH: Patch<'static, 'static, 'static> = Patch {{
             addr: UCInstructionAddress::from_const({}),
             ucode_patch: &UCODE_PATCH_CONTENT,
             hook_address: {},
             hook_index: {},
+            labels: &LABELS,
         }};
 
         {allow_dead}
