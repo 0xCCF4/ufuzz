@@ -1,5 +1,5 @@
 .org 0x0000
 
-#include <coverage_vars.up>
+#include <variables.up>
 #include <coverage_entry.up>
 

@@ -4,7 +4,6 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
 use std::{env, fs};
-use std::fmt::format;
 use regex::{Captures, Replacer};
 
 error_chain! {
@@ -407,7 +406,7 @@ impl Replacer for FuncIncludeReplacer {
             content = content.replace(value, arg);
         }
 
-        for (i, arg) in args.iter().enumerate() {
+        for (i, arg) in args.iter().enumerate().rev() {
             content = content.replace(format!("ARG{i}").as_str(), arg);
         }
 

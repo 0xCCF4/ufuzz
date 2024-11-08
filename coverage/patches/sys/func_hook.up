@@ -8,9 +8,9 @@ let [tmp] := tmp9
 
 func lib/pause_frontend([frontend_prev], [zero])
 
-func lib/hook_write(tmp1, tmp0, [tmp], [zero])
+func lib/ldat_write(tmp1, tmp0, [tmp], 3)
 
-func lib/restore_frontend([frontend_prev])
+func lib/resume_frontend([frontend_prev])
 
 rax:= ZEROEXT_DSZ32(0x00001337)
 rax:= CONCAT_DSZ32(rax, 0x00001337) SEQW LFNCEWAIT, UEND0

@@ -5,7 +5,7 @@ extern crate alloc;
 
 use crate::helpers::PageAllocation;
 use core::arch::asm;
-use custom_processing_unit::{apply_hook_patch_func, apply_patch, hook, labels, ms_const_read, ms_const_write, ms_patch_ram_read, ms_patch_ram_write, read_patch, stgbuf_read, stgbuf_write_raw, CustomProcessingUnit};
+use custom_processing_unit::{apply_hook_patch_func, apply_patch, disable_all_hooks, hook, labels, ms_const_read, ms_const_write, ms_match_patch_read, ms_match_patch_write, ms_patch_ram_read, ms_patch_ram_write, read_patch, stgbuf_read, stgbuf_write_raw, CustomProcessingUnit};
 use data_types::addresses::{MSRAMHookAddress, MSRAMSequenceWordAddress, UCInstructionAddress};
 use log::info;
 use uefi::boot::ScopedProtocol;
@@ -176,6 +176,28 @@ fn ldat_read() {
             mismatch = false;
         }
     }
+
+    println!("Read write test hook memory");
+    wait_for_key_press();
+    disable_all_hooks();
+
+    for i in 0..16 { // only till 63
+        ms_match_patch_write(MSRAMHookAddress::ZERO + i, i);
+    }
+    apply_patch(&ldat_read);
+    for i in 0..64 {
+        print!("[{i:04x}] ");
+        let val = ms_match_patch_read(ldat_read.addr, MSRAMHookAddress::ZERO + i);
+        let difference = if val != i { mismatch = true; "<" } else { "" };
+        println!("{val:013x} {difference}");
+
+        if i % 10 == 0 && mismatch {
+            wait_for_key_press();
+            mismatch = false;
+        }
+    }
+
+    //cpu.zero_hooks().error_unwrap();
 }
 
 #[entry]

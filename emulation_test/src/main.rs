@@ -1,7 +1,8 @@
 use std::env;
-use custom_processing_unit::{labels, CustomProcessingUnit};
+use custom_processing_unit::{apply_hook_patch_func, apply_patch, hook, labels, ms_match_patch_read, ms_match_patch_write, CustomProcessingUnit};
 use log::info;
 use std::io::Write;
+use custom_processing_unit::patches::func_ldat_read;
 use data_types::addresses::MSRAMHookAddress;
 
 mod patches;
@@ -12,26 +13,34 @@ fn random_counter() {
 
     info!("Initializing");
 
-    cpu.init();
+    cpu.init().error_unwrap();
 
     info!("Zero match and patch");
 
-    cpu.zero_match_and_patch().error_unwrap();
+    cpu.zero_hooks().error_unwrap();
 
     let patch = crate::patches::rdrand_patch;
 
     info!("Patching");
 
-    cpu.patch(&patch);
+    apply_patch(&patch);
 
     info!("Hooking");
 
-    cpu.hook(MSRAMHookAddress::ZERO, labels::RDRAND_XLAT, patch.addr)
+    hook(apply_hook_patch_func(), MSRAMHookAddress::ZERO, labels::RDRAND_XLAT, patch.addr, true)
         .error_unwrap();
 
     info!("Zero match and patch");
 
-    cpu.zero_match_and_patch().error_unwrap();
+    cpu.zero_hooks().error_unwrap();
+
+    for i in 0..63 { // only till 63
+        ms_match_patch_write(MSRAMHookAddress::ZERO + i, i);
+    }
+    apply_patch(&func_ldat_read);
+    for i in 0..64 {
+        let _ = ms_match_patch_read(func_ldat_read.addr, MSRAMHookAddress::ZERO + i);
+    }
 }
 
 fn main() {

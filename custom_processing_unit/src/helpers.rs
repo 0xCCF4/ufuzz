@@ -510,6 +510,23 @@ pub fn read_patch(
     }
 }
 
+pub fn calculate_hook_value(
+    to_hook_ucode_addr: UCInstructionAddress,
+    redirect_to_addr: UCInstructionAddress,
+    enabled: bool,
+) -> crate::Result<usize> {
+    if !to_hook_ucode_addr.hookable() {
+        return Err(
+            Error::HookFailed("patch uop address must be even and >0x7c00".to_string()).into(),
+        );
+    }
+
+    let poff = (redirect_to_addr.address() - 0x7c00) / 2;
+    let patch_value = 0x3e000000 | (poff << 16) | to_hook_ucode_addr.address() | enabled.then_some(1).unwrap_or(0);
+
+    Ok(patch_value)
+}
+
 pub fn hook(
     apply_hook_func: UCInstructionAddress,
     hook_idx: MSRAMHookAddress,
@@ -517,19 +534,7 @@ pub fn hook(
     redirect_to_addr: UCInstructionAddress,
     enabled: bool,
 ) -> crate::Result<()> {
-
-    if to_hook_ucode_addr.address() % 2 != 0 {
-        return Err(Error::HookFailed("uop address must be even".to_string()).into());
-    }
-    if redirect_to_addr.address() % 2 != 0 || redirect_to_addr.address() < 0x7c00 {
-        return Err(
-            Error::HookFailed("patch uop address must be even and >0x7c00".to_string()).into(),
-        );
-    }
-
-    //TODO: try to hook odd addresses!!
-    let poff = (redirect_to_addr.address() - 0x7c00) / 2;
-    let patch_value = 0x3e000000 | (poff << 16) | to_hook_ucode_addr.address() | enabled.then_some(1).unwrap_or(0);
+    let patch_value = calculate_hook_value(to_hook_ucode_addr, redirect_to_addr, enabled)?;
 
     let result = call_custom_ucode_function(apply_hook_func, [patch_value, hook_idx.address(), 0]);
 

@@ -126,6 +126,10 @@ impl UCInstructionAddress {
         })
     }
 
+    pub fn hookable(&self) -> bool {
+        self.0 % 2 == 0 && self.0 < 0x7c00 // todo check if <0x7c00 is necessary
+    }
+
     pub const MIN: UCInstructionAddress = UCInstructionAddress::from_const(0);
     pub const MSRAM_START: UCInstructionAddress = UCInstructionAddress::from_const(0x7c00);
     pub const MAX: UCInstructionAddress = UCInstructionAddress::from_const(0x7c00 + 4*128 - 1);

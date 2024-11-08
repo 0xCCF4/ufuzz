@@ -6,8 +6,9 @@ extern crate alloc;
 use core::arch::asm;
 use log::info;
 use uefi::prelude::*;
-use custom_processing_unit::{apply_hook_patch_func, apply_patch, hook, labels, stgbuf_read, stgbuf_write_raw, CustomProcessingUnit};
-use data_types::addresses::MSRAMHookAddress;
+use uefi::{print, println};
+use custom_processing_unit::{apply_patch, hook, labels, ms_patch_ram_read, ms_patch_ram_write, stgbuf_read, stgbuf_write_raw, CustomProcessingUnit};
+use data_types::addresses::{MSRAMHookAddress, UCInstructionAddress};
 use crate::patches::patch;
 
 mod page_allocation;
@@ -61,7 +62,7 @@ unsafe fn main() -> Status {
 
     apply_patch(&patch);
 
-    if let Err(err) = hook(patch::LABEL_FUNC_HOOK, MSRAMHookAddress::ZERO, labels::RDRAND_XLAT, patch.addr, true) {
+    if let Err(err) = hook(patch::LABEL_FUNC_HOOK, MSRAMHookAddress::ZERO+62, labels::RDRAND_XLAT, patch.addr, true) {
         info!("Failed to hook {:?}", err);
         return Status::ABORTED;
     }
@@ -83,6 +84,30 @@ unsafe fn main() -> Status {
     info!("Random 8: {:?}, {}", rdrand(), read_buf());
 
     let _ = cpu.zero_hooks();
+
+
+    for i in 0..128*3 {
+        ms_patch_ram_write(UCInstructionAddress::MSRAM_START.patch_offset(i), i);
+    }
+
+    apply_patch(&patch);
+
+    let mut mismatch = false;
+    for i in 0..128 * 3 {
+        if i % 4 == 0 {
+            continue
+        }
+        print!("[{i:04x}] ");
+        let val = ms_patch_ram_read(patch::LABEL_FUNC_LDAT_READ, UCInstructionAddress::MSRAM_START.patch_offset(i));
+        let difference = if val != i { mismatch = true; "<" } else { "" };
+        println!("{val:013x} {difference}");
+
+        if i % 10 == 0 && mismatch {
+            uefi::boot::stall(5e6 as usize);
+            mismatch = false;
+        }
+    }
+
 
     Status::SUCCESS
 }
