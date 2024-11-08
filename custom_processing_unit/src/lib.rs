@@ -6,6 +6,7 @@ use data_types::{UcodePatchEntry};
 extern crate alloc;
 #[cfg(feature = "no_std")]
 use alloc::{format, string::String};
+use data_types::addresses::UCInstructionAddress;
 
 mod helpers;
 pub use helpers::*;
@@ -74,35 +75,45 @@ impl CustomProcessingUnit {
         Ok(())
     }
 
-    /// Zeros all hook registers.
-    pub fn zero_hooks(&self) -> Result<()> {
-        let result = if self.current_glm_version == GLM_OLD {
+    pub fn apply_existing_patches(&self) {
+        if self.current_glm_version == GLM_OLD {
             // Move the patch at U7c5c to U7dfc, since it seems important for the CPU
             const EXISTING_PATCH: [UcodePatchEntry; 1] = [
                 // U7dfc: WRITEURAM(tmp5, 0x0037, 32) m2=1, NOP, NOP, SEQ_GOTO U60d2
                 [0xa04337080235, 0, 0, 0x2460d200],
             ];
             patch_ucode(0x7dfc, &EXISTING_PATCH);
+        }
+    }
+
+    pub fn apply_zero_hook_func(&self) -> Result<UCInstructionAddress> {
+        if self.current_glm_version == GLM_OLD {
+            self.apply_existing_patches();
 
             // write and execute the patch that will zero out match&patch moving
             // the 0xc entry to last entry, which will make the hook call our moved patch
             let init_patch = patches::func_init;
             patch_ucode(init_patch.addr, init_patch.ucode_patch);
 
-            call_custom_ucode_function(init_patch.addr, [0; 3])
+            Ok(init_patch.addr)
         } else if self.current_glm_version == GLM_NEW {
             // write and execute the patch that will zero out match&patch
             let init_patch = patches::func_init_glm_new;
             patch_ucode(init_patch.addr, init_patch.ucode_patch);
 
-            call_custom_ucode_function(init_patch.addr, [0; 3])
+            Ok(init_patch.addr)
         } else {
             return Err(Error::InvalidProcessor(format!(
                 "Unsupported GLM version: '{:08x}'",
                 self.current_glm_version
             ))
-            .into());
-        };
+                .into());
+        }
+    }
+
+    /// Zeros all hook registers.
+    pub fn zero_hooks_func(&self, zero_hooks_func: UCInstructionAddress) -> Result<()> {
+        let result = call_custom_ucode_function(zero_hooks_func, [0; 3]);
 
         if result.rax != 0x0000133700001337 && cfg!(not(feature = "emulation")) {
             return Err(Error::InitMatchAndPatchFailed(format!(
@@ -113,5 +124,9 @@ impl CustomProcessingUnit {
         }
 
         Ok(())
+    }
+
+    pub fn zero_hooks(&self) -> Result<()> {
+        self.zero_hooks_func(self.apply_zero_hook_func()?)
     }
 }

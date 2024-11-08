@@ -1,0 +1,17 @@
+# ARG0: addr - index of the hook
+# ARG1: value - value to write
+# ARG2: tmp - temporary value that will be overwritten
+# ARG3: zero - register holding zero value
+
+# write match&patch at location tmp1 with the value of tmp0
+
+tmp:= ZEROEXT_DSZ32(0x00000303)
+tmp:= SHL_DSZ32(tmp, 0x00000008)
+
+MOVETOCREG_DSZ64(tmp, 0x6a1) !m2
+MOVETOCREG_DSZ64(addr, 0x6a0) !m2
+
+MOVETOCREG_DSZ64(value, 0x6a4) !m2
+MOVETOCREG_DSZ64(zero, 0x6a4) !m2
+
+MOVETOCREG_DSZ64(zero, 0x6a1) !m2

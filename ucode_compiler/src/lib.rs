@@ -4,6 +4,8 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
 use std::{env, fs};
+use std::fmt::format;
+use regex::{Captures, Replacer};
 
 error_chain! {
     errors {
@@ -163,7 +165,7 @@ pub fn build_script<P: AsRef<Path>, Q: AsRef<Path>>(
         .unwrap_or("");
 
     let content = names.iter().fold(String::new(), |acc, name| {
-        acc + &format!("mod {name};\n{allow_import}pub use {name}::PATCH as {name};\n")
+        acc + &format!("pub(crate) mod {name};\n{allow_import}pub use {name}::PATCH as {name};\n")
     });
     std::fs::write(&module_path, format!("{AUTOGEN}\n\n{content}").as_str())
         .expect(format!("Failed to write {module_path:?}").as_str());
@@ -370,4 +372,86 @@ fn transform_patch<P: AsRef<Path>, Q: AsRef<Path>>(patch: P, target: Q, allow_un
         .expect("rustfmt not found")
         .wait()
         .expect("rustfmt failed");
+}
+
+#[derive(Default)]
+struct IncludeReplacer {}
+impl Replacer for IncludeReplacer {
+    fn replace_append(&mut self, caps: &Captures<'_>, dst: &mut String) {
+        let name = caps.get(2).expect("include path not given").as_str();
+        let path = PathBuf::from("patches").join(name);
+        println!("cargo:rerun-if-changed={}", path.to_string_lossy());
+        let content = std::fs::read_to_string(path).expect("read failed");
+        dst.push_str(&content);
+    }
+}
+
+#[derive(Default)]
+struct FuncIncludeReplacer {}
+impl Replacer for FuncIncludeReplacer {
+    fn replace_append(&mut self, caps: &Captures<'_>, dst: &mut String) {
+        let name = caps.get(1).expect("func name not given").as_str();
+        let args = caps.get(2).expect("func args not given").as_str();
+
+        let args_regex = regex::Regex::new(r" *([^,) ]+) *").expect("regex compile error");
+        let args = args_regex.captures_iter(args).map(|c| c.get(1).expect("arg not found").as_str()).collect::<Vec<&str>>();
+
+        let path = PathBuf::from("patches").join(name).with_extension("func");
+        println!("cargo:rerun-if-changed={}", path.to_string_lossy());
+        let mut content = std::fs::read_to_string(path).expect("read failed");
+
+        let rewrite_regex = regex::Regex::new(r"# ?(ARG\d+) ?: ?(\S+)").expect("regex compile error");
+        for cap in rewrite_regex.captures_iter(content.clone().as_str()) {
+            let arg = cap.get(1).expect("arg not found").as_str();
+            let value = cap.get(2).expect("value not found").as_str();
+            content = content.replace(value, arg);
+        }
+
+        for (i, arg) in args.iter().enumerate() {
+            content = content.replace(format!("ARG{i}").as_str(), arg);
+        }
+
+        dst.push_str(format!("#------------- FUNCTION {name}\n").as_str());
+        dst.push_str(&content);
+        dst.push_str(format!("\n#------------- END FUNCTION {name}\n").as_str());
+    }
+}
+
+pub fn preprocess_scripts<A: AsRef<Path>, B: AsRef<Path>>(src: A, dst: B) {
+    let include_regex = regex::Regex::new(r" *include( <?([^>]+)>?)?").expect("regex compile error");
+    let func_include_regex = regex::Regex::new(r" *func *([\S/]+) *\(([^,)]*(, ?[^,)]*)*)\)").expect("regex compile error");
+
+    for file in dst.as_ref()
+        .read_dir()
+        .expect("Target directory not readable") {
+
+        let file = file.expect("Target file not found").path();
+
+        if file.extension().map(|o| o.to_string_lossy().to_string()).unwrap_or("".to_string()) == "u" {
+            std::fs::remove_file(file).unwrap()
+        }
+    }
+
+    for file in src
+        .as_ref()
+        .read_dir()
+        .expect("Source directory not readable")
+    {
+        let file = file.expect("Target file not found").path();
+
+        println!("cargo:rerun-if-changed={}", file.to_string_lossy());
+
+        if file.extension().map(|o| o.to_string_lossy().to_string()).unwrap_or("".to_string()) != "u" {
+            continue;
+        }
+
+        let content = std::fs::read_to_string(&file).expect("read failed");
+
+        let target_content = include_regex.replace_all(&content, IncludeReplacer::default()).to_string();
+        let target_content = func_include_regex.replace_all(&target_content, FuncIncludeReplacer::default()).to_string();
+
+        let target_file = dst.as_ref().join(file.file_name().expect("file name error"));
+
+        std::fs::write(target_file, target_content).expect("write failed");
+    }
 }

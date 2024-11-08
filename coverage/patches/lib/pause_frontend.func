@@ -1,0 +1,5 @@
+# ARG0: prev - previous value of the creg
+# ARG1: zero - zeroed register
+
+prev := MOVEFROMCREG_DSZ64( , 0x38c)
+MOVETOCREG_DSZ64(zero, 0x38c) !m2

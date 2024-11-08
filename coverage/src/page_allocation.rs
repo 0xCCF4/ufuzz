@@ -1,4 +1,3 @@
-use crate::error_unwrap::ErrorUnwrap;
 use core::ptr::NonNull;
 use uefi::boot::{AllocateType, MemoryType};
 use uefi::data_types::PhysicalAddress;
@@ -10,7 +9,7 @@ pub struct PageAllocation {
 
 impl Drop for PageAllocation {
     fn drop(&mut self) {
-        unsafe { uefi::boot::free_pages(self.base, self.count).error_unwrap() }
+        unsafe { uefi::boot::free_pages(self.base, self.count).expect("Unable to free pages") }
     }
 }
 

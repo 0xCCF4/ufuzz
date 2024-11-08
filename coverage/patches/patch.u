@@ -1,15 +1,7 @@
 .org 0x7c00
 
-#include <coverage_vars.up>
-
-<entry>
-#include <coverage_entry.up>
-
-<handler>
-#include <coverage_handler.up>
-
-<exit>
-#include <coverage_exit.up>
+<fake_rnd>
+rax := ZEROEXT_DSZ32(0x000000aa) SEQW LFNCEWAIT, UEND0
 
 <func_hook>
-#include <func_hook.up>
+include <sys/func_hook.up>
