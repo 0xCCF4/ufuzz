@@ -130,7 +130,8 @@ impl UCInstructionAddress {
         self.0 % 2 == 0 && self.0 < 0x7c00 // todo check if <0x7c00 is necessary
     }
 
-    pub const MIN: UCInstructionAddress = UCInstructionAddress::from_const(0);
+    pub const ZERO: UCInstructionAddress = UCInstructionAddress::from_const(0);
+    pub const MIN: UCInstructionAddress = UCInstructionAddress::ZERO;
     pub const MSRAM_START: UCInstructionAddress = UCInstructionAddress::from_const(0x7c00);
     pub const MAX: UCInstructionAddress = UCInstructionAddress::from_const(0x7c00 + 4*128 - 1);
 }
@@ -389,7 +390,7 @@ impl Address for MSRAMHookAddress {
 impl MSRAMHookAddress {
     #[track_caller]
     pub const fn from_const(value: usize) -> Self {
-        if value >= 64*2 {
+        if value >= 32*2 {
             panic!("Address out of bounds exception. Address is larger than limit 0x7F.")
         }
         if (value & 1) > 0 {
@@ -400,7 +401,7 @@ impl MSRAMHookAddress {
     }
     pub const ZERO: Self = MSRAMHookAddress::from_const(0);
     pub const MIN: Self = MSRAMHookAddress::ZERO;
-    pub const MAX: Self = MSRAMHookAddress::from_const(64 - 2);
+    pub const MAX: Self = MSRAMHookAddress::from_const(32 - 2);
 }
 impl MSRAMAddress for MSRAMHookAddress {}
 impl fmt::Display for MSRAMHookAddress {
