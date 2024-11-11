@@ -238,16 +238,11 @@ fn read_paper_database(sort_by_relevance: bool) -> Result<Vec<RelevancePaper>> {
                     }
                 });
 
-                match literature_status {
-                    Some(_) => {
-                        if excluded_find.is_some() {
-                            println!(
-                                "Also found excluded version for {}",
-                                paper.paper.title.clone().unwrap_or("<unknown>".to_string())
-                            );
-                        }
-                    }
-                    _ => {}
+                if literature_status.is_some() && excluded_find.is_some() {
+                    println!(
+                        "Also found excluded version for {}",
+                        paper.paper.title.clone().unwrap_or("<unknown>".to_string())
+                    );
                 }
 
                 if let Some(status) = literature_status {
@@ -268,7 +263,7 @@ fn read_paper_database(sort_by_relevance: bool) -> Result<Vec<RelevancePaper>> {
                         if let Some(id) = &citation.paper_id {
                             let entry = reference_count.entry(id.clone()).or_insert(0u32);
 
-                            *entry += multiplicator * 1;
+                            *entry += multiplicator;
                         }
                     }
                 }
@@ -283,8 +278,8 @@ fn read_paper_database(sort_by_relevance: bool) -> Result<Vec<RelevancePaper>> {
     if sort_by_relevance {
         result.sort_by(|a, b| {
             if let (Some(id_a), Some(id_b)) = (&a.paper.paper_id, &b.paper.paper_id) {
-                let ord_a = reference_count.get(id_a).unwrap_or(&0).clone();
-                let ord_b = reference_count.get(id_b).unwrap_or(&0).clone();
+                let ord_a = *reference_count.get(id_a).unwrap_or(&0);
+                let ord_b = *reference_count.get(id_b).unwrap_or(&0);
                 ord_b.cmp(&ord_a)
             } else if a.paper.paper_id.is_none() && b.paper.paper_id.is_some() {
                 Ordering::Greater
@@ -348,7 +343,7 @@ async fn keyword_search_all() -> Result<()> {
 }
 
 #[allow(dead_code)]
-fn sifting(papers: &Vec<RelevancePaper>, term: &mut DefaultTerminal) -> Result<bool> {
+fn sifting(papers: &[RelevancePaper], term: &mut DefaultTerminal) -> Result<bool> {
     let mut ok_papers = std::fs::read_to_string("ok_papers.json")
         .map(|data| serde_json::from_str::<Vec<IncludedPaper>>(&data).unwrap_or_default())
         .unwrap_or_default();
@@ -462,7 +457,7 @@ fn sifting(papers: &Vec<RelevancePaper>, term: &mut DefaultTerminal) -> Result<b
                             .map(|x| ": ".to_string() + &x)
                             .unwrap_or("".to_string()),
                     ));
-                    fn highlight<'a, 'b>(regex: &'a Regex, text: String) -> Vec<Span<'b>> {
+                    fn highlight(regex: &Regex, text: String) -> Vec<Span> {
                         let mut result = Vec::new();
 
                         let mut index = 0;
@@ -500,8 +495,7 @@ fn sifting(papers: &Vec<RelevancePaper>, term: &mut DefaultTerminal) -> Result<b
                                     format!(
                                         ": {}",
                                         paper.paper.title.clone().unwrap_or("<no title>".into())
-                                    )
-                                    .into(),
+                                    ),
                                 )),
                         ),
                         "".into(),
@@ -518,8 +512,7 @@ fn sifting(papers: &Vec<RelevancePaper>, term: &mut DefaultTerminal) -> Result<b
                                             .unwrap_or_default()
                                             .text
                                             .unwrap_or("<no tldr>".into())
-                                    )
-                                    .into(),
+                                    ),
                                 )),
                         ),
                         "".into(),
@@ -540,8 +533,7 @@ fn sifting(papers: &Vec<RelevancePaper>, term: &mut DefaultTerminal) -> Result<b
                                             .abstract_text
                                             .clone()
                                             .unwrap_or("<no abstract>".into())
-                                    )
-                                    .into(),
+                                    ),
                                 )),
                         ),
                     ]
@@ -561,7 +553,7 @@ fn sifting(papers: &Vec<RelevancePaper>, term: &mut DefaultTerminal) -> Result<b
                 && key.code == KeyCode::Char('q')
             {
                 return Ok(papers.iter().all(|p| {
-                    ok_papers.iter().any(|op| &op.paper == &p.paper)
+                    ok_papers.iter().any(|op| op.paper == p.paper)
                         || excluded_papers.iter().any(|op| op == &p.paper)
                 }));
             }
@@ -758,7 +750,7 @@ fn sifting(papers: &Vec<RelevancePaper>, term: &mut DefaultTerminal) -> Result<b
                         let mut delete = false;
                         if let Some(msg) = &mut paper.message {
                             *msg = msg.trim().to_string();
-                            delete = msg.len() == 0;
+                            delete = msg.is_empty();
                         }
                         if delete {
                             paper.message = None;
@@ -784,10 +776,9 @@ fn sifting(papers: &Vec<RelevancePaper>, term: &mut DefaultTerminal) -> Result<b
             if mode == Mode::Sifting
                 && key.kind == KeyEventKind::Press
                 && key.code == KeyCode::Char('m')
+                && current_paper.is_some()
             {
-                if current_paper.is_some() {
-                    mode = Mode::Comment;
-                }
+                mode = Mode::Comment;
             }
 
             if save {
@@ -813,7 +804,7 @@ fn sifting(papers: &Vec<RelevancePaper>, term: &mut DefaultTerminal) -> Result<b
 }
 
 fn load_sifted_papers(
-    all_papers: &Vec<RelevancePaper>,
+    all_papers: &[RelevancePaper],
     only_core_literature: bool,
 ) -> Result<Vec<(RelevancePaper, IncludedPaper)>> {
     let papers_ok = std::fs::read_to_string("ok_papers.json")
@@ -876,7 +867,7 @@ async fn expand_papers(all_papers: &mut Vec<RelevancePaper>) -> Result<()> {
         Ok(())
     }
 
-    for core_paper in load_sifted_papers(&all_papers, true)? {
+    for core_paper in load_sifted_papers(all_papers, true)? {
         let mut related = core_paper.0.references.clone();
         related.append(&mut core_paper.0.citations.clone());
 
@@ -911,7 +902,7 @@ async fn update_database(all_papers: &mut Vec<RelevancePaper>) -> Result<()> {
 
     for (i, paper) in all_papers.iter_mut().enumerate() {
         println!("Updating paper {i}/{len}");
-        let new_paper_data = paper.paper.paper_id.clone().map(|id| query_paper_data(id));
+        let new_paper_data = paper.paper.paper_id.clone().map(query_paper_data);
         if let Some(new_paper_data) = new_paper_data {
             let new_paper_data = new_paper_data.await?;
 
@@ -948,7 +939,7 @@ fn export_bibtex(papers: &Vec<(RelevancePaper, IncludedPaper)>) -> Result<()> {
                     IncludedPaperStatus::CoreLiterature => "core",
                     IncludedPaperStatus::SideInformation => "side",
                 });
-                bibtex.push_str(",");
+                bibtex.push(',');
                 if doi.is_none() {
                     bibtex.push_str("no-doi,");
                 }

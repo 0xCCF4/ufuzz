@@ -3,17 +3,19 @@
 
 extern crate alloc;
 
+use crate::patches::patch;
 use core::arch::asm;
+use custom_processing_unit::{
+    apply_patch, hook, labels, ms_hook_read,
+    stgbuf_read, stgbuf_write_raw, CustomProcessingUnit,
+};
+use data_types::addresses::{MSRAMHookIndex};
 use log::info;
 use uefi::prelude::*;
 use uefi::{print, println};
-use custom_processing_unit::{apply_patch, hook, labels, ms_patch_ram_read, ms_patch_ram_write, stgbuf_read, stgbuf_write_raw, CustomProcessingUnit};
-use data_types::addresses::{MSRAMHookAddress, UCInstructionAddress};
-use crate::patches::patch;
 
 mod page_allocation;
 mod patches;
-
 
 #[entry]
 unsafe fn main() -> Status {
@@ -62,7 +64,13 @@ unsafe fn main() -> Status {
 
     apply_patch(&patch);
 
-    if let Err(err) = hook(patch::LABEL_FUNC_HOOK, MSRAMHookAddress::ZERO+62, labels::RDRAND_XLAT, patch.addr, true) {
+    if let Err(err) = hook(
+        patch::LABEL_FUNC_HOOK,
+        MSRAMHookIndex::ZERO,
+        labels::RDRAND_XLAT,
+        patch.addr,
+        true,
+    ) {
         info!("Failed to hook {:?}", err);
         return Status::ABORTED;
     }
@@ -72,7 +80,13 @@ unsafe fn main() -> Status {
     info!("Random 4: {:?}, {}", rdrand(), read_buf());
     info!("Random 5: {:?}, {}", rdrand(), read_buf());
 
-    if let Err(err) = hook(patch::LABEL_FUNC_HOOK, MSRAMHookAddress::ZERO, labels::RDRAND_XLAT, patch::LABEL_FAKE_RND, true) {
+    if let Err(err) = hook(
+        patch::LABEL_FUNC_HOOK,
+        MSRAMHookIndex::ZERO,
+        labels::RDRAND_XLAT,
+        patch::LABEL_FAKE_RND,
+        true,
+    ) {
         info!("Failed to hook {:?}", err);
         return Status::ABORTED;
     }
@@ -85,29 +99,14 @@ unsafe fn main() -> Status {
 
     let _ = cpu.zero_hooks();
 
-
-    for i in 0..128*3 {
-        ms_patch_ram_write(UCInstructionAddress::MSRAM_START.patch_offset(i), i);
-    }
-
-    apply_patch(&patch);
-
-    let mut mismatch = false;
-    for i in 0..128 * 3 {
-        if i % 4 == 0 {
-            continue
+    for i in 0..32 {
+        if i > 31 {
+            break;
         }
         print!("[{i:04x}] ");
-        let val = ms_patch_ram_read(patch::LABEL_FUNC_LDAT_READ, UCInstructionAddress::MSRAM_START.patch_offset(i));
-        let difference = if val != i { mismatch = true; "<" } else { "" };
-        println!("{val:013x} {difference}");
-
-        if i % 10 == 0 && mismatch {
-            uefi::boot::stall(5e6 as usize);
-            mismatch = false;
-        }
+        let val = ms_hook_read(patch::LABEL_FUNC_LDAT_READ, MSRAMHookIndex::ZERO + i);
+        println!("{val:013x}");
     }
-
 
     Status::SUCCESS
 }

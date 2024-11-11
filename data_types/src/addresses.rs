@@ -1,4 +1,4 @@
-use crate::std::fmt;
+use crate::cstd::fmt;
 use core::ops::{Add, Div, Mul, Sub};
 
 pub trait Address:
@@ -22,6 +22,7 @@ impl Address for LinearAddress {
     }
 }
 impl LinearAddress {
+    #[track_caller]
     pub const fn from_const(value: usize) -> Self {
         LinearAddress(value)
     }
@@ -29,11 +30,13 @@ impl LinearAddress {
     pub const MIN: LinearAddress = LinearAddress::ZERO;
 }
 impl From<usize> for LinearAddress {
+    #[track_caller]
     fn from(value: usize) -> Self {
         LinearAddress::from_const(value)
     }
 }
 impl From<LinearAddress> for usize {
+    #[track_caller]
     fn from(value: LinearAddress) -> Self {
         value.0
     }
@@ -51,6 +54,7 @@ impl fmt::Debug for LinearAddress {
 impl Add<usize> for LinearAddress {
     type Output = Self;
 
+    #[track_caller]
     fn add(self, other: usize) -> Self {
         LinearAddress::from_const(self.0 + other)
     }
@@ -58,6 +62,7 @@ impl Add<usize> for LinearAddress {
 impl Sub<usize> for LinearAddress {
     type Output = Self;
 
+    #[track_caller]
     fn sub(self, other: usize) -> Self {
         LinearAddress::from(self.0 - other)
     }
@@ -65,12 +70,14 @@ impl Sub<usize> for LinearAddress {
 impl Mul<usize> for LinearAddress {
     type Output = Self;
 
+    #[track_caller]
     fn mul(self, other: usize) -> Self {
         LinearAddress::from_const(self.0 * other)
     }
 }
 impl Div<usize> for LinearAddress {
     type Output = Self;
+    #[track_caller]
 
     fn div(self, other: usize) -> Self {
         LinearAddress::from_const(self.0 / other)
@@ -91,7 +98,7 @@ impl Address for UCInstructionAddress {
 impl UCInstructionAddress {
     #[track_caller]
     pub const fn from_const(value: usize) -> Self {
-        if value >= 0x7c00 + 4*128 {
+        if value >= 0x7c00 + 4 * 128 {
             panic!("Address out of bounds exception. Address is larger than addressing region [0;7DFF].")
         }
 
@@ -119,11 +126,7 @@ impl UCInstructionAddress {
     /// [7c00, 7c01, 7c02, 7c04, 7c05, ...] skipping each forth address
     pub fn next_patch_address(&self) -> Self {
         let addr = self.0 + 1;
-        UCInstructionAddress::from_const(if (addr & 3) == 3 {
-            addr + 1
-        } else {
-            addr
-        })
+        UCInstructionAddress::from_const(if (addr & 3) == 3 { addr + 1 } else { addr })
     }
 
     pub fn hookable(&self) -> bool {
@@ -133,7 +136,7 @@ impl UCInstructionAddress {
     pub const ZERO: UCInstructionAddress = UCInstructionAddress::from_const(0);
     pub const MIN: UCInstructionAddress = UCInstructionAddress::ZERO;
     pub const MSRAM_START: UCInstructionAddress = UCInstructionAddress::from_const(0x7c00);
-    pub const MAX: UCInstructionAddress = UCInstructionAddress::from_const(0x7c00 + 4*128 - 1);
+    pub const MAX: UCInstructionAddress = UCInstructionAddress::from_const(0x7c00 + 4 * 128 - 1);
 }
 
 impl fmt::Display for UCInstructionAddress {
@@ -149,27 +152,32 @@ impl fmt::Debug for UCInstructionAddress {
 }
 
 impl From<LinearAddress> for UCInstructionAddress {
+    #[track_caller]
     fn from(value: LinearAddress) -> Self {
         UCInstructionAddress::from_const(value.0)
     }
 }
 impl From<usize> for UCInstructionAddress {
+    #[track_caller]
     fn from(value: usize) -> Self {
         UCInstructionAddress::from_const(value)
     }
 }
 impl From<UCInstructionAddress> for usize {
+    #[track_caller]
     fn from(value: UCInstructionAddress) -> Self {
         value.0
     }
 }
 impl From<UCInstructionAddress> for LinearAddress {
+    #[track_caller]
     fn from(value: UCInstructionAddress) -> Self {
         LinearAddress::from_const(value.0)
     }
 }
 impl Add<usize> for UCInstructionAddress {
     type Output = Self;
+    #[track_caller]
 
     fn add(self, other: usize) -> Self {
         UCInstructionAddress::from_const(self.0 + other)
@@ -177,6 +185,7 @@ impl Add<usize> for UCInstructionAddress {
 }
 impl Sub<usize> for UCInstructionAddress {
     type Output = Self;
+    #[track_caller]
 
     fn sub(self, other: usize) -> Self {
         UCInstructionAddress::from_const(self.0 - other)
@@ -200,7 +209,7 @@ impl Address for MSRAMInstructionPartWriteAddress {
 impl MSRAMInstructionPartWriteAddress {
     #[track_caller]
     pub const fn from_const(value: usize) -> Self {
-        if value >= 128*4 {
+        if value >= 128 * 4 {
             panic!("Address out of bounds. Address value exceeds size limit of 1FF.")
         }
         if (value & 3) == 3 {
@@ -208,9 +217,11 @@ impl MSRAMInstructionPartWriteAddress {
         }
         MSRAMInstructionPartWriteAddress(value)
     }
-    pub const ZERO: MSRAMInstructionPartWriteAddress = MSRAMInstructionPartWriteAddress::from_const(0);
+    pub const ZERO: MSRAMInstructionPartWriteAddress =
+        MSRAMInstructionPartWriteAddress::from_const(0);
     pub const MIN: MSRAMInstructionPartWriteAddress = MSRAMInstructionPartWriteAddress::ZERO;
-    pub const MAX: MSRAMInstructionPartWriteAddress = MSRAMInstructionPartWriteAddress::from_const(128 * 4 - 2);
+    pub const MAX: MSRAMInstructionPartWriteAddress =
+        MSRAMInstructionPartWriteAddress::from_const(128 * 4 - 2);
 }
 impl MSRAMAddress for MSRAMInstructionPartWriteAddress {}
 impl fmt::Display for MSRAMInstructionPartWriteAddress {
@@ -224,6 +235,7 @@ impl fmt::Debug for MSRAMInstructionPartWriteAddress {
     }
 }
 impl From<LinearAddress> for MSRAMInstructionPartWriteAddress {
+    #[track_caller]
     fn from(value: LinearAddress) -> Self {
         MSRAMInstructionPartWriteAddress::from_const(value.0)
     }
@@ -233,7 +245,10 @@ impl From<UCInstructionAddress> for MSRAMInstructionPartWriteAddress {
     fn from(value: UCInstructionAddress) -> Self {
         let addr = value.0;
         if addr < 0x7c00 {
-            panic!("Address is not in the ucode RAM: {}. RAM starts at 0x7c00.", addr);
+            panic!(
+                "Address is not in the ucode RAM: {}. RAM starts at 0x7c00.",
+                addr
+            );
         }
         let addr = addr - 0x7c00;
 
@@ -241,11 +256,13 @@ impl From<UCInstructionAddress> for MSRAMInstructionPartWriteAddress {
     }
 }
 impl From<MSRAMInstructionPartWriteAddress> for LinearAddress {
+    #[track_caller]
     fn from(value: MSRAMInstructionPartWriteAddress) -> Self {
         LinearAddress::from_const(value.0)
     }
 }
 impl From<MSRAMInstructionPartWriteAddress> for UCInstructionAddress {
+    #[track_caller]
     fn from(value: MSRAMInstructionPartWriteAddress) -> Self {
         let addr = value.0;
 
@@ -263,18 +280,21 @@ impl Address for MSRAMInstructionPartReadAddress {
 impl MSRAMInstructionPartReadAddress {
     #[track_caller]
     pub const fn from_const(value: usize) -> Self {
-        if value >= 128*3 {
+        if value >= 128 * 3 {
             panic!("Memory out out bounds. Address value is larger than limit 1FF.")
         }
 
         MSRAMInstructionPartReadAddress(value)
     }
-    pub const ZERO: MSRAMInstructionPartReadAddress = MSRAMInstructionPartReadAddress::from_const(0);
+    pub const ZERO: MSRAMInstructionPartReadAddress =
+        MSRAMInstructionPartReadAddress::from_const(0);
     pub const MIN: MSRAMInstructionPartReadAddress = MSRAMInstructionPartReadAddress::ZERO;
-    pub const MAX: MSRAMInstructionPartReadAddress = MSRAMInstructionPartReadAddress::from_const(128 * 3 -1);
+    pub const MAX: MSRAMInstructionPartReadAddress =
+        MSRAMInstructionPartReadAddress::from_const(128 * 3 - 1);
 }
 impl MSRAMAddress for MSRAMInstructionPartReadAddress {}
 impl From<MSRAMInstructionPartWriteAddress> for MSRAMInstructionPartReadAddress {
+    #[track_caller]
     fn from(value: MSRAMInstructionPartWriteAddress) -> Self {
         let base = value.0 / 4;
         let offset = value.0 % 4;
@@ -282,6 +302,7 @@ impl From<MSRAMInstructionPartWriteAddress> for MSRAMInstructionPartReadAddress 
     }
 }
 impl From<MSRAMInstructionPartReadAddress> for MSRAMInstructionPartWriteAddress {
+    #[track_caller]
     fn from(value: MSRAMInstructionPartReadAddress) -> Self {
         let base = value.0 / 0x80;
         let offset = value.0 % 0x80;
@@ -289,11 +310,13 @@ impl From<MSRAMInstructionPartReadAddress> for MSRAMInstructionPartWriteAddress 
     }
 }
 impl From<UCInstructionAddress> for MSRAMInstructionPartReadAddress {
+    #[track_caller]
     fn from(value: UCInstructionAddress) -> Self {
         Self::from(MSRAMInstructionPartWriteAddress::from(value))
     }
 }
 impl From<MSRAMInstructionPartReadAddress> for UCInstructionAddress {
+    #[track_caller]
     fn from(value: MSRAMInstructionPartReadAddress) -> Self {
         Self::from(MSRAMInstructionPartWriteAddress::from(value))
     }
@@ -344,34 +367,40 @@ impl fmt::Debug for MSRAMSequenceWordAddress {
     }
 }
 impl From<UCInstructionAddress> for MSRAMSequenceWordAddress {
+    #[track_caller]
     fn from(value: UCInstructionAddress) -> Self {
-        MSRAMSequenceWordAddress::from_const((value.0-0x7c00) / 4)
+        MSRAMSequenceWordAddress::from_const((value.0 - 0x7c00) / 4)
     }
 }
 impl From<LinearAddress> for MSRAMSequenceWordAddress {
+    #[track_caller]
     fn from(value: LinearAddress) -> Self {
         let addr = value.address();
         MSRAMSequenceWordAddress::from_const(addr)
     }
 }
 impl From<MSRAMSequenceWordAddress> for UCInstructionAddress {
+    #[track_caller]
     fn from(value: MSRAMSequenceWordAddress) -> Self {
         UCInstructionAddress::from_const(0x7c00 + value.0 * 4)
     }
 }
 impl From<MSRAMSequenceWordAddress> for LinearAddress {
+    #[track_caller]
     fn from(value: MSRAMSequenceWordAddress) -> Self {
         LinearAddress::from(value.0)
     }
 }
 impl Add<usize> for MSRAMSequenceWordAddress {
     type Output = MSRAMSequenceWordAddress;
+    #[track_caller]
     fn add(self, rhs: usize) -> Self::Output {
         MSRAMSequenceWordAddress::from_const(self.0 + rhs)
     }
 }
 impl Sub<usize> for MSRAMSequenceWordAddress {
     type Output = MSRAMSequenceWordAddress;
+    #[track_caller]
     fn sub(self, rhs: usize) -> Self::Output {
         MSRAMSequenceWordAddress::from_const(self.0 - rhs)
     }
@@ -379,65 +408,66 @@ impl Sub<usize> for MSRAMSequenceWordAddress {
 
 /// A patch index address. In the hook RAM hooks are labeled with an index.
 /// This address is used when writing or reading patch hooks.
-/// Patch indexes are multiples of 2 and start at 0.
+/// Patch indexes are multiples of 1 and start at 0. Till 31
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct MSRAMHookAddress(usize);
-impl Address for MSRAMHookAddress {
+pub struct MSRAMHookIndex(usize);
+impl Address for MSRAMHookIndex {
     fn address(&self) -> usize {
-        self.0
+        self.0 * 2
     }
 }
-impl MSRAMHookAddress {
+impl MSRAMHookIndex {
     #[track_caller]
     pub const fn from_const(value: usize) -> Self {
-        if value >= 32*2 {
-            panic!("Address out of bounds exception. Address is larger than limit 0x7F.")
-        }
-        if (value & 1) > 0 {
-            panic!("Illegal hook address. Hook addresses must be even. Address given was odd.")
+        if value >= 32 {
+            panic!("Index out of bounds exception. Index must be smaller than 32.")
         }
 
-        MSRAMHookAddress(value)
+        MSRAMHookIndex(value)
     }
-    pub const ZERO: Self = MSRAMHookAddress::from_const(0);
-    pub const MIN: Self = MSRAMHookAddress::ZERO;
-    pub const MAX: Self = MSRAMHookAddress::from_const(32 - 2);
+    pub const ZERO: Self = MSRAMHookIndex::from_const(0);
+    pub const MIN: Self = MSRAMHookIndex::ZERO;
+    pub const MAX: Self = MSRAMHookIndex::from_const(31);
 }
-impl MSRAMAddress for MSRAMHookAddress {}
-impl fmt::Display for MSRAMHookAddress {
+impl MSRAMAddress for MSRAMHookIndex {}
+impl fmt::Display for MSRAMHookIndex {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "H{:04x}", self.0)
     }
 }
-impl fmt::Debug for MSRAMHookAddress {
+impl fmt::Debug for MSRAMHookIndex {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "H{:04x}", self.0)
     }
 }
-impl From<LinearAddress> for MSRAMHookAddress {
+impl From<LinearAddress> for MSRAMHookIndex {
+    #[track_caller]
     fn from(value: LinearAddress) -> Self {
-        MSRAMHookAddress::from_const(value.address() * 2)
+        MSRAMHookIndex::from_const(value.address())
     }
 }
-impl From<MSRAMHookAddress> for LinearAddress {
-    fn from(value: MSRAMHookAddress) -> Self {
-        LinearAddress::from_const(value.0 / 2)
+impl From<MSRAMHookIndex> for LinearAddress {
+    #[track_caller]
+    fn from(value: MSRAMHookIndex) -> Self {
+        LinearAddress::from_const(value.0)
     }
 }
 
-impl Add<usize> for MSRAMHookAddress {
+impl Add<usize> for MSRAMHookIndex {
     type Output = Self;
 
+    #[track_caller]
     fn add(self, other: usize) -> Self {
-        MSRAMHookAddress::from_const(self.0 + other*2)
+        MSRAMHookIndex::from_const(self.0 + other)
     }
 }
 
-impl Sub<usize> for MSRAMHookAddress {
+impl Sub<usize> for MSRAMHookIndex {
     type Output = Self;
+    #[track_caller]
 
     fn sub(self, other: usize) -> Self {
-        MSRAMHookAddress::from_const(self.0 - other*2)
+        MSRAMHookIndex::from_const(self.0 - other)
     }
 }
 
@@ -476,8 +506,22 @@ mod tests {
         for (a, b) in tests {
             let b_from_a = B::from(*a);
             let a_from_b = A::from(*b);
-            assert_eq!(b_from_a.address(), b.address(), "Converting A to B: {:04x} -> expected {:04x} got {:04x}", a.address(), b.address(), b_from_a.address());
-            assert_eq!(a_from_b.address(), a.address(), "Converting B to A: {:04x} -> expected {:04x} got {:04x}", b.address(), a.address(), a_from_b.address());
+            assert_eq!(
+                b_from_a.address(),
+                b.address(),
+                "Converting A to B: {:04x} -> expected {:04x} got {:04x}",
+                a.address(),
+                b.address(),
+                b_from_a.address()
+            );
+            assert_eq!(
+                a_from_b.address(),
+                a.address(),
+                "Converting B to A: {:04x} -> expected {:04x} got {:04x}",
+                b.address(),
+                a.address(),
+                a_from_b.address()
+            );
         }
     }
 
@@ -492,7 +536,7 @@ mod tests {
 
     fn ucode_addr_to_patch_seqword_addr(addr: usize) -> usize {
         let base = addr - 0x7c00;
-        let seq_addr = (base%4) * 0x80 + (base/4);
+        let seq_addr = (base % 4) * 0x80 + (base / 4);
         seq_addr % 0x80
     }
 
@@ -529,7 +573,9 @@ mod tests {
 
         for i in 0..0x1f {
             let la = LinearAddress(i);
-            let patch_addr = MSRAMSequenceWordAddress::from_const(ucode_addr_to_patch_seqword_addr(4*i+0x7c00));
+            let patch_addr = MSRAMSequenceWordAddress::from_const(
+                ucode_addr_to_patch_seqword_addr(4 * i + 0x7c00),
+            );
             tests.push((la, patch_addr));
         }
         conversion_harness(&tests);
@@ -539,9 +585,10 @@ mod tests {
     fn test_convert_uc_seqw_patch() {
         let mut tests = Vec::default();
 
-        for i in 0x7c00..0x7c00+0xFF {
+        for i in 0x7c00..0x7c00 + 0xFF {
             let la = UCInstructionAddress(i & !0x3);
-            let patch_addr = MSRAMSequenceWordAddress::from_const(ucode_addr_to_patch_seqword_addr(i));
+            let patch_addr =
+                MSRAMSequenceWordAddress::from_const(ucode_addr_to_patch_seqword_addr(i));
             tests.push((la, patch_addr));
         }
         conversion_harness(&tests);
@@ -550,11 +597,11 @@ mod tests {
     #[test]
     fn test_convert_la_hook() {
         let tests = vec![
-            (LinearAddress(0), MSRAMHookAddress(0)),
-            (LinearAddress(1), MSRAMHookAddress(2)),
-            (LinearAddress(2), MSRAMHookAddress(4)),
-            (LinearAddress(3), MSRAMHookAddress(6)),
-            (LinearAddress(4), MSRAMHookAddress(8)),
+            (LinearAddress(0), MSRAMHookIndex(0)),
+            (LinearAddress(1), MSRAMHookIndex(2)),
+            (LinearAddress(2), MSRAMHookIndex(4)),
+            (LinearAddress(3), MSRAMHookIndex(6)),
+            (LinearAddress(4), MSRAMHookIndex(8)),
         ];
         conversion_harness(&tests);
     }

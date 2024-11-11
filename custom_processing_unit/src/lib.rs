@@ -1,6 +1,6 @@
 #![cfg_attr(feature = "no_std", no_std)]
 
-use data_types::{UcodePatchEntry};
+use data_types::UcodePatchEntry;
 
 #[cfg(feature = "no_std")]
 extern crate alloc;
@@ -47,24 +47,21 @@ impl CustomProcessingUnit {
     pub fn new() -> Result<CustomProcessingUnit> {
         let current_glm_version = detect_glm_version();
 
-        if current_glm_version == GLM_OLD {
-            Ok(CustomProcessingUnit {
-                current_glm_version,
-            })
-        } else if current_glm_version == GLM_NEW {
+        if matches!(current_glm_version, GLM_OLD | GLM_NEW) {
             Ok(CustomProcessingUnit {
                 current_glm_version,
             })
         } else {
             if cfg!(feature = "emulation") {
-                return Ok(CustomProcessingUnit { current_glm_version: GLM_OLD});
+                return Ok(CustomProcessingUnit {
+                    current_glm_version: GLM_OLD,
+                });
             }
 
             Err(Error::InvalidProcessor(format!(
                 "Unsupported GLM version: '{:08x}'",
                 current_glm_version
-            ))
-            .into())
+            )))
         }
     }
 
@@ -106,8 +103,7 @@ impl CustomProcessingUnit {
             return Err(Error::InvalidProcessor(format!(
                 "Unsupported GLM version: '{:08x}'",
                 self.current_glm_version
-            ))
-                .into());
+            )));
         }
     }
 
@@ -119,8 +115,7 @@ impl CustomProcessingUnit {
             return Err(Error::InitMatchAndPatchFailed(format!(
                 "invoke(U{:04x}) = {:016x}, {:016x}, {:016x}, {:016x}",
                 0x7da0, result.rax, result.rbx, result.rcx, result.rdx
-            ))
-                .into());
+            )));
         }
 
         Ok(())

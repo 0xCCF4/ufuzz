@@ -1,4 +1,4 @@
-use std::path::{Path};
+use std::path::Path;
 
 fn main() {
     println!("cargo::rerun-if-changed=build.rs");
@@ -21,7 +21,12 @@ fn delete_intermediate_files<A: AsRef<Path>>(path: A) {
     {
         let file = file.expect("Intermediate file not found").path();
 
-        if file.extension().map(|o| o.to_string_lossy().to_string()).unwrap_or("".to_string()) == "u" {
+        if file
+            .extension()
+            .map(|o| o.to_string_lossy().to_string())
+            .unwrap_or("".to_string())
+            == "u"
+        {
             std::fs::remove_file(file).expect("remove failed");
         }
     }

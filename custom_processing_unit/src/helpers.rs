@@ -1,17 +1,20 @@
+use crate::Error;
 use crate::StagingBufferAddress::{RegTmp0, RegTmp1, RegTmp2};
-use crate::{Error};
 #[cfg(feature = "no_std")]
 use alloc::format;
 #[cfg(feature = "no_std")]
 use alloc::string::ToString;
-#[cfg(not(feature = "no_std"))]
-use std::string::ToString;
+use core::arch::asm;
+use data_types::addresses::{
+    Address, MSRAMAddress, MSRAMHookIndex, MSRAMInstructionPartReadAddress,
+    MSRAMInstructionPartWriteAddress, MSRAMSequenceWordAddress, UCInstructionAddress,
+};
+use data_types::{Patch, UcodePatchBlob};
+use log::trace;
 #[cfg(not(feature = "no_std"))]
 use std::format;
-use core::arch::asm;
-use log::trace;
-use data_types::addresses::{Address, MSRAMAddress, MSRAMHookAddress, MSRAMInstructionPartReadAddress, MSRAMInstructionPartWriteAddress, MSRAMSequenceWordAddress, UCInstructionAddress};
-use data_types::{Patch, UcodePatchBlob};
+#[cfg(not(feature = "no_std"))]
+use std::string::ToString;
 
 #[derive(Copy, Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum StagingBufferAddress {
@@ -293,7 +296,7 @@ fn ldat_array_write(
         pdat_reg + 1,
         0x30000 | ((dword_idx & 0xf) << 12) | ((array_sel & 0xf) << 8) | (bank_sel & 0xf),
     );
-    crbus_write(pdat_reg, 0x000000 | (fast_addr & 0xffff));
+    crbus_write(pdat_reg, fast_addr & 0xffff);
     crbus_write(pdat_reg + 4, val & 0xffffffff);
     crbus_write(pdat_reg + 5, (val >> 32) & 0xffff);
     crbus_write(pdat_reg + 1, 0);
@@ -404,7 +407,7 @@ fn ms_array_read<A: MSRAMAddress>(
     )
 }
 
-pub fn ms_patch_ram_write<A: Into<MSRAMInstructionPartWriteAddress>>(addr: A, val: usize) {
+pub fn ms_patch_instruction_write<A: Into<MSRAMInstructionPartWriteAddress>>(addr: A, val: usize) {
     let addr = addr.into();
     if cfg!(feature = "emulation") {
         trace!("Writing to MSRAM patch at {} = {:x}", addr, val);
@@ -412,7 +415,7 @@ pub fn ms_patch_ram_write<A: Into<MSRAMInstructionPartWriteAddress>>(addr: A, va
     ms_array_write(4, 0, 0, addr, val)
 }
 
-pub fn ms_patch_ram_read<A: Into<MSRAMInstructionPartReadAddress>>(
+pub fn ms_patch_instruction_read<A: Into<MSRAMInstructionPartReadAddress>>(
     ucode_read_function: UCInstructionAddress,
     addr: A,
 ) -> usize {
@@ -423,7 +426,7 @@ pub fn ms_patch_ram_read<A: Into<MSRAMInstructionPartReadAddress>>(
     ms_array_read(ucode_read_function, 4, 0, 0, addr)
 }
 
-pub fn ms_match_patch_write<A: Into<MSRAMHookAddress>>(addr: A, val: usize) {
+pub fn ms_hook_write<A: Into<MSRAMHookIndex>>(addr: A, val: usize) {
     let addr = addr.into();
     if cfg!(feature = "emulation") {
         trace!("Writing to MSRAM hook at {:x} = {:x}", addr.address(), val);
@@ -431,7 +434,7 @@ pub fn ms_match_patch_write<A: Into<MSRAMHookAddress>>(addr: A, val: usize) {
     ms_array_write(3, 0, 0, addr, val)
 }
 
-pub fn ms_match_patch_read<A: Into<MSRAMHookAddress>>(
+pub fn ms_hook_read<A: Into<MSRAMHookIndex>>(
     ucode_read_function: UCInstructionAddress,
     addr: A,
 ) -> usize {
@@ -442,7 +445,7 @@ pub fn ms_match_patch_read<A: Into<MSRAMHookAddress>>(
     ms_array_read(ucode_read_function, 3, 0, 0, addr)
 }
 
-pub fn ms_const_write<A: Into<MSRAMSequenceWordAddress>>(addr: A, val: usize) {
+pub fn ms_seqw_write<A: Into<MSRAMSequenceWordAddress>>(addr: A, val: usize) {
     let addr = addr.into();
     if cfg!(feature = "emulation") {
         trace!("Writing to MSRAM SEQW at {:x} = {:x}", addr.address(), val);
@@ -450,7 +453,7 @@ pub fn ms_const_write<A: Into<MSRAMSequenceWordAddress>>(addr: A, val: usize) {
     ms_array_write(2, 0, 0, addr, val)
 }
 
-pub fn ms_const_read<A: Into<MSRAMSequenceWordAddress>>(
+pub fn ms_seqw_read<A: Into<MSRAMSequenceWordAddress>>(
     ucode_read_function: UCInstructionAddress,
     addr: A,
 ) -> usize {
@@ -475,20 +478,16 @@ pub fn patch_ucode<A: Into<UCInstructionAddress>>(addr: A, ucode_patch: &UcodePa
         trace!("Writing ucode patch to {}", addr);
     }
 
-    let ucode_patch = ucode_patch.as_ref();
-
-    let addr = addr;
     let seqw: MSRAMSequenceWordAddress = addr.into();
 
-    for i in 0..ucode_patch.len() {
-        // patch ucode
-        for offset in 0..3 {
+    for (i, row) in ucode_patch.iter().enumerate() {
+        for (offset, entry) in row.iter().enumerate() {
             let addr = addr.patch_offset(i * 3 + offset);
-            ms_patch_ram_write(addr, ucode_patch[i][offset]);
+            ms_patch_instruction_write(addr, *entry);
         }
 
         // patch seqword
-        ms_const_write(seqw + i, ucode_patch[i][3]);
+        ms_seqw_write(seqw + i, row[3]);
     }
 }
 
@@ -499,14 +498,15 @@ pub fn read_patch(
 ) {
     let seqw: MSRAMSequenceWordAddress = addr.into();
 
-    for i in 0..ucode_patch.len() {
-        for offset in 0..3 {
-            let read_val = ms_patch_ram_read(ucode_read_function, addr.patch_offset(i * 3 + offset));
-            ucode_patch[i][offset] = read_val;
+    for (i, row) in ucode_patch.iter_mut().enumerate() {
+        for (offset, entry) in row.iter_mut().enumerate() {
+            let read_val =
+                ms_patch_instruction_read(ucode_read_function, addr.patch_offset(i * 3 + offset));
+            *entry = read_val;
         }
 
-        let read_val = ms_const_read(ucode_read_function, seqw + i);
-        ucode_patch[i][3] = read_val;
+        let read_val = ms_seqw_read(ucode_read_function, seqw + i);
+        row[3] = read_val;
     }
 }
 
@@ -517,19 +517,22 @@ pub fn calculate_hook_value(
 ) -> crate::Result<usize> {
     if !to_hook_ucode_addr.hookable() {
         return Err(
-            Error::HookFailed("patch uop address must be even and >0x7c00".to_string()).into(),
+            Error::HookFailed("patch uop address must be even and >0x7c00".to_string()),
         );
     }
 
     let poff = (redirect_to_addr.address() - 0x7c00) / 2;
-    let patch_value = 0x3e000000 | (poff << 16) | to_hook_ucode_addr.address() | enabled.then_some(1).unwrap_or(0);
+    let patch_value = 0x3e000000
+        | (poff << 16)
+        | to_hook_ucode_addr.address()
+        | if enabled {1} else {0};
 
     Ok(patch_value)
 }
 
 pub fn hook(
     apply_hook_func: UCInstructionAddress,
-    hook_idx: MSRAMHookAddress,
+    hook_idx: MSRAMHookIndex,
     to_hook_ucode_addr: UCInstructionAddress,
     redirect_to_addr: UCInstructionAddress,
     enabled: bool,
@@ -542,8 +545,7 @@ pub fn hook(
         return Err(Error::HookFailed(format!(
             "invoke({}) = {:016x}, {:016x}, {:016x}, {:016x}",
             apply_hook_func, result.rax, result.rbx, result.rcx, result.rdx
-        ))
-        .into());
+        )));
     }
 
     Ok(())
@@ -561,7 +563,7 @@ pub fn apply_hook_patch_func() -> UCInstructionAddress {
 
 pub fn hook_patch(apply_hook_func: UCInstructionAddress, patch: &Patch) -> crate::Result<()> {
     if let Some(hook_address) = patch.hook_address {
-        let hook_index = patch.hook_index.unwrap_or(MSRAMHookAddress::ZERO);
+        let hook_index = patch.hook_index.unwrap_or(MSRAMHookIndex::ZERO);
 
         hook(apply_hook_func, hook_index, hook_address, patch.addr, true)
     } else {

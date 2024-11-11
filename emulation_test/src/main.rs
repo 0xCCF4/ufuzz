@@ -1,9 +1,12 @@
-use std::env;
-use custom_processing_unit::{apply_hook_patch_func, apply_patch, hook, labels, ms_match_patch_read, ms_match_patch_write, CustomProcessingUnit};
-use log::info;
-use std::io::Write;
 use custom_processing_unit::patches::func_ldat_read;
-use data_types::addresses::MSRAMHookAddress;
+use custom_processing_unit::{
+    apply_hook_patch_func, apply_patch, hook, labels, ms_hook_read, ms_hook_write,
+    CustomProcessingUnit,
+};
+use data_types::addresses::MSRAMHookIndex;
+use log::info;
+use std::env;
+use std::io::Write;
 
 mod patches;
 
@@ -27,35 +30,41 @@ fn random_counter() {
 
     info!("Hooking");
 
-    hook(apply_hook_patch_func(), MSRAMHookAddress::ZERO, labels::RDRAND_XLAT, patch.addr, true)
-        .error_unwrap();
+    hook(
+        apply_hook_patch_func(),
+        MSRAMHookIndex::ZERO,
+        labels::RDRAND_XLAT,
+        patch.addr,
+        true,
+    )
+    .error_unwrap();
 
     info!("Zero match and patch");
 
     cpu.zero_hooks().error_unwrap();
 
-    for i in 0..63 { // only till 63
-        ms_match_patch_write(MSRAMHookAddress::ZERO + i, i);
+    for i in 0..63 {
+        // only till 63
+        ms_hook_write(MSRAMHookIndex::ZERO + i, i);
     }
     apply_patch(&func_ldat_read);
     for i in 0..64 {
-        let _ = ms_match_patch_read(func_ldat_read.addr, MSRAMHookAddress::ZERO + i);
+        let _ = ms_hook_read(func_ldat_read.addr, MSRAMHookIndex::ZERO + i);
     }
 }
 
 fn main() {
     // setup logger
     env::set_var("RUST_LOG", "trace");
-    env_logger::builder().format(|buf, record| {
-        writeln!(buf, "{}", record.args())
-    }).init();
+    env_logger::builder()
+        .format(|buf, record| writeln!(buf, "{}", record.args()))
+        .init();
 
     info!("Hello world!");
 
     info!("Random counter test");
     random_counter();
 }
-
 
 trait ErrorUnwrap<T> {
     fn error_unwrap(self) -> T;

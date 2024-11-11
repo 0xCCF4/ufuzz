@@ -52,7 +52,8 @@ fn generate_labels() {
 
         labels.push_str(&format!(
             "pub const {}: UCInstructionAddress = UCInstructionAddress::from_const(0x{});\n",
-            label.to_uppercase(), address
+            label.to_uppercase(),
+            address
         ));
     }
 
