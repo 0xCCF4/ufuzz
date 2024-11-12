@@ -1,28 +1,33 @@
 .org 0x7c00
 
-<fake_rnd>
-rax := ZEROEXT_DSZ32(0x000000aa) SEQW LFNCEWAIT, UEND0
+include <gen/interface_definition.up>
+
+<selfcheck_func>
+include <selfcheck.up>
+
+<test_func>
+# tmp0 : index
+# tmp1 :
+# tmp2 :
+
+tmp0 := AND_DSZ32([index_mask], tmp0)
+tmp0 := SHL_DSZ32(tmp0, 0x00000001)
+
+# tmp2 := ZEROEXT_DSZ32([address_coverage_table_base])
+# tmp1 := LDPPHYS_DSZ16_ASZ32_SC1(tmp0, tmp2)
+# tmp1 := ADD_DSZ16(tmp0, 0x0001)
+#
+# tmp2 := ZEROEXT_DSZ32([address_coverage_table_base])
+#
+# #                       address offset data
+# STADPPHYS_DSZ16_ASZ32_SC1(tmp2, tmp0, tmp1)
+
+tmp0 := ADD_DSZ32(tmp0, [address_jump_table_base])
+rax := LDPPHYS_DSZ16_ASZ32_SC1(tmp0)
+
+NOP SEQW LFNCEWAIT, UEND0
+
+
 
 <func_hook>
 include <sys/func_hook.up>
-
-<func_ldat_read>
-# IN : tmp0 = PDAT_BASE
-# IN : tmp1 = SELECTOR
-# IN : tmp2 = ADDR
-# OUT: rax <- VAL
-
-tmp1 := SHR_DSZ32(tmp1, 0x00000008)
-tmp1 := AND_DSZ32(0x0000000f, tmp1)
-
-rbx := OR_DSZ32(0x00000000, tmp1)
-
-rbx := ZEROEXT_DSZ32(0x000)
-
-func lib/pause_frontend(tmp4, rbx)
-
-func lib/ldat_read(tmp2, rax, tmp3, 4)
-
-func lib/resume_frontend(tmp4)
-
-NOP SEQW LFNCEWAIT, UEND0

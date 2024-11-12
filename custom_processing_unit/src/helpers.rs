@@ -26,18 +26,18 @@ pub enum StagingBufferAddress {
 
 #[inline(always)]
 #[allow(unused)]
-fn mfence() {
+pub fn mfence() {
     unsafe { asm!("mfence", options(nostack)) }
 }
 
 #[inline(always)]
 #[allow(unused)]
-fn lfence() {
+pub fn lfence() {
     unsafe { asm!("lfence", options(nostack)) }
 }
 
 #[inline(always)]
-fn lmfence() {
+pub fn lmfence() {
     unsafe { asm!("lfence; mfence", options(nostack)) }
 }
 

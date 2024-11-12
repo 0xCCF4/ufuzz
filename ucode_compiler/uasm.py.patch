@@ -1,8 +1,16 @@
 diff --git a/uasm-lib/uasm.py b/uasm-lib/uasm.py
-index 8cb98cf..71d1675 100755
+index 8cb98cf..7168273 100755
 --- a/uasm-lib/uasm.py
 +++ b/uasm-lib/uasm.py
-@@ -1499,6 +1499,9 @@ def assemble_seqword(partial_seqwords, labels, is_last):
+@@ -1300,6 +1300,7 @@ def assemble_uop(uop, modifiers, labels, var_to_reg):
+     
+     src0 = operands.split(',')[0].strip() if len(operands.split(',')) > 0 else ''
+     src0 = get_reg(src0)
++    print("> ", uop)
+     if src0 in labels:
+         src0_id = labels[src0]
+         src0_is_imm = True
+@@ -1499,6 +1500,9 @@ def assemble_seqword(partial_seqwords, labels, is_last):
      sync_ctrls = {**lfence_sync_ctrls, **oooe_sync_ctrls}
  
      for uidx, _seqw in enumerate(partial_seqwords):
@@ -12,7 +20,7 @@ index 8cb98cf..71d1675 100755
          for seqw in _seqw.split(", "):
              if "GOTO" in seqw:
                  if tetrad_ctrl_uidx != 0x03:
-@@ -1680,6 +1683,8 @@ def assemble_ucode(ucode, avoid_unk_256, output):
+@@ -1680,6 +1684,8 @@ def assemble_ucode(ucode, avoid_unk_256, output):
          tee(f'unsigned long hook_address = 0x{hook_address:04x};')
      if not hook_entry is None:
          tee(f'unsigned long hook_entry = 0x{hook_entry:02x};')

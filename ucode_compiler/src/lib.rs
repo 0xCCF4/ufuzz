@@ -289,13 +289,20 @@ fn transform_patch<P: AsRef<Path>, Q: AsRef<Path>>(patch: P, target: Q, allow_un
     for capture in regex_labels.captures_iter(&content) {
         let name = capture.get(1).expect("Capture not found").as_str();
         let address = capture.get(2).expect("Capture not found").as_str();
-        labels.push((name.to_uppercase(), address));
+
+        let public = if name.starts_with("func") || name.ends_with("func") || name.contains("entry") {
+            "pub "
+        } else {
+            ""
+        };
+
+        labels.push((name.to_uppercase(), address, public));
     }
     let labels_count = labels.len();
-    let labels_const = labels.iter().map(|(label, value)| format!("#[allow(dead_code)]\npub const LABEL_{label}: UCInstructionAddress = UCInstructionAddress::from_const({value});")).collect::<Vec<String>>().join("\n");
+    let labels_const = labels.iter().map(|(label, value, public)| format!("#[allow(dead_code)]\n{public} const LABEL_{label}: UCInstructionAddress = UCInstructionAddress::from_const({value});")).collect::<Vec<String>>().join("\n");
     let labels_array = labels
         .iter()
-        .map(|(label, _value)| format!("({label:?}, LABEL_{label}),"))
+        .map(|(label, _value, _public)| format!("({label:?}, LABEL_{label}),"))
         .collect::<Vec<String>>()
         .join("\n");
 
@@ -391,7 +398,10 @@ impl Replacer for IncludeReplacer {
         let path = PathBuf::from("patches").join(name);
         println!("cargo:rerun-if-changed={}", path.to_string_lossy());
         let content = std::fs::read_to_string(path).expect("read failed");
+
+        dst.push_str(format!("#------------- INCLUDE {name}\n").as_str());
         dst.push_str(&content);
+        dst.push_str(format!("\n#------------- END INCLUDE {name}\n").as_str());
     }
 }
 
@@ -413,7 +423,7 @@ impl Replacer for FuncIncludeReplacer {
         let mut content = std::fs::read_to_string(path).expect("read failed");
 
         let rewrite_regex =
-            regex::Regex::new(r"# ?(ARG\d+) ?: ?(\S+)").expect("regex compile error");
+            regex::Regex::new(r"(?m)^# *(ARG\d+) ?: ?(\S+)").expect("regex compile error");
         for cap in rewrite_regex.captures_iter(content.clone().as_str()) {
             let arg = cap.get(1).expect("arg not found").as_str();
             let value = cap.get(2).expect("value not found").as_str();
@@ -430,11 +440,32 @@ impl Replacer for FuncIncludeReplacer {
     }
 }
 
+#[derive(Default)]
+struct DefineResolveReplacer {
+    pub defines: Vec<(String, String)>,
+}
+
+impl Replacer for &mut DefineResolveReplacer {
+    fn replace_append(&mut self, caps: &Captures<'_>, dst: &mut String) {
+        let name = caps.get(2).expect("define name not given").as_str();
+        let value = caps.get(3).expect("define value not given").as_str();
+
+        let all = caps.get(0).expect("capture not found").as_str();
+
+        self.defines.push((name.to_string(), value.to_string()));
+
+        dst.push('#');
+        dst.push(' ');
+        dst.push_str(all);
+    }
+}
+
 pub fn preprocess_scripts<A: AsRef<Path>, B: AsRef<Path>>(src: A, dst: B) {
     let include_regex =
-        regex::Regex::new(r" *include( <?([^>]+)>?)?").expect("regex compile error");
-    let func_include_regex = regex::Regex::new(r" *func *([\S/]+) *\(([^,)]*(, ?[^,)]*)*)\)")
+        regex::Regex::new(r"(?m)^ *include( <?([^>]+)>?)?( *#.*)?$").expect("regex compile error");
+    let func_include_regex = regex::Regex::new(r"(?m)^ *func *([\S/]+) *\(([^,)]*(, ?[^,)]*)*)\)( *#.*)?$")
         .expect("regex compile error");
+    let define_regex = regex::Regex::new(r"(?m)^def(\s+(\S+)\s*:?=\s*([^;\n]+)\s*;)?").expect("regex compile error");
 
     for file in dst
         .as_ref()
@@ -479,6 +510,14 @@ pub fn preprocess_scripts<A: AsRef<Path>, B: AsRef<Path>>(src: A, dst: B) {
         let target_content = func_include_regex
             .replace_all(&target_content, FuncIncludeReplacer::default())
             .to_string();
+
+        let mut define_replacer = DefineResolveReplacer::default();
+        let target_content = define_regex.replace_all(&target_content, &mut define_replacer).to_string();
+
+        let defines = define_replacer.defines;
+        let target_content = defines.iter().fold(target_content, |acc, (name, value)| {
+            acc.replace(name, value)
+        });
 
         let target_file = dst
             .as_ref()

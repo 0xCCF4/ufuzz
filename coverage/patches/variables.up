@@ -10,3 +10,5 @@ let [in_hook_index] := r10
 let [in_ucode_exit] := r11
 let [frontend_prev] := r12
 let [tmp] := r13
+
+let [address] := 0x10000

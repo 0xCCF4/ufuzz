@@ -5,17 +5,18 @@ extern crate alloc;
 
 use crate::patches::patch;
 use core::arch::asm;
-use custom_processing_unit::{
-    apply_patch, hook, labels, ms_hook_read,
-    stgbuf_read, stgbuf_write_raw, CustomProcessingUnit,
-};
-use data_types::addresses::{MSRAMHookIndex};
+use core::ptr::NonNull;
+use custom_processing_unit::{apply_patch, call_custom_ucode_function, lmfence, CustomProcessingUnit};
 use log::info;
 use uefi::prelude::*;
 use uefi::{print, println};
+use crate::interface::ComInterface;
+use crate::page_allocation::PageAllocation;
 
 mod page_allocation;
 mod patches;
+mod interface_definition;
+mod interface;
 
 #[entry]
 unsafe fn main() -> Status {
@@ -34,12 +35,17 @@ unsafe fn main() -> Status {
         return Status::ABORTED;
     }
 
+    if let Err(e) = cpu.zero_hooks() {
+        info!("Failed to zero hooks {:?}", e);
+        return Status::ABORTED;
+    }
+
     let hooks = {
-        let max_hooks = 64;
+        let max_hooks = 32;
 
         let device_max_hooks = match cpu.current_glm_version {
-            custom_processing_unit::GLM_OLD => 63,
-            custom_processing_unit::GLM_NEW => 64,
+            custom_processing_unit::GLM_OLD => 31,
+            custom_processing_unit::GLM_NEW => 32,
             _ => 0,
         };
 
@@ -51,77 +57,108 @@ unsafe fn main() -> Status {
         return Status::ABORTED;
     }
 
-    fn read_buf() -> usize {
-        stgbuf_read(0xba00)
-    }
-    fn write_buf(val: usize) {
-        stgbuf_write_raw(0xba00, val)
-    }
+    let page = match PageAllocation::alloc_address(0x1000, 1) {
+        Ok(page) => page,
+        Err(e) => {
+            info!("Failed to allocate page {:?}", e);
+            return Status::ABORTED;
+        }
+    };
 
-    info!("Random 1: {:?}, {}", rdrand(), read_buf());
-    write_buf(0);
-    info!("Random 2: {:?}, {}", rdrand(), read_buf());
+    let mut interface = interface::ComInterface::new(&interface_definition::COM_INTERFACE_DESCRIPTION);
+    interface.reset_coverage();
+    interface.write_jump_table_all(&[0xA, 0xB, 0xC, 0xD, 0xE, 0xF]);
+
+    unsafe fn read_coverage_table(interface: &ComInterface) {
+        print!("Coverage: ");
+        for i in 0..5 {
+            print!("{}, ", interface.read_coverage_table(i));
+        }
+        println!();
+    }
+    unsafe fn call(index: usize) {
+        print!("Calling function {}", index);
+        let result = call_custom_ucode_function(patch::LABEL_TEST_FUNC, [index, 0, 0]).rax;
+        println!(" returned {:x}", result);
+    }
 
     apply_patch(&patch);
+    selfcheck(&mut interface);
 
-    if let Err(err) = hook(
-        patch::LABEL_FUNC_HOOK,
-        MSRAMHookIndex::ZERO,
-        labels::RDRAND_XLAT,
-        patch.addr,
-        true,
-    ) {
-        info!("Failed to hook {:?}", err);
-        return Status::ABORTED;
-    }
-    info!("Hooked coverage hook");
+    interface.reset_coverage();
 
-    info!("Random 3: {:?}, {}", rdrand(), read_buf());
-    info!("Random 4: {:?}, {}", rdrand(), read_buf());
-    info!("Random 5: {:?}, {}", rdrand(), read_buf());
+    println!("Initial");
+    read_coverage_table(&interface);
 
-    if let Err(err) = hook(
-        patch::LABEL_FUNC_HOOK,
-        MSRAMHookIndex::ZERO,
-        labels::RDRAND_XLAT,
-        patch::LABEL_FAKE_RND,
-        true,
-    ) {
-        info!("Failed to hook {:?}", err);
-        return Status::ABORTED;
-    }
-
-    info!("Re-enabled coverage hook");
-
-    info!("Random 6: {:?}, {}", rdrand(), read_buf());
-    info!("Random 7: {:?}, {}", rdrand(), read_buf());
-    info!("Random 8: {:?}, {}", rdrand(), read_buf());
-
-    let _ = cpu.zero_hooks();
-
-    for i in 0..32 {
-        if i > 31 {
+    println!("Jump table");
+    for (i, val) in interface.read_jump_table().iter().enumerate() {
+        if i > 5 {
             break;
         }
-        print!("[{i:04x}] ");
-        let val = ms_hook_read(patch::LABEL_FUNC_LDAT_READ, MSRAMHookIndex::ZERO + i);
-        println!("{val:013x}");
+        println!("{}: {:x}", i, val);
     }
+
+    call(0);
+    call(0);
+    call(0);
+
+    read_coverage_table(&interface);
+
+    call(1);
+    call(1);
+    call(2);
+
+    read_coverage_table(&interface);
+
+    drop(page);
 
     Status::SUCCESS
 }
 
-fn rdrand() -> (u64, bool) {
+unsafe fn selfcheck(interface: &mut ComInterface) -> bool {
+    for i in 0..interface.description.max_number_of_hooks {
+        interface.write_jump_table(i, i as u16);
+    }
+    // check
+    interface.reset_coverage();
+    for i in 0..interface.description.max_number_of_hooks {
+        let val = interface.read_coverage_table(i);
+        if val != 0 {
+            println!("Coverage table not zeroed at index {}", i);
+            return false;
+        }
+    }
+
+    let result = call_custom_ucode_function(patch::LABEL_SELFCHECK_FUNC, [0, 0, 0]);
+    if result.rax != 0xABC || result.rbx >> 1 != interface.description.max_number_of_hooks {
+        println!("Selfcheck invoke failed: {:x?}", result);
+        return false;
+    }
+
+    for i in 0..interface.description.max_number_of_hooks {
+        let val = interface.read_coverage_table(i);
+        if val != i as u16 {
+            println!("Selfcheck mismatch [{i:x}] {val:x}");
+            return false;
+        }
+    }
+
+    true
+}
+
+fn rdrand(index: u8) -> (u64, bool) {
     let rnd32;
     let flags: u8;
+    lmfence();
     unsafe {
         asm! {
         "rdrand rax",
         "setc {flags}",
-        out("rax") rnd32,
+        inout("rax") index as u64 => rnd32,
         flags = out(reg_byte) flags,
         options(nomem, nostack)
         }
     }
+    lmfence();
     (rnd32, flags > 0)
 }
