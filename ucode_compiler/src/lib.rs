@@ -368,7 +368,7 @@ fn transform_patch<P: AsRef<Path>, Q: AsRef<Path>>(patch: P, target: Q, allow_un
         }};
 
         {allow_dead}
-        const UCODE_PATCH_CONTENT: [UcodePatchEntry; {length}] = [\n{}
+        pub const UCODE_PATCH_CONTENT: [UcodePatchEntry; {length}] = [\n{}
         ];
         ",
         addr.expect("No address found")
@@ -449,8 +449,6 @@ impl Replacer for &mut DefineResolveReplacer {
     fn replace_append(&mut self, caps: &Captures<'_>, dst: &mut String) {
         let name = caps.get(2).expect("define name not given").as_str();
         let value = caps.get(3).expect("define value not given").as_str();
-
-        let all = caps.get(0).expect("capture not found").as_str();
 
         self.defines.push((name.to_string(), value.to_string()));
 

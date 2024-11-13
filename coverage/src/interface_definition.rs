@@ -2,8 +2,9 @@
 pub struct ComInterfaceDescription {
     pub base: usize,
     pub max_number_of_hooks: usize,
-    pub offset_jump_back_table: usize,
     pub offset_coverage_result_table: usize,
+    // pub offset_timing_table: usize,
+    pub offset_jump_back_table: usize,
 }
 
 const MAX_NUMBER_OF_HOOKS: usize = 32;

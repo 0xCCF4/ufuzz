@@ -58,11 +58,40 @@ fn generate_ucode_files<A: AsRef<Path>>(path: A) {
     definitions.push(("address_jump_table_base", interface.base + u16_to_u8_addr(interface.offset_jump_back_table), "base address of the jump table"));
     definitions.push(("table_length", interface.max_number_of_hooks, "number of entries in the tables"));
     definitions.push(("table_size", u16_to_u8_addr(interface.max_number_of_hooks), "size of the tables in bytes"));
+     //assert!(interface.offset_timing_table > interface.offset_coverage_result_table);
+    //assert!(interface.offset_jump_back_table > interface.offset_timing_table);
     assert!(interface.offset_jump_back_table > interface.offset_coverage_result_table);
-    definitions.push(("offset_cov2jmp_table", u16_to_u8_addr(interface.offset_jump_back_table - interface.offset_coverage_result_table), "offset between the coverage and jump tables"));
+    // definitions.push(("offset_cov2time_table", u16_to_u8_addr(interface.offset_timing_table - interface.offset_coverage_result_table), "offset between the coverage and timing tables"));
+    // definitions.push(("offset_time2jump_table", u16_to_u8_addr(interface.offset_jump_back_table - interface.offset_timing_table), "offset between the timing and jump tables"));
+    definitions.push(("offset_cov2jump_table", u16_to_u8_addr(interface.offset_jump_back_table - interface.offset_coverage_result_table), "offset between the coverage and jump tables"));
 
     let definitions = definitions.iter().map(|(name, value, comment)|
         format!("# {comment}\ndef [{name}] = 0x{value:04x};")).collect::<Vec<_>>().join("\n\n");
 
     std::fs::write(file, format!("# {AUTOGEN}\n\n{definitions}").as_str()).expect("write failed");
+
+    let file = path.as_ref().join("entries.up");
+    let mut content = "".to_string();
+    content.push_str("# ");
+    content.push_str(AUTOGEN);
+    content.push_str("\n\n");
+
+    for i in 0..6 {
+        let val = i << 1;
+        content.push_str(format!("
+<hook_entry_{i:02}>
+#STADSTGBUF_DSZ64_ASZ16_SC1([adr_stg_r10], , r10) !m2 # save original value of r10
+NOP
+NOP
+NOP
+#[in_hook_offset] := ZEROEXT_DSZ32(0x{val:02x})      # hook offset
+rax := ZEROEXT_DSZ32(0x{i:02x})
+NOP
+NOP
+NOP
+NOP SEQW GOTO <entry>
+").as_str())
+    }
+
+    std::fs::write(file, content).expect("write failed");
 }

@@ -5,7 +5,7 @@
 # ARG3: {SELECTOR} - ldat selector (one hex char)
 
 # def ucode_sequencer_write(SELECTOR, ADDR, VAL):
-#     CRBUS[0x6a1] = 0x30000 | (SELECTOR << 8) = 0x30000 | ({SELECTOR} << 8)
+#     CRBUS[0x6a1] = 0x30000 | (SELECTOR << 8) = 0x30000 | (0x{SELECTOR} << 8)
 #     CRBUS[0x6a0] = ADDR                      = {addr}
 #     CRBUS[0x6a4] = VAL & 0xffffffff          = {value} & 0xffffffff
 #     CRBUS[0x6a5] = VAL >> 32                 = {value} >> 32
@@ -14,12 +14,12 @@
 {tmp} := ZEROEXT_DSZ32(0x0000030{SELECTOR})
 {tmp} := SHL_DSZ32({tmp}, 0x00000008)
 
-MOVETOCREG_DSZ64({tmp}, 0x6a1) !m2
-MOVETOCREG_DSZ64({addr}, 0x6a0) !m2
+MOVETOCREG_DSZ64({tmp}, 0x6a1) !m2  # selector
+MOVETOCREG_DSZ64({addr}, 0x6a0) !m2 # addr
 
 {zero} := ZEROEXT_DSZ32(0x00000000)
 
-MOVETOCREG_DSZ64({value}, 0x6a4) !m2
-MOVETOCREG_DSZ64({zero}, 0x6a5) !m2
+MOVETOCREG_DSZ64({value}, 0x6a4) !m2 # value
+MOVETOCREG_DSZ64({zero}, 0x6a5) !m2  # value high part
 
-MOVETOCREG_DSZ64({zero}, 0x6a1) !m2
+MOVETOCREG_DSZ64({zero}, 0x6a1) !m2  # zero address

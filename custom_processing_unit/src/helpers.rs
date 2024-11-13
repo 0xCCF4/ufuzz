@@ -561,6 +561,12 @@ pub fn apply_hook_patch_func() -> UCInstructionAddress {
     patch.addr
 }
 
+pub fn apply_ldat_read_func() -> UCInstructionAddress {
+    let patch = crate::patches::func_ldat_read;
+    apply_patch(&patch);
+    patch.addr
+}
+
 pub fn hook_patch(apply_hook_func: UCInstructionAddress, patch: &Patch) -> crate::Result<()> {
     if let Some(hook_address) = patch.hook_address {
         let hook_index = patch.hook_index.unwrap_or(MSRAMHookIndex::ZERO);

@@ -1,10 +1,19 @@
 .org 0x7c00
 
+<entry>
+#r10 := LDSTGBUF_DSZ64_ASZ16_SC1([adr_stg_r10]) !m2 # todo remove
+rax := OR_DSZ32(rax, 0x10)
+NOP
+NOP
+NOP
+NOP SEQW LFNCEWAIT, UEND0
+NOP
+NOP
+NOP
+NOP SEQW GOTO <handler>
+
 include <gen/interface_definition.up>
 include <variables.up>
-
-<entry>
-NOP SEQW GOTO <handler>
 
 <selfcheck_func>
 include <selfcheck.up>
@@ -12,17 +21,22 @@ include <selfcheck.up>
 <func_hook>
 include <sys/func_hook.up>
 
+<func_ldat_read_hooks>
+include <sys/func_ldat_read_hooks.up>
+
 <handler>
 STADSTGBUF_DSZ64_ASZ16_SC1([adr_stg_r11], , r11) !m2 # save original value of r11
 STADSTGBUF_DSZ64_ASZ16_SC1([adr_stg_r12], , r12) !m2 # save original value of r12
 STADSTGBUF_DSZ64_ASZ16_SC1([adr_stg_r13], , r13) !m2 # save original value of r13
 
-func increase_coverage_and_jumpback_address([in_hook_index], r11, r12, r13)
+func increase_coverage_and_jumpback_address([in_hook_offset], r11, r12, r13)
 # <- jump back address now in r13
 
-
-
-
+# disables hook
+r11 := ZEROEXT_DSZ64(0x0)
+func lib/pause_frontend(r12, r11)
+func lib/ldat_write([in_hook_offset], r11, r11, 3)
+func lib/resume_frontend(r12)
 
 r10 := LDSTGBUF_DSZ64_ASZ16_SC1([adr_stg_r10]) !m2 # todo remove
 r11 := LDSTGBUF_DSZ64_ASZ16_SC1([adr_stg_r11]) !m2
@@ -33,5 +47,4 @@ rax := ZEROEXT_DSZ32(0x00001337) # todo remove
 
 NOP SEQW LFNCEWAIT, UEND0
 
-<entry_rdrand_xlat>
-include <coverage_entry.up>
+include <gen/entries.up>

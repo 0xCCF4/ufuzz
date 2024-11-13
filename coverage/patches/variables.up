@@ -6,4 +6,4 @@ def [adr_stg_r11] = 0xba80;
 def [adr_stg_r12] = 0xbac0;
 def [adr_stg_r13] = 0xbb00;
 
-let [in_hook_index] := r10
+let [in_hook_offset] := r10

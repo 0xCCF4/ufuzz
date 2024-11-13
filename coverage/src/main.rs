@@ -5,12 +5,12 @@ extern crate alloc;
 
 use crate::patches::patch;
 use core::arch::asm;
-use core::ptr::NonNull;
-use custom_processing_unit::{apply_patch, call_custom_ucode_function, hook, labels, lmfence, CustomProcessingUnit};
+use custom_processing_unit::{apply_hook_patch_func, apply_ldat_read_func, apply_patch, call_custom_ucode_function, crbus_read, hook, labels, lmfence, ms_patch_instruction_read, ms_seqw_read, patch_ucode, CustomProcessingUnit};
 use log::info;
 use uefi::prelude::*;
 use uefi::{print, println};
 use data_types::addresses::MSRAMHookIndex;
+use data_types::{Patch, UcodePatchEntry};
 use crate::interface::ComInterface;
 use crate::page_allocation::PageAllocation;
 
@@ -42,7 +42,7 @@ unsafe fn main() -> Status {
     }
 
     let hooks = {
-        let max_hooks = 32;
+        let max_hooks = 2;
 
         let device_max_hooks = match cpu.current_glm_version {
             custom_processing_unit::GLM_OLD => 31,
@@ -68,6 +68,18 @@ unsafe fn main() -> Status {
 
     let mut interface = interface::ComInterface::new(&interface_definition::COM_INTERFACE_DESCRIPTION);
     interface.reset_coverage();
+    // interface.reset_time_table();
+
+    fn get_time() -> usize {
+        const CRBUS_CLOCK: usize = (0x2000 | 0x2d7);
+        crbus_read(CRBUS_CLOCK)
+    }
+
+    fn unwrap_clock(value: usize) -> usize {
+        (value &  0xffffffffffffffusize) * 0x39 + (value >> 0x37)
+    }
+
+    println!("Time: {}", get_time() &0xFFFF);
 
     unsafe fn read_coverage_table(interface: &ComInterface) {
         print!("Coverage: ");
@@ -75,9 +87,37 @@ unsafe fn main() -> Status {
             print!("{}, ", interface.read_coverage_table(i));
         }
         println!();
+
+        /*
+        print!("Time:");
+        for i in 0..5 {
+            print!("{}, ", interface.read_time_table(i));
+        }
+        println!();
+        */
     }
 
     apply_patch(&patch);
+    /*
+    let first_empty_addr = patch.addr + 4*patch.ucode_patch.len();
+    // generate patch code
+    let mut coverage_entry: [UcodePatchEntry; 1] = patches::coverage_entry::UCODE_PATCH_CONTENT;
+    for i in 0..hooks {
+        let offset = i * 2;
+        let mut entry = &mut coverage_entry[0][1];
+        //*entry = (*entry & !(0xFFusize << 24)) | ((offset & 0xFF) << 24);
+
+        apply_patch(&Patch {
+            addr: first_empty_addr + i * 4,
+            ucode_patch: &coverage_entry,
+            hook_address: None,
+            hook_index: None,
+            labels: &[],
+        });
+    }
+    */*/
+
+    //println!("First empty addr: {}", first_empty_addr);
     selfcheck(&mut interface);
 
     interface.reset_coverage();
@@ -85,16 +125,44 @@ unsafe fn main() -> Status {
     println!("RDRAND: {:?}", rdrand(0));
     read_coverage_table(&interface);
 
-    if let Err(e) = hook(patch::LABEL_FUNC_HOOK, MSRAMHookIndex::ZERO+1, labels::RDRAND_XLAT, patch::LABEL_ENTRY_RDRAND_XLAT, true) {
+    fn read_hooks() {
+        print!("Hooks: ");
+        for i in 0..5 {
+            let hook = call_custom_ucode_function(patch::LABEL_FUNC_LDAT_READ_HOOKS, [i, 0, 0]).rax;
+            print!("{:08x}, ", hook);
+        }
+        println!();
+    }
+
+    read_hooks();
+
+    if let Err(e) = hook(patch::LABEL_FUNC_HOOK, MSRAMHookIndex::ZERO, labels::RDRAND_XLAT, patch::LABEL_HOOK_ENTRY_04, true) {
         info!("Failed to hook {:?}", e);
         return Status::ABORTED;
     }
 
-    println!("RDRAND: {:?}", rdrand(0));
-    read_coverage_table(&interface);
+    read_hooks();
 
     println!("RDRAND: {:?}", rdrand(0));
     read_coverage_table(&interface);
+
+    read_hooks();
+
+    println!("RDRAND: {:?}", rdrand(0));
+    read_coverage_table(&interface);
+
+    /*
+    let ldat_read = apply_ldat_read_func();
+    for i in 0..10 {
+        print!("[{}] ", first_empty_addr + i);
+        let val = if (i & 3) == 3 {
+            ms_seqw_read(ldat_read, first_empty_addr + i)
+        } else {
+            ms_patch_instruction_read(ldat_read, first_empty_addr + i)
+        };
+        println!("{:08x}", val);
+    }
+    */
 
     drop(page);
 

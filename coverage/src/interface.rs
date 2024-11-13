@@ -69,4 +69,32 @@ impl<'a> ComInterface<'a> {
             self.write_coverage_table(index, 0);
         }
     }
+
+    /*
+    unsafe fn time_table(&self) -> NonNull<u16> {
+        self.base.offset(self.description.offset_timing_table as isize)
+    }
+
+    pub unsafe fn read_time_table(&self, index: usize) -> u16 {
+        if index >= self.description.max_number_of_hooks {
+            return 0;
+        }
+
+        self.time_table().offset(index as isize).read_volatile()
+    }
+
+    pub unsafe fn write_time_table(&mut self, index: usize, value: u16) {
+        if index >= self.description.max_number_of_hooks {
+            return;
+        }
+
+        self.time_table().offset(index as isize).write_volatile(value);
+    }
+
+    pub unsafe fn reset_time_table(&mut self) {
+        for index in 0..self.description.max_number_of_hooks {
+            self.write_time_table(index, 0);
+        }
+    }
+    */
 }
