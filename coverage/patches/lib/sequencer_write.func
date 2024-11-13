@@ -1,5 +1,5 @@
-# ARG0: tmp - temporary register
-# ARG1: hook_index - index of the hook
+# ARG0: {tmp} - temporary register
+# ARG1: {hook_index} - index of the hook
 
 # def ucode_sequencer_write(SELECTOR, ADDR, VAL):
 #     CRBUS[0x6a1] = 0x30000 | (SELECTOR << 8)
@@ -8,15 +8,15 @@
 #     CRBUS[0x6a5] = VAL >> 32
 #     CRBUS[0x6a1] = 0
 
-[tmp]:= ZEROEXT_DSZ32(0x00000303)  # select match patch mem array
-[tmp]:= SHL_DSZ32(r13, 0x00000008) # .
+{tmp}:= ZEROEXT_DSZ32(0x00000303)  # select match patch mem array
+{tmp}:= SHL_DSZ32(r13, 0x00000008) # .
 
-MOVETOCREG_DSZ64([tmp], 0x6a1) !m2            # CRBUS[0x6a1] = 0x30000 | (SELECTOR << 8)
-MOVETOCREG_DSZ64([hook_index], 0x6a0) !m2     # CRBUS[0x6a0] = ADDR = [in_hook_index]
+MOVETOCREG_DSZ64({tmp}, 0x6a1) !m2            # CRBUS[0x6a1] = 0x30000 | (SELECTOR << 8)
+MOVETOCREG_DSZ64({hook_index}, 0x6a0) !m2     # CRBUS[0x6a0] = ADDR = {hook_index}
 
-[tmp]:= ZEROEXT_DSZ32(0x0)
+{tmp}:= ZEROEXT_DSZ32(0x0)
 
-MOVETOCREG_DSZ64([tmp], 0x6a4) !m2  # CRBUS[0x6a4] = VAL_low = 0
-MOVETOCREG_DSZ64([tmp], 0x6a5) !m2  # CRBUS[0x6a4] = VAL_high = 0
+MOVETOCREG_DSZ64({tmp}, 0x6a4) !m2  # CRBUS[0x6a4] = VAL_low = 0
+MOVETOCREG_DSZ64({tmp}, 0x6a5) !m2  # CRBUS[0x6a4] = VAL_high = 0
 
-MOVETOCREG_DSZ64([tmp], 0x6a1) !m2  # CRBUS[0x6a1] = 0 : WRITE
+MOVETOCREG_DSZ64({tmp}, 0x6a1) !m2  # CRBUS[0x6a1] = 0 : WRITE

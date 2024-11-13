@@ -7,9 +7,7 @@ let [tmp] := tmp9
 [zero] := ZEROEXT_DSZ32(0x00000000)
 
 func lib/pause_frontend([frontend_prev], [zero])
-
 func lib/ldat_write(tmp1, tmp0, [tmp], 3)
-
 func lib/resume_frontend([frontend_prev])
 
 rax:= ZEROEXT_DSZ32(0x00001337)

@@ -1,0 +1,19 @@
+# ARG0 : {index} table index, copied not modified
+# ARG1 : {tmp} temporary register 1, stores previous coverage value
+# ARG2 : {tmp2} temporary register 2
+# ARG2 : {offset} table offset, multiple of 2
+# ARG2 : {addr} internally also used as absolute address
+# ARG3 : {result} result register, might be the same as tmp, zero, or offset
+
+# increases the coverage counter and returns the jump back address
+
+{offset} := SHL_DSZ32({index}, 0x00000001)
+{offset} := AND_DSZ32([offset_mask], {offset})
+
+{addr} := ADD_DSZ32({offset}, [address_coverage_table_base]) # address
+{tmp} := LDPPHYS_DSZ16_ASZ32_SC1({addr})
+{tmp} := ADD_DSZ16({tmp}, 0x0001)
+STADPPHYS_DSZ16_ASZ32_SC1({addr},, {tmp})
+
+{addr} := ADD_DSZ32({addr}, [offset_cov2jmp_table])
+{result} := LDPPHYS_DSZ16_ASZ32_SC1({addr})

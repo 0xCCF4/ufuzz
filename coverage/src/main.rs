@@ -6,10 +6,11 @@ extern crate alloc;
 use crate::patches::patch;
 use core::arch::asm;
 use core::ptr::NonNull;
-use custom_processing_unit::{apply_patch, call_custom_ucode_function, lmfence, CustomProcessingUnit};
+use custom_processing_unit::{apply_patch, call_custom_ucode_function, hook, labels, lmfence, CustomProcessingUnit};
 use log::info;
 use uefi::prelude::*;
 use uefi::{print, println};
+use data_types::addresses::MSRAMHookIndex;
 use crate::interface::ComInterface;
 use crate::page_allocation::PageAllocation;
 
@@ -75,40 +76,24 @@ unsafe fn main() -> Status {
         }
         println!();
     }
-    unsafe fn call(index: usize) {
-        print!("Calling function {}", index);
-        let result = call_custom_ucode_function(patch::LABEL_TEST_FUNC, [index, 0, 0]).rax;
-        println!(" returned {:x}", result);
-    }
 
     apply_patch(&patch);
     selfcheck(&mut interface);
 
     interface.reset_coverage();
 
-    println!("Initial");
+    println!("RDRAND: {:?}", rdrand(0));
     read_coverage_table(&interface);
 
-    interface.write_jump_table_all(&[0xA, 0xB, 0xC, 0xD, 0xE, 0xF]);
-
-    println!("Jump table");
-    for (i, val) in interface.read_jump_table().iter().enumerate() {
-        if i > 5 {
-            break;
-        }
-        println!("{}: {:x}", i, val);
+    if let Err(e) = hook(patch::LABEL_FUNC_HOOK, MSRAMHookIndex::ZERO+1, labels::RDRAND_XLAT, patch::LABEL_ENTRY_RDRAND_XLAT, true) {
+        info!("Failed to hook {:?}", e);
+        return Status::ABORTED;
     }
 
-    call(0);
-    call(0);
-    call(0);
-
+    println!("RDRAND: {:?}", rdrand(0));
     read_coverage_table(&interface);
 
-    call(1);
-    call(1);
-    call(2);
-
+    println!("RDRAND: {:?}", rdrand(0));
     read_coverage_table(&interface);
 
     drop(page);

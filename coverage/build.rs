@@ -52,6 +52,7 @@ fn generate_ucode_files<A: AsRef<Path>>(path: A) {
     }
 
     definitions.push(("index_mask", 2usize.pow((interface.max_number_of_hooks + 1).ilog2())-1, "mask to apply to an index to get an index in the range of the tables"));
+    definitions.push(("offset_mask", (2usize.pow((interface.max_number_of_hooks + 1).ilog2())-1) << 1, "mask to apply to an offset into the tables to get a valid u16 ptr"));
     definitions.push(("address_base", interface.base, "base address of the interface"));
     definitions.push(("address_coverage_table_base", interface.base + u16_to_u8_addr(interface.offset_coverage_result_table), "base address of the coverage table"));
     definitions.push(("address_jump_table_base", interface.base + u16_to_u8_addr(interface.offset_jump_back_table), "base address of the jump table"));

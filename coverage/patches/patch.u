@@ -1,28 +1,37 @@
 .org 0x7c00
 
 include <gen/interface_definition.up>
+include <variables.up>
+
+<entry>
+NOP SEQW GOTO <handler>
 
 <selfcheck_func>
 include <selfcheck.up>
 
-<test_func>
-# tmp0 : index
-# tmp1 :
-# tmp2 :
+<func_hook>
+include <sys/func_hook.up>
 
-tmp0 := AND_DSZ32([index_mask], tmp0)
-tmp0 := SHL_DSZ32(tmp0, 0x00000001) # table offset
+<handler>
+STADSTGBUF_DSZ64_ASZ16_SC1([adr_stg_r11], , r11) !m2 # save original value of r11
+STADSTGBUF_DSZ64_ASZ16_SC1([adr_stg_r12], , r12) !m2 # save original value of r12
+STADSTGBUF_DSZ64_ASZ16_SC1([adr_stg_r13], , r13) !m2 # save original value of r13
 
-tmp0 := ADD_DSZ32(tmp0, [address_coverage_table_base]) # address
-rax := LDPPHYS_DSZ16_ASZ32_SC1(tmp0)
-rax := ADD_DSZ16(rax, 0x0001)
-tmp1 := ZEROEXT_DSZ32(0x0000)
-STADPPHYS_DSZ16_ASZ32_SC1(tmp0, tmp1, rax)
+func increase_coverage_and_jumpback_address([in_hook_index], r11, r12, r13)
+# <- jump back address now in r13
 
-tmp0 := ADD_DSZ32(tmp0, [offset_cov2jmp_table])
-rax := LDPPHYS_DSZ16_ASZ32_SC1(tmp0)
+
+
+
+
+r10 := LDSTGBUF_DSZ64_ASZ16_SC1([adr_stg_r10]) !m2 # todo remove
+r11 := LDSTGBUF_DSZ64_ASZ16_SC1([adr_stg_r11]) !m2
+r12 := LDSTGBUF_DSZ64_ASZ16_SC1([adr_stg_r12]) !m2
+r13 := LDSTGBUF_DSZ64_ASZ16_SC1([adr_stg_r13]) !m2
+
+rax := ZEROEXT_DSZ32(0x00001337) # todo remove
 
 NOP SEQW LFNCEWAIT, UEND0
 
-<func_hook>
-include <sys/func_hook.up>
+<entry_rdrand_xlat>
+include <coverage_entry.up>

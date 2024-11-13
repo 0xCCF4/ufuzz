@@ -1,3 +1,3 @@
-# ARG0: prev - previous value of the creg
+# ARG0: {prev} - previous value of the creg
 
-MOVETOCREG_DSZ64(prev, 0x38c) !m2
+MOVETOCREG_DSZ64({prev}, 0x38c) !m2
