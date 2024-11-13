@@ -57,6 +57,8 @@ fn generate_ucode_files<A: AsRef<Path>>(path: A) {
     definitions.push(("address_jump_table_base", interface.base + u16_to_u8_addr(interface.offset_jump_back_table), "base address of the jump table"));
     definitions.push(("table_length", interface.max_number_of_hooks, "number of entries in the tables"));
     definitions.push(("table_size", u16_to_u8_addr(interface.max_number_of_hooks), "size of the tables in bytes"));
+    assert!(interface.offset_jump_back_table > interface.offset_coverage_result_table);
+    definitions.push(("offset_cov2jmp_table", u16_to_u8_addr(interface.offset_jump_back_table - interface.offset_coverage_result_table), "offset between the coverage and jump tables"));
 
     let definitions = definitions.iter().map(|(name, value, comment)|
         format!("# {comment}\ndef [{name}] = 0x{value:04x};")).collect::<Vec<_>>().join("\n\n");

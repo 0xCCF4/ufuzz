@@ -454,9 +454,7 @@ impl Replacer for &mut DefineResolveReplacer {
 
         self.defines.push((name.to_string(), value.to_string()));
 
-        dst.push('#');
-        dst.push(' ');
-        dst.push_str(all);
+        dst.push_str(format!("# def {value}").as_str());
     }
 }
 

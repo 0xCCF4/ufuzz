@@ -67,7 +67,6 @@ unsafe fn main() -> Status {
 
     let mut interface = interface::ComInterface::new(&interface_definition::COM_INTERFACE_DESCRIPTION);
     interface.reset_coverage();
-    interface.write_jump_table_all(&[0xA, 0xB, 0xC, 0xD, 0xE, 0xF]);
 
     unsafe fn read_coverage_table(interface: &ComInterface) {
         print!("Coverage: ");
@@ -89,6 +88,8 @@ unsafe fn main() -> Status {
 
     println!("Initial");
     read_coverage_table(&interface);
+
+    interface.write_jump_table_all(&[0xA, 0xB, 0xC, 0xD, 0xE, 0xF]);
 
     println!("Jump table");
     for (i, val) in interface.read_jump_table().iter().enumerate() {

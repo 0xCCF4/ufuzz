@@ -11,23 +11,18 @@ include <selfcheck.up>
 # tmp2 :
 
 tmp0 := AND_DSZ32([index_mask], tmp0)
-tmp0 := SHL_DSZ32(tmp0, 0x00000001)
+tmp0 := SHL_DSZ32(tmp0, 0x00000001) # table offset
 
-# tmp2 := ZEROEXT_DSZ32([address_coverage_table_base])
-# tmp1 := LDPPHYS_DSZ16_ASZ32_SC1(tmp0, tmp2)
-# tmp1 := ADD_DSZ16(tmp0, 0x0001)
-#
-# tmp2 := ZEROEXT_DSZ32([address_coverage_table_base])
-#
-# #                       address offset data
-# STADPPHYS_DSZ16_ASZ32_SC1(tmp2, tmp0, tmp1)
+tmp0 := ADD_DSZ32(tmp0, [address_coverage_table_base]) # address
+rax := LDPPHYS_DSZ16_ASZ32_SC1(tmp0)
+rax := ADD_DSZ16(rax, 0x0001)
+tmp1 := ZEROEXT_DSZ32(0x0000)
+STADPPHYS_DSZ16_ASZ32_SC1(tmp0, tmp1, rax)
 
-tmp0 := ADD_DSZ32(tmp0, [address_jump_table_base])
+tmp0 := ADD_DSZ32(tmp0, [offset_cov2jmp_table])
 rax := LDPPHYS_DSZ16_ASZ32_SC1(tmp0)
 
 NOP SEQW LFNCEWAIT, UEND0
-
-
 
 <func_hook>
 include <sys/func_hook.up>
