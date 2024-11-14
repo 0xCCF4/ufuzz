@@ -10,6 +10,8 @@ use log::info;
 use uefi::prelude::*;
 use uefi::{print, println};
 use data_types::addresses::MSRAMHookIndex;
+use ucode_compiler::utils::SequenceWord;
+use ucode_compiler::utils::SequenceWordSync::SYNCFULL;
 use crate::interface::ComInterface;
 use crate::page_allocation::PageAllocation;
 
@@ -17,6 +19,7 @@ mod page_allocation;
 mod patches;
 mod interface_definition;
 mod interface;
+
 
 #[entry]
 unsafe fn main() -> Status {
@@ -40,8 +43,9 @@ unsafe fn main() -> Status {
         return Status::ABORTED;
     }
 
+    let mut interface = interface::ComInterface::new(&interface_definition::COM_INTERFACE_DESCRIPTION);
     let hooks = {
-        let max_hooks = 2;
+        let max_hooks = interface.description.max_number_of_hooks;
 
         let device_max_hooks = match cpu.current_glm_version {
             custom_processing_unit::GLM_OLD => 31,
@@ -65,7 +69,6 @@ unsafe fn main() -> Status {
         }
     };
 
-    let mut interface = interface::ComInterface::new(&interface_definition::COM_INTERFACE_DESCRIPTION);
     interface.reset_coverage();
     // interface.reset_time_table();
 
@@ -133,6 +136,8 @@ unsafe fn main() -> Status {
 
     interface.reset_coverage();
 
+    interface.write_jump_table_all(&[0xABCD, 0xDEF0, 0x1111]);
+
     print_buf();
     println!("RDRAND: {:x?}", rdrand(0));
     read_coverage_table(&interface);
@@ -148,7 +153,12 @@ unsafe fn main() -> Status {
 
     read_hooks();
 
-    if let Err(e) = hook(patch::LABEL_FUNC_HOOK, MSRAMHookIndex::ZERO, labels::RDRAND_XLAT, patch::LABEL_HOOK_ENTRY_00, true) {
+    if let Err(e) = hook(patch::LABEL_FUNC_HOOK, MSRAMHookIndex::ZERO+0, labels::RDRAND_XLAT, patch::LABEL_HOOK_ENTRY_00, true) {
+        info!("Failed to hook {:?}", e);
+        return Status::ABORTED;
+    }
+
+    if let Err(e) = hook(patch::LABEL_FUNC_HOOK, MSRAMHookIndex::ZERO+1, labels::RDRAND_XLAT, patch::LABEL_HOOK_ENTRY_01, true) {
         info!("Failed to hook {:?}", e);
         return Status::ABORTED;
     }
@@ -178,6 +188,24 @@ unsafe fn main() -> Status {
     */
 
     drop(page);
+
+    println!("Testing sequence words");
+    let mut diff = -1;
+    for i in 0..0x0100 {
+        let seqw = SequenceWord::new().goto(0, i).sync(0, SYNCFULL).assemble();
+        let calculation = call_custom_ucode_function(patch::LABEL_CRC_CALC_FUNC, [i, 0, 0]).rax;
+
+        if diff == 0 {
+            break;
+        } else if diff > 0 {
+            diff -= 1;
+            println!("{:04x}: {:08x}    {:08x}", i, seqw, calculation);
+        } else if seqw != calculation as u32 {
+            println!("{:04x}: {:08x} != {:08x}", i, seqw, calculation);
+            diff = 5;
+        }
+    }
+    println!("OK");
 
     Status::SUCCESS
 }

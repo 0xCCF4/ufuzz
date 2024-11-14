@@ -1,5 +1,5 @@
 use std::path::{Path};
-use ucode_compiler::AUTOGEN;
+use ucode_compiler::compiler_call::AUTOGEN;
 
 #[path = "src/interface_definition.rs"]
 mod interface_definition;
@@ -16,8 +16,8 @@ fn main() {
     }
 
     generate_ucode_files("patches/gen");
-    ucode_compiler::preprocess_scripts("patches", "src/patches");
-    ucode_compiler::build_script("src/patches", "src/patches", true);
+    ucode_compiler::compiler_call::preprocess_scripts("patches", "src/patches");
+    ucode_compiler::compiler_call::build_script("src/patches", "src/patches", true);
     // delete_intermediate_files("src/patches");
 }
 

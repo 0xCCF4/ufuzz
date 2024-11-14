@@ -1,0 +1,5 @@
+# ARG0: {value} to calculate the 16bit crc for
+# ARG1: {crc} value in two LSB bits
+# ARG2: {tmp} temporary value
+
+repeat 8 : func lib/crc_calc_round({value}, {crc}, {tmp})

@@ -1,0 +1,7 @@
+# ARG0: {value} to calculate the crc for
+# ARG1: {crc} value in two LSB bits
+# ARG2: {tmp} temporary value
+
+{tmp} := AND_DSZ32({value}, 0x0003)
+{crc} := XOR_DSZ32({crc}, {tmp})
+{value} := SHR_DSZ32({value}, 0x0002)
