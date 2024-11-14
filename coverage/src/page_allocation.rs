@@ -22,6 +22,7 @@ impl PageAllocation {
         )?;
         Ok(PageAllocation { count, base: data })
     }
+    #[allow(unused)]
     pub fn ptr(&self) -> &NonNull<u8> {
         &self.base
     }

@@ -76,20 +76,13 @@ fn generate_ucode_files<A: AsRef<Path>>(path: A) {
     content.push_str(AUTOGEN);
     content.push_str("\n\n");
 
-    for i in 0..6 {
-        let val = i << 1;
+    for i in 0..interface.max_number_of_hooks {
+        let val = u16_to_u8_addr(i);
         content.push_str(format!("
 <hook_entry_{i:02}>
-#STADSTGBUF_DSZ64_ASZ16_SC1([adr_stg_r10], , r10) !m2 # save original value of r10
+STADSTGBUF_DSZ64_ASZ16_SC1([adr_stg_r10], , r10) !m2  # save original value of r10
+[in_hook_offset] := ZEROEXT_DSZ32(0x{val:02x}) SEQW GOTO <handler> # hook index {i} -> offset {val}
 NOP
-NOP
-NOP
-#[in_hook_offset] := ZEROEXT_DSZ32(0x{val:02x})      # hook offset
-rax := ZEROEXT_DSZ32(0x{i:02x})
-NOP
-NOP
-NOP
-NOP SEQW GOTO <entry>
 ").as_str())
     }
 

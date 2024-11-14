@@ -7,7 +7,7 @@ pub struct ComInterfaceDescription {
     pub offset_jump_back_table: usize,
 }
 
-const MAX_NUMBER_OF_HOOKS: usize = 32;
+const MAX_NUMBER_OF_HOOKS: usize = 3;
 
 pub const COM_INTERFACE_DESCRIPTION: ComInterfaceDescription = ComInterfaceDescription {
     base: 0x1000,

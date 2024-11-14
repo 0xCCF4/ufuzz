@@ -5,12 +5,11 @@ extern crate alloc;
 
 use crate::patches::patch;
 use core::arch::asm;
-use custom_processing_unit::{apply_hook_patch_func, apply_ldat_read_func, apply_patch, call_custom_ucode_function, crbus_read, hook, labels, lmfence, ms_patch_instruction_read, ms_seqw_read, patch_ucode, CustomProcessingUnit};
+use custom_processing_unit::{apply_patch, call_custom_ucode_function, crbus_read, hook, labels, lmfence, stgbuf_read, CustomProcessingUnit};
 use log::info;
 use uefi::prelude::*;
 use uefi::{print, println};
 use data_types::addresses::MSRAMHookIndex;
-use data_types::{Patch, UcodePatchEntry};
 use crate::interface::ComInterface;
 use crate::page_allocation::PageAllocation;
 
@@ -71,10 +70,11 @@ unsafe fn main() -> Status {
     // interface.reset_time_table();
 
     fn get_time() -> usize {
-        const CRBUS_CLOCK: usize = (0x2000 | 0x2d7);
+        const CRBUS_CLOCK: usize = 0x2000 | 0x2d7;
         crbus_read(CRBUS_CLOCK)
     }
 
+    #[allow(unused)]
     fn unwrap_clock(value: usize) -> usize {
         (value &  0xffffffffffffffusize) * 0x39 + (value >> 0x37)
     }
@@ -117,12 +117,24 @@ unsafe fn main() -> Status {
     }
     */*/
 
+    fn read_buf(offset: usize) -> usize {
+        stgbuf_read(0xba40 + 0x40*offset)
+    }
+    fn print_buf() {
+        print!("Buffer: ");
+        for i in 0..4 {
+            print!("{:08x}, ", read_buf(i));
+        }
+        println!();
+    }
+
     //println!("First empty addr: {}", first_empty_addr);
     selfcheck(&mut interface);
 
     interface.reset_coverage();
 
-    println!("RDRAND: {:?}", rdrand(0));
+    print_buf();
+    println!("RDRAND: {:x?}", rdrand(0));
     read_coverage_table(&interface);
 
     fn read_hooks() {
@@ -136,19 +148,20 @@ unsafe fn main() -> Status {
 
     read_hooks();
 
-    if let Err(e) = hook(patch::LABEL_FUNC_HOOK, MSRAMHookIndex::ZERO, labels::RDRAND_XLAT, patch::LABEL_HOOK_ENTRY_04, true) {
+    if let Err(e) = hook(patch::LABEL_FUNC_HOOK, MSRAMHookIndex::ZERO, labels::RDRAND_XLAT, patch::LABEL_HOOK_ENTRY_00, true) {
         info!("Failed to hook {:?}", e);
         return Status::ABORTED;
     }
 
     read_hooks();
 
-    println!("RDRAND: {:?}", rdrand(0));
+    print_buf();
+    println!("RDRAND: {:x?}", rdrand(0));
     read_coverage_table(&interface);
 
     read_hooks();
 
-    println!("RDRAND: {:?}", rdrand(0));
+    println!("RDRAND: {:x?}", rdrand(0));
     read_coverage_table(&interface);
 
     /*

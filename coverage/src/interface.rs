@@ -24,6 +24,7 @@ impl<'a> ComInterface<'a> {
         self.base.offset(self.description.offset_jump_back_table as isize)
     }
 
+    #[allow(unused)]
     pub unsafe fn read_jump_table(&self) -> &[u16] {
         core::slice::from_raw_parts(
             self.jump_table().as_ptr(),
@@ -38,6 +39,7 @@ impl<'a> ComInterface<'a> {
         self.jump_table().offset(index as isize).write_volatile(value);
     }
 
+    #[allow(unused)]
     pub unsafe fn write_jump_table_all(&mut self, values: &[u16]) {
         for (index, value) in values.iter().enumerate() {
             self.write_jump_table(index, *value);
