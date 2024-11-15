@@ -93,35 +93,9 @@ unsafe fn main() -> Status {
             print!("{}, ", interface.read_coverage_table(i));
         }
         println!();
-
-        /*
-        print!("Time:");
-        for i in 0..5 {
-            print!("{}, ", interface.read_time_table(i));
-        }
-        println!();
-        */
     }
 
     apply_patch(&patch);
-    /*
-    let first_empty_addr = patch.addr + 4*patch.ucode_patch.len();
-    // generate patch code
-    let mut coverage_entry: [UcodePatchEntry; 1] = patches::coverage_entry::UCODE_PATCH_CONTENT;
-    for i in 0..hooks {
-        let offset = i * 2;
-        let mut entry = &mut coverage_entry[0][1];
-        //*entry = (*entry & !(0xFFusize << 24)) | ((offset & 0xFF) << 24);
-
-        apply_patch(&Patch {
-            addr: first_empty_addr + i * 4,
-            ucode_patch: &coverage_entry,
-            hook_address: None,
-            hook_index: None,
-            labels: &[],
-        });
-    }
-    */*/
 
     fn read_buf(offset: usize) -> usize {
         stgbuf_read(0xba40 + 0x40 * offset)
@@ -134,17 +108,6 @@ unsafe fn main() -> Status {
         println!();
     }
 
-    //println!("First empty addr: {}", first_empty_addr);
-    selfcheck(&mut interface);
-
-    interface.reset_coverage();
-
-    interface.write_jump_table_all(&[0xABCD, 0xDEF0, 0x1111]);
-
-    print_buf();
-    println!("RDRAND: {:x?}", rdrand(0));
-    read_coverage_table(&interface);
-
     fn read_hooks() {
         print!("Hooks: ");
         for i in 0..5 {
@@ -153,6 +116,20 @@ unsafe fn main() -> Status {
         }
         println!();
     }
+
+    //println!("First empty addr: {}", first_empty_addr);
+    selfcheck(&mut interface);
+    
+    
+    
+    
+    
+    interface.reset_coverage();
+    interface.write_jump_table_all(&[0xABCD, 0xDEF0, 0x1111]);
+
+    print_buf();
+    println!("RDRAND: {:x?}", rdrand(0));
+    read_coverage_table(&interface);
 
     read_hooks();
 

@@ -12,6 +12,6 @@ data_types = { path = "../data_types" }
 regex = { version = "1.11.0"}
 
 [features]
-default = ["std"]
-std = ["dep:regex", "dep:error-chain"]
+default = ["uasm"]
+uasm = ["dep:regex", "dep:error-chain"]
 no_std = ["data_types/nostd"]
