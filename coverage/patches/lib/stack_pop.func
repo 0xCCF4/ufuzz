@@ -1,0 +1,5 @@
+# ARG0: {addr} stack pointer
+# ARG1: {value} value 64bit to push
+
+{addr} := SUB_DSZ32({addr}, 0x0040)
+{value} := LDPPHYS_DSZ64_ASZ32_SC1({addr})

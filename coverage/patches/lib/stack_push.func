@@ -1,0 +1,5 @@
+# ARG0: {addr} stack pointer
+# ARG1: {value} value 64bit to push
+
+STADPPHYS_DSZ64_ASZ32_SC1({addr},, {value})
+{addr} := ADD_DSZ32({addr}, 0x0040)

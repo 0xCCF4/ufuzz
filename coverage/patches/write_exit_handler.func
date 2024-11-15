@@ -1,0 +1,9 @@
+# ARG0: {value} - seqw to write
+# ARG1: {tmp1} - temporary value
+# ARG2: {tmp2} - temporary value
+# ARG3: {tmp3} - temporary value
+
+{tmp1} := ZEROEXT_DSZ64(0x0)
+func lib/pause_frontend({tmp2}, {tmp1})
+func lib/ldat_write({tmp1}, {value}, {tmp3}, 2) # SEQW[0x00] := {value}
+func lib/resume_frontend({tmp2})

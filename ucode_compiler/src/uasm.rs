@@ -400,7 +400,7 @@ impl Replacer for IncludeReplacer {
         let content = std::fs::read_to_string(path).expect("read failed");
 
         dst.push_str(format!("#------------- INCLUDE {name}\n").as_str());
-        dst.push_str(&content);
+        dst.push_str(content.trim());
         dst.push_str(format!("\n#------------- END INCLUDE {name}\n").as_str());
     }
 }
@@ -468,7 +468,7 @@ impl Replacer for RepeatReplacer {
         dst.push_str("#------------- REPEAT\n");
         for i in 0..number.parse::<usize>().expect("repeat number parse error") {
             dst.push_str(format!("# REP: {i}\n").as_str());
-            dst.push_str(content);
+            dst.push_str(content.trim());
             dst.push('\n');
         }
         dst.push_str("#------------- END REPEAT\n");
@@ -523,8 +523,10 @@ pub fn preprocess_scripts<A: AsRef<Path>, B: AsRef<Path>>(src: A, dst: B) {
 
         let content = std::fs::read_to_string(&file).expect("read failed");
 
+        const MAX_ITERATIONS: usize = 10;
+
         let mut target_content = content.clone();
-        for i in 0..10 {
+        for i in 0..MAX_ITERATIONS+1 {
             let content_before = target_content.clone();
 
             target_content = repeat_regex
@@ -541,7 +543,7 @@ pub fn preprocess_scripts<A: AsRef<Path>, B: AsRef<Path>>(src: A, dst: B) {
                 break;
             }
 
-            if i == 5 {
+            if i == MAX_ITERATIONS {
                 panic!("Too many iterations. Nested includes?");
             }
         }

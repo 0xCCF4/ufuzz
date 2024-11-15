@@ -7,11 +7,8 @@ use crate::interface::ComInterface;
 use crate::page_allocation::PageAllocation;
 use crate::patches::patch;
 use core::arch::asm;
-use custom_processing_unit::{
-    apply_patch, call_custom_ucode_function, crbus_read, hook, labels, lmfence, stgbuf_read,
-    CustomProcessingUnit,
-};
-use data_types::addresses::MSRAMHookIndex;
+use custom_processing_unit::{apply_patch, call_custom_ucode_function, crbus_read, hook, labels, lmfence, ms_patch_instruction_read, ms_seqw_read, stgbuf_read, CustomProcessingUnit, Error};
+use data_types::addresses::{Address, MSRAMHookIndex, MSRAMSequenceWordAddress, UCInstructionAddress};
 use log::info;
 use ucode_compiler::utils::SequenceWord;
 use ucode_compiler::utils::SequenceWordSync::SYNCFULL;
@@ -109,7 +106,7 @@ unsafe fn main() -> Status {
     }
 
     fn read_hooks() {
-        print!("Hooks: ");
+        print!("Hooks:    ");
         for i in 0..5 {
             let hook = call_custom_ucode_function(patch::LABEL_FUNC_LDAT_READ_HOOKS, [i, 0, 0]).rax;
             print!("{:08x}, ", hook);
@@ -121,49 +118,41 @@ unsafe fn main() -> Status {
     selfcheck(&mut interface);
     
     
-    
+    unsafe fn hook_address(interface: &mut ComInterface, index: usize, address: UCInstructionAddress) -> core::result::Result<(), Error> {
+        interface.write_jump_table(index, address.address() as u16);
+        hook(
+            patch::LABEL_FUNC_HOOK,
+            MSRAMHookIndex::ZERO + index,
+            address,
+            patch::LABEL_HOOK_ENTRY_00 + index * 4,
+            true,
+        )
+    }
     
     
     interface.reset_coverage();
-    interface.write_jump_table_all(&[0xABCD, 0xDEF0, 0x1111]);
 
-    print_buf();
-    println!("RDRAND: {:x?}", rdrand(0));
+    println!(" ---- NORMAL ---- ");
+    read_hooks();
+
+    println!("RDRAND:  {:x?}", rdrand(0));
+    println!("SEQW:     {:x?}", ms_seqw_read(patch::LABEL_FUNC_LDAT_READ, MSRAMSequenceWordAddress::ZERO));
     read_coverage_table(&interface);
 
+    println!(" ---- HOOKING ---- ");
+    let _ = hook_address(&mut interface, 0, labels::RDRAND_XLAT);
     read_hooks();
 
-    if let Err(e) = hook(
-        patch::LABEL_FUNC_HOOK,
-        MSRAMHookIndex::ZERO + 0,
-        labels::RDRAND_XLAT,
-        patch::LABEL_HOOK_ENTRY_00,
-        true,
-    ) {
-        info!("Failed to hook {:?}", e);
-        return Status::ABORTED;
-    }
-
-    if let Err(e) = hook(
-        patch::LABEL_FUNC_HOOK,
-        MSRAMHookIndex::ZERO + 1,
-        labels::RDRAND_XLAT,
-        patch::LABEL_HOOK_ENTRY_01,
-        true,
-    ) {
-        info!("Failed to hook {:?}", e);
-        return Status::ABORTED;
-    }
-
-    read_hooks();
-
-    print_buf();
-    println!("RDRAND: {:x?}", rdrand(0));
+    println!("RDRAND:  {:x?}", rdrand(0));
+    println!("SEQW:     {:x?}", ms_seqw_read(patch::LABEL_FUNC_LDAT_READ, MSRAMSequenceWordAddress::ZERO));
     read_coverage_table(&interface);
 
+    println!(" ---- HOOKING ---- ");
+    let _ = hook_address(&mut interface, 1, labels::RDRAND_XLAT);
     read_hooks();
 
-    println!("RDRAND: {:x?}", rdrand(0));
+    println!("RDRAND:  {:x?}", rdrand(0));
+    println!("SEQW:     {:x?}", ms_seqw_read(patch::LABEL_FUNC_LDAT_READ, MSRAMSequenceWordAddress::ZERO));
     read_coverage_table(&interface);
 
     /*
@@ -179,8 +168,23 @@ unsafe fn main() -> Status {
     }
     */
 
+    /*
+    for i in 0..20 {
+        if i % 4 == 0 {
+            print!("\n[{}] ", UCInstructionAddress::MSRAM_START + i);
+        }
+        let val = if (i & 3) == 3 {
+            ms_seqw_read(patch::LABEL_FUNC_LDAT_READ, UCInstructionAddress::MSRAM_START + i)
+        } else {
+            ms_patch_instruction_read(patch::LABEL_FUNC_LDAT_READ, UCInstructionAddress::MSRAM_START + i)
+        };
+        print!("{:012x} ", val);
+    }
+    println!();*/
+
     drop(page);
 
+    /*
     println!("Testing sequence words");
     let mut diff = -1;
     for i in 0..0x0100 {
@@ -197,7 +201,7 @@ unsafe fn main() -> Status {
             diff = 5;
         }
     }
-    println!("OK");
+    println!("OK");*/
 
     Status::SUCCESS
 }

@@ -2,11 +2,10 @@
 # ARG1: {address} jump address
 # ARG2: {buf} temporary value
 # ARG3: {tmp} temporary value
-# computes SEQW SYNCFULL, JUMP {address} for uidx 0
+# computes SYNCFULL, JUMP {address} for uidx 0
 
 {result} := ZEROEXT_DSZ32(0x2) # output
-{buf} := ZEROEXT_DSZ32(0x0)
-{buf} := OR_DSZ32({buf}, {address})
+{buf} := ZEROEXT_DSZ32({address})
 
 func lib/crc_calc({buf}, {result}, {tmp})
 
@@ -15,3 +14,5 @@ func lib/crc_calc({buf}, {result}, {tmp})
 {result} := SHL_DSZ32({result}, 0x11)
 {result} := OR_DSZ32({result}, {address})
 {result} := SHL_DSZ32({result}, 0x08)
+
+
