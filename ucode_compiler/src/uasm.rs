@@ -1,4 +1,3 @@
-use alloc::fmt::format;
 use error_chain::error_chain;
 use regex::{Captures, Replacer};
 use std::io::Read;
@@ -38,10 +37,10 @@ impl UcodeCompiler {
     pub fn new(path: PathBuf) -> Result<UcodeCompiler> {
         if !path.exists()
             || path
-            .extension()
-            .map(|v| v.to_string_lossy().to_string())
-            .unwrap_or("".to_string())
-            != "py"
+                .extension()
+                .map(|v| v.to_string_lossy().to_string())
+                .unwrap_or("".to_string())
+                != "py"
         {
             return Err(ErrorKind::CompilerNotFound.into());
         }
@@ -157,8 +156,7 @@ pub fn build_script<P: AsRef<Path>, Q: AsRef<Path>>(
         }
     }
 
-    let names =
-        build_script_convert_folder(patch_source_folder, &target_rust_folder, allow_unused);
+    let names = build_script_convert_folder(patch_source_folder, &target_rust_folder, allow_unused);
 
     let allow_import = if allow_unused {
         "#[allow(unused_imports)]\n"
@@ -291,7 +289,8 @@ fn transform_patch<P: AsRef<Path>, Q: AsRef<Path>>(patch: P, target: Q, allow_un
         let name = capture.get(1).expect("Capture not found").as_str();
         let address = capture.get(2).expect("Capture not found").as_str();
 
-        let public = if name.starts_with("func") || name.ends_with("func") || name.contains("entry") {
+        let public = if name.starts_with("func") || name.ends_with("func") || name.contains("entry")
+        {
             "pub "
         } else {
             ""
@@ -470,7 +469,7 @@ impl Replacer for RepeatReplacer {
         for i in 0..number.parse::<usize>().expect("repeat number parse error") {
             dst.push_str(format!("# REP: {i}\n").as_str());
             dst.push_str(content);
-            dst.push_str("\n");
+            dst.push('\n');
         }
         dst.push_str("#------------- END REPEAT\n");
     }
@@ -479,10 +478,13 @@ impl Replacer for RepeatReplacer {
 pub fn preprocess_scripts<A: AsRef<Path>, B: AsRef<Path>>(src: A, dst: B) {
     let include_regex =
         regex::Regex::new(r"(?m)^ *include( <?([^>]+)>?)?( *#.*)?$").expect("regex compile error");
-    let func_include_regex = regex::Regex::new(r"(?m)^ *func *([\S/]+) *\(([^,)]*(, ?[^,)]*)*)\)( *#.*)?$")
+    let func_include_regex =
+        regex::Regex::new(r"(?m)^ *func *([\S/]+) *\(([^,)]*(, ?[^,)]*)*)\)( *#.*)?$")
+            .expect("regex compile error");
+    let define_regex = regex::Regex::new(r"(?m)^def(\s+(\S+)\s*:?=\s*([^;\n]+)\s*;?)?")
         .expect("regex compile error");
-    let define_regex = regex::Regex::new(r"(?m)^def(\s+(\S+)\s*:?=\s*([^;\n]+)\s*;?)?").expect("regex compile error");
-    let repeat_regex = regex::Regex::new(r"(?m)^\s*(repeat|rep)\s+(0*[1-9][0-9]*)\s*:\s*([^\n]*)$").expect("regex compile error");
+    let repeat_regex = regex::Regex::new(r"(?m)^\s*(repeat|rep)\s+(0*[1-9][0-9]*)\s*:\s*([^\n]*)$")
+        .expect("regex compile error");
 
     for file in dst
         .as_ref()
@@ -545,7 +547,9 @@ pub fn preprocess_scripts<A: AsRef<Path>, B: AsRef<Path>>(src: A, dst: B) {
         }
 
         let mut define_replacer = DefineResolveReplacer::default();
-        target_content = define_regex.replace_all(&target_content, &mut define_replacer).to_string();
+        target_content = define_regex
+            .replace_all(&target_content, &mut define_replacer)
+            .to_string();
 
         let defines = define_replacer.defines;
         target_content = defines.iter().fold(target_content, |acc, (name, value)| {

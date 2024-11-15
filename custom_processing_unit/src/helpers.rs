@@ -516,16 +516,14 @@ pub fn calculate_hook_value(
     enabled: bool,
 ) -> crate::Result<usize> {
     if !to_hook_ucode_addr.hookable() {
-        return Err(
-            Error::HookFailed("patch uop address must be even and >0x7c00".to_string()),
-        );
+        return Err(Error::HookFailed(
+            "patch uop address must be even and >0x7c00".to_string(),
+        ));
     }
 
     let poff = (redirect_to_addr.address() - 0x7c00) / 2;
-    let patch_value = 0x3e000000
-        | (poff << 16)
-        | to_hook_ucode_addr.address()
-        | if enabled {1} else {0};
+    let patch_value =
+        0x3e000000 | (poff << 16) | to_hook_ucode_addr.address() | if enabled { 1 } else { 0 };
 
     Ok(patch_value)
 }

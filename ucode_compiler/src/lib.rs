@@ -2,5 +2,5 @@
 extern crate alloc;
 
 #[cfg(feature = "std")]
-pub mod compiler_call;
+pub mod uasm;
 pub mod utils;

@@ -1,12 +1,12 @@
 use std::path::PathBuf;
 use std::process::Command;
 use std::{env, fs};
-use ucode_compiler::compiler_call::AUTOGEN;
+use ucode_compiler::uasm::AUTOGEN;
 
 fn main() {
     println!("cargo::rerun-if-changed=build.rs");
 
-    ucode_compiler::compiler_call::build_script("patches", "src/patches", false);
+    ucode_compiler::uasm::build_script("patches", "src/patches", false);
     generate_labels();
 }
 

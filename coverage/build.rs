@@ -1,5 +1,5 @@
-use std::path::{Path};
-use ucode_compiler::compiler_call::AUTOGEN;
+use std::path::Path;
+use ucode_compiler::uasm::AUTOGEN;
 
 #[path = "src/interface_definition.rs"]
 mod interface_definition;
@@ -16,8 +16,8 @@ fn main() {
     }
 
     generate_ucode_files("patches/gen");
-    ucode_compiler::compiler_call::preprocess_scripts("patches", "src/patches");
-    ucode_compiler::compiler_call::build_script("src/patches", "src/patches", true);
+    ucode_compiler::uasm::preprocess_scripts("patches", "src/patches");
+    ucode_compiler::uasm::build_script("src/patches", "src/patches", true);
     // delete_intermediate_files("src/patches");
 }
 
@@ -51,22 +51,57 @@ fn generate_ucode_files<A: AsRef<Path>>(path: A) {
         addr << 1
     }
 
-    definitions.push(("index_mask", 2usize.pow((interface.max_number_of_hooks + 1).ilog2())-1, "mask to apply to an index to get an index in the range of the tables"));
-    definitions.push(("offset_mask", (2usize.pow((interface.max_number_of_hooks + 1).ilog2())-1) << 1, "mask to apply to an offset into the tables to get a valid u16 ptr"));
-    definitions.push(("address_base", interface.base, "base address of the interface"));
-    definitions.push(("address_coverage_table_base", interface.base + u16_to_u8_addr(interface.offset_coverage_result_table), "base address of the coverage table"));
-    definitions.push(("address_jump_table_base", interface.base + u16_to_u8_addr(interface.offset_jump_back_table), "base address of the jump table"));
-    definitions.push(("table_length", interface.max_number_of_hooks, "number of entries in the tables"));
-    definitions.push(("table_size", u16_to_u8_addr(interface.max_number_of_hooks), "size of the tables in bytes"));
-     //assert!(interface.offset_timing_table > interface.offset_coverage_result_table);
+    definitions.push((
+        "index_mask",
+        2usize.pow((interface.max_number_of_hooks + 1).ilog2()) - 1,
+        "mask to apply to an index to get an index in the range of the tables",
+    ));
+    definitions.push((
+        "offset_mask",
+        (2usize.pow((interface.max_number_of_hooks + 1).ilog2()) - 1) << 1,
+        "mask to apply to an offset into the tables to get a valid u16 ptr",
+    ));
+    definitions.push((
+        "address_base",
+        interface.base,
+        "base address of the interface",
+    ));
+    definitions.push((
+        "address_coverage_table_base",
+        interface.base + u16_to_u8_addr(interface.offset_coverage_result_table),
+        "base address of the coverage table",
+    ));
+    definitions.push((
+        "address_jump_table_base",
+        interface.base + u16_to_u8_addr(interface.offset_jump_back_table),
+        "base address of the jump table",
+    ));
+    definitions.push((
+        "table_length",
+        interface.max_number_of_hooks,
+        "number of entries in the tables",
+    ));
+    definitions.push((
+        "table_size",
+        u16_to_u8_addr(interface.max_number_of_hooks),
+        "size of the tables in bytes",
+    ));
+    //assert!(interface.offset_timing_table > interface.offset_coverage_result_table);
     //assert!(interface.offset_jump_back_table > interface.offset_timing_table);
     assert!(interface.offset_jump_back_table > interface.offset_coverage_result_table);
     // definitions.push(("offset_cov2time_table", u16_to_u8_addr(interface.offset_timing_table - interface.offset_coverage_result_table), "offset between the coverage and timing tables"));
     // definitions.push(("offset_time2jump_table", u16_to_u8_addr(interface.offset_jump_back_table - interface.offset_timing_table), "offset between the timing and jump tables"));
-    definitions.push(("offset_cov2jump_table", u16_to_u8_addr(interface.offset_jump_back_table - interface.offset_coverage_result_table), "offset between the coverage and jump tables"));
+    definitions.push((
+        "offset_cov2jump_table",
+        u16_to_u8_addr(interface.offset_jump_back_table - interface.offset_coverage_result_table),
+        "offset between the coverage and jump tables",
+    ));
 
-    let definitions = definitions.iter().map(|(name, value, comment)|
-        format!("# {comment}\ndef [{name}] = 0x{value:04x};")).collect::<Vec<_>>().join("\n\n");
+    let definitions = definitions
+        .iter()
+        .map(|(name, value, comment)| format!("# {comment}\ndef [{name}] = 0x{value:04x};"))
+        .collect::<Vec<_>>()
+        .join("\n\n");
 
     std::fs::write(file, format!("# {AUTOGEN}\n\n{definitions}").as_str()).expect("write failed");
 
@@ -78,12 +113,17 @@ fn generate_ucode_files<A: AsRef<Path>>(path: A) {
 
     for i in 0..interface.max_number_of_hooks {
         let val = u16_to_u8_addr(i);
-        content.push_str(format!("
+        content.push_str(
+            format!(
+                "
 <hook_entry_{i:02}>
 STADSTGBUF_DSZ64_ASZ16_SC1([adr_stg_r10], , r10) !m2  # save original value of r10
 [in_hook_offset] := ZEROEXT_DSZ32(0x{val:02x}) SEQW GOTO <handler> # hook index {i} -> offset {val}
 NOP
-").as_str())
+"
+            )
+            .as_str(),
+        )
     }
 
     std::fs::write(file, content).expect("write failed");

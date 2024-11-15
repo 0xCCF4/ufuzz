@@ -1,5 +1,5 @@
-use core::ptr::NonNull;
 use crate::interface_definition::ComInterfaceDescription;
+use core::ptr::NonNull;
 
 pub struct ComInterface<'a> {
     base: NonNull<u16>,
@@ -21,7 +21,8 @@ impl<'a> ComInterface<'a> {
     }
 
     unsafe fn jump_table(&self) -> NonNull<u16> {
-        self.base.offset(self.description.offset_jump_back_table as isize)
+        self.base
+            .offset(self.description.offset_jump_back_table as isize)
     }
 
     #[allow(unused)]
@@ -36,7 +37,9 @@ impl<'a> ComInterface<'a> {
         if index >= self.description.max_number_of_hooks {
             return;
         }
-        self.jump_table().offset(index as isize).write_volatile(value);
+        self.jump_table()
+            .offset(index as isize)
+            .write_volatile(value);
     }
 
     #[allow(unused)]
@@ -47,7 +50,8 @@ impl<'a> ComInterface<'a> {
     }
 
     unsafe fn coverage_table(&self) -> NonNull<u16> {
-        self.base.offset(self.description.offset_coverage_result_table as isize)
+        self.base
+            .offset(self.description.offset_coverage_result_table as isize)
     }
 
     pub unsafe fn read_coverage_table(&self, index: usize) -> u16 {
@@ -63,7 +67,9 @@ impl<'a> ComInterface<'a> {
             return;
         }
 
-        self.coverage_table().offset(index as isize).write_volatile(value);
+        self.coverage_table()
+            .offset(index as isize)
+            .write_volatile(value);
     }
 
     pub unsafe fn reset_coverage(&mut self) {

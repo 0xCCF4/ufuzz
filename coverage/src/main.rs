@@ -3,23 +3,25 @@
 
 extern crate alloc;
 
-use crate::patches::patch;
-use core::arch::asm;
-use custom_processing_unit::{apply_patch, call_custom_ucode_function, crbus_read, hook, labels, lmfence, stgbuf_read, CustomProcessingUnit};
-use log::info;
-use uefi::prelude::*;
-use uefi::{print, println};
-use data_types::addresses::MSRAMHookIndex;
-use ucode_compiler::utils::SequenceWord;
-use ucode_compiler::utils::SequenceWordSync::SYNCFULL;
 use crate::interface::ComInterface;
 use crate::page_allocation::PageAllocation;
+use crate::patches::patch;
+use core::arch::asm;
+use custom_processing_unit::{
+    apply_patch, call_custom_ucode_function, crbus_read, hook, labels, lmfence, stgbuf_read,
+    CustomProcessingUnit,
+};
+use data_types::addresses::MSRAMHookIndex;
+use log::info;
+use ucode_compiler::utils::SequenceWord;
+use ucode_compiler::utils::SequenceWordSync::SYNCFULL;
+use uefi::prelude::*;
+use uefi::{print, println};
 
+mod interface;
+mod interface_definition;
 mod page_allocation;
 mod patches;
-mod interface_definition;
-mod interface;
-
 
 #[entry]
 unsafe fn main() -> Status {
@@ -43,7 +45,8 @@ unsafe fn main() -> Status {
         return Status::ABORTED;
     }
 
-    let mut interface = interface::ComInterface::new(&interface_definition::COM_INTERFACE_DESCRIPTION);
+    let mut interface =
+        interface::ComInterface::new(&interface_definition::COM_INTERFACE_DESCRIPTION);
     let hooks = {
         let max_hooks = interface.description.max_number_of_hooks;
 
@@ -79,10 +82,10 @@ unsafe fn main() -> Status {
 
     #[allow(unused)]
     fn unwrap_clock(value: usize) -> usize {
-        (value &  0xffffffffffffffusize) * 0x39 + (value >> 0x37)
+        (value & 0xffffffffffffffusize) * 0x39 + (value >> 0x37)
     }
 
-    println!("Time: {}", get_time() &0xFFFF);
+    println!("Time: {}", get_time() & 0xFFFF);
 
     unsafe fn read_coverage_table(interface: &ComInterface) {
         print!("Coverage: ");
@@ -121,7 +124,7 @@ unsafe fn main() -> Status {
     */*/
 
     fn read_buf(offset: usize) -> usize {
-        stgbuf_read(0xba40 + 0x40*offset)
+        stgbuf_read(0xba40 + 0x40 * offset)
     }
     fn print_buf() {
         print!("Buffer: ");
@@ -153,12 +156,24 @@ unsafe fn main() -> Status {
 
     read_hooks();
 
-    if let Err(e) = hook(patch::LABEL_FUNC_HOOK, MSRAMHookIndex::ZERO+0, labels::RDRAND_XLAT, patch::LABEL_HOOK_ENTRY_00, true) {
+    if let Err(e) = hook(
+        patch::LABEL_FUNC_HOOK,
+        MSRAMHookIndex::ZERO + 0,
+        labels::RDRAND_XLAT,
+        patch::LABEL_HOOK_ENTRY_00,
+        true,
+    ) {
         info!("Failed to hook {:?}", e);
         return Status::ABORTED;
     }
 
-    if let Err(e) = hook(patch::LABEL_FUNC_HOOK, MSRAMHookIndex::ZERO+1, labels::RDRAND_XLAT, patch::LABEL_HOOK_ENTRY_01, true) {
+    if let Err(e) = hook(
+        patch::LABEL_FUNC_HOOK,
+        MSRAMHookIndex::ZERO + 1,
+        labels::RDRAND_XLAT,
+        patch::LABEL_HOOK_ENTRY_01,
+        true,
+    ) {
         info!("Failed to hook {:?}", e);
         return Status::ABORTED;
     }
