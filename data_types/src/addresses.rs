@@ -105,6 +105,11 @@ impl UCInstructionAddress {
         UCInstructionAddress(value)
     }
 
+    /// only use this function for specifying consts
+    pub const fn to_const(self) -> usize {
+        self.0
+    }
+
     /// Returns the MSRAMInstructionPartAddress for a given offset. Offsets are [0,1,2,3,...] mapping to
     /// addresses self+[0,1,2, 4,5,6, 8,9,a]
     /// #[track_caller]

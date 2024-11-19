@@ -26,6 +26,9 @@ impl PageAllocation {
     pub fn ptr(&self) -> &NonNull<u8> {
         &self.base
     }
+    pub fn dealloc(self) {
+        drop(self)
+    }
 }
 
 impl AsRef<NonNull<u8>> for PageAllocation {

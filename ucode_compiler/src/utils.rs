@@ -118,7 +118,7 @@ impl SequenceWord {
 mod test {
     use crate::utils::SequenceWord;
     use crate::utils::SequenceWordControl::UEND0;
-    use crate::utils::SequenceWordSync::{LFNCEMARK};
+    use crate::utils::SequenceWordSync::LFNCEMARK;
     use data_types::addresses::UCInstructionAddress;
     use std::io::BufRead;
     use std::process::Command;

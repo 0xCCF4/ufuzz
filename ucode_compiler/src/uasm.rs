@@ -165,7 +165,7 @@ pub fn build_script<P: AsRef<Path>, Q: AsRef<Path>>(
     };
 
     let content = names.iter().fold(String::new(), |acc, name| {
-        acc + &format!("pub(crate) mod {name};\n{allow_import}pub use {name}::PATCH as {name};\n")
+        acc + &format!("pub mod {name};\n/*\n{allow_import}pub use {name}::PATCH as {name};\n*/\n")
     });
     std::fs::write(&module_path, format!("{AUTOGEN}\n\n{content}").as_str())
         .unwrap_or_else(|_| panic!("Failed to write {module_path:?}"));
@@ -526,7 +526,7 @@ pub fn preprocess_scripts<A: AsRef<Path>, B: AsRef<Path>>(src: A, dst: B) {
         const MAX_ITERATIONS: usize = 10;
 
         let mut target_content = content.clone();
-        for i in 0..MAX_ITERATIONS+1 {
+        for i in 0..MAX_ITERATIONS + 1 {
             let content_before = target_content.clone();
 
             target_content = repeat_regex

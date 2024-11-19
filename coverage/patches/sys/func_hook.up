@@ -1,14 +1,16 @@
 # def hook(tmp0: value, tmp1: addr)
 
-let [zero] := tmp10
-let [frontend_prev] := tmp12
-let [tmp] := tmp9
+def [sys_hook_in_value] := tmp0
+def [sys_hook_in_addr] := tmp1
+def [sys_hook_zero] := tmp10
+def [sys_hook_frontend_prev] := tmp12
+def [sys_hook_tmp] := tmp9
 
-[zero] := ZEROEXT_DSZ32(0x00000000)
+[sys_hook_zero] := ZEROEXT_DSZ32(0x00000000)
 
-func lib/pause_frontend([frontend_prev], [zero])
-func lib/ldat_write(tmp1, tmp0, [tmp], 3)
-func lib/resume_frontend([frontend_prev])
+func lib/pause_frontend([sys_hook_frontend_prev], [sys_hook_zero])
+func lib/ldat_write([sys_hook_in_addr], [sys_hook_in_value], [sys_hook_tmp], 3)
+func lib/resume_frontend([sys_hook_frontend_prev])
 
 rax:= ZEROEXT_DSZ32(0x00001337)
 rax:= CONCAT_DSZ32(rax, 0x00001337) SEQW LFNCEWAIT, UEND0

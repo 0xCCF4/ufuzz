@@ -10,13 +10,14 @@
 {offset} := AND_DSZ32([offset_mask], {offset_input})
 
 {addr} := ADD_DSZ32({offset}, [address_coverage_table_base]) # address
-{tmp} := LDPPHYS_DSZ16_ASZ32_SC1({addr})
+{tmp} := LDPPHYS_DSZ16_ASZ32_SC1({addr}) SEQW LFNCEMARK
 {tmp} := ADD_DSZ16({tmp}, 0x0001)
-STADPPHYS_DSZ16_ASZ32_SC1({addr},, {tmp})
+NOP
+STADPPHYS_DSZ16_ASZ32_SC1({addr},, {tmp}) SEQW LFNCEWTMRK
 
 # {addr} := ADD_DSZ32({addr}, [offset_cov2time_table])
 # {tmp}:= MOVEFROMCREG_DSZ64( , 0x2d7) !m1,m2
 # STADPPHYS_DSZ16_ASZ32_SC1({addr},, {tmp})
 
 {addr} := ADD_DSZ32({addr}, [offset_cov2jump_table])
-{result} := LDPPHYS_DSZ16_ASZ32_SC1({addr})
+{result} := LDPPHYS_DSZ16_ASZ32_SC1({addr}) SEQW LFNCEMARK

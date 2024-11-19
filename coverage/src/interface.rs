@@ -49,6 +49,12 @@ impl<'a> ComInterface<'a> {
         }
     }
 
+    pub unsafe fn zero_jump_table(&mut self) {
+        for i in 0..self.description.max_number_of_hooks {
+            self.write_jump_table(i, 0);
+        }
+    }
+
     unsafe fn coverage_table(&self) -> NonNull<u16> {
         self.base
             .offset(self.description.offset_coverage_result_table as isize)

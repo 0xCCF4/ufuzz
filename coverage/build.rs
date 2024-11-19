@@ -117,9 +117,9 @@ fn generate_ucode_files<A: AsRef<Path>>(path: A) {
             format!(
                 "
 <hook_entry_{i:02}>
+NOP SEQW SYNCFULL
 STADSTGBUF_DSZ64_ASZ16_SC1([adr_stg_r10], , r10) !m2  # save original value of r10
 [in_hook_offset] := ZEROEXT_DSZ32(0x{val:02x}) SEQW GOTO <handler> # hook index {i} -> offset {val}
-NOP
 "
             )
             .as_str(),

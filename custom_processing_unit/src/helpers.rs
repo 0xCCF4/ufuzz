@@ -326,7 +326,7 @@ pub fn call_custom_ucode_function(
     stgbuf_write(RegTmp1, args[1]);
     stgbuf_write(RegTmp2, args[2]);
 
-    udebug_invoke(
+    core::hint::black_box(udebug_invoke)(
         func_address,
         &mut result.rax,
         &mut result.rbx,
@@ -554,13 +554,13 @@ pub fn apply_patch(patch: &Patch) {
 }
 
 pub fn apply_hook_patch_func() -> UCInstructionAddress {
-    let patch = crate::patches::func_hook;
+    let patch = crate::patches::func_hook::PATCH;
     apply_patch(&patch);
     patch.addr
 }
 
 pub fn apply_ldat_read_func() -> UCInstructionAddress {
-    let patch = crate::patches::func_ldat_read;
+    let patch = crate::patches::func_ldat_read::PATCH;
     apply_patch(&patch);
     patch.addr
 }

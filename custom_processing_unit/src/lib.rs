@@ -39,6 +39,7 @@ pub type Result<T> = core::result::Result<T, Error>;
 pub const GLM_OLD: u32 = 0x506c9;
 pub const GLM_NEW: u32 = 0x506ca;
 
+// Will zero out all hooks on dropping
 pub struct CustomProcessingUnit {
     pub current_glm_version: u32,
 }
@@ -89,13 +90,13 @@ impl CustomProcessingUnit {
 
             // write and execute the patch that will zero out match&patch moving
             // the 0xc entry to last entry, which will make the hook call our moved patch
-            let init_patch = patches::func_init;
+            let init_patch = patches::func_init::PATCH;
             patch_ucode(init_patch.addr, init_patch.ucode_patch);
 
             Ok(init_patch.addr)
         } else if self.current_glm_version == GLM_NEW {
             // write and execute the patch that will zero out match&patch
-            let init_patch = patches::func_init_glm_new;
+            let init_patch = patches::func_init_glm_new::PATCH;
             patch_ucode(init_patch.addr, init_patch.ucode_patch);
 
             Ok(init_patch.addr)
@@ -123,5 +124,15 @@ impl CustomProcessingUnit {
 
     pub fn zero_hooks(&self) -> Result<()> {
         self.zero_hooks_func(self.apply_zero_hook_func()?)
+    }
+
+    pub fn cleanup(self) {
+        drop(self)
+    }
+}
+
+impl Drop for CustomProcessingUnit {
+    fn drop(&mut self) {
+        self.zero_hooks().unwrap();
     }
 }
