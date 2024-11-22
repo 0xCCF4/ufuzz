@@ -49,4 +49,8 @@ func lib/ldat_write([hm_offset], [hm_redirect_address], [hm_tmp], 3)
 func lib/resume_frontend([hm_frontend_prev])
 
 rax:= ZEROEXT_DSZ32(0x00003341)
-rax:= CONCAT_DSZ32(rax, 0x00003341) SEQW LFNCEWAIT, UEND0
+rax:= CONCAT_DSZ32(rax, 0x00003341)
+
+NOPB
+NOP SEQW LFNCEWAIT, UEND0
+NOPB

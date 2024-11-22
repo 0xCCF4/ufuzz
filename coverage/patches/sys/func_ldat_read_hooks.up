@@ -7,4 +7,6 @@ func lib/pause_frontend(tmp4, tmp5)
 func lib/ldat_read(tmp0, rax, tmp3, 3)
 func lib/resume_frontend(tmp4)
 
+NOPB
 NOP SEQW LFNCEWAIT, UEND0
+NOPB

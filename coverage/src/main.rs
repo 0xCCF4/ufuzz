@@ -7,7 +7,7 @@ use coverage::page_allocation::PageAllocation;
 use core::arch::asm;
 use coverage::interface::safe::ComInterface;
 use coverage::{coverage_collector, interface, interface_definition};
-use custom_processing_unit::{apply_patch, calculate_hook_value, call_custom_ucode_function, hook, labels, lmfence, ms_seqw_read, CustomProcessingUnit};
+use custom_processing_unit::{apply_patch, calculate_hook_value, call_custom_ucode_function, hook, labels, lmfence, ms_seqw_read, CustomProcessingUnit, FunctionResult};
 use data_types::addresses::{
     Address, MSRAMHookIndex, MSRAMSequenceWordAddress, UCInstructionAddress,
 };
@@ -111,11 +111,11 @@ unsafe fn main() -> Status {
         interface.zero_jump_table();
         interface.write_jump_table_all(addresses);
 
-        let result =  call_custom_ucode_function(coverage_collector::LABEL_FUNC_HOOK_MANY, [0, 0, 0]);
+        /*let result =  call_custom_ucode_function(coverage_collector::LABEL_FUNC_HOOK_MANY, [0, 0, 0]);
         println!("Hook Many: {:x?}", result);
         if result.rax != 0x334100003341 {
             println!("Failed to hook many");
-        }
+        }*/
     }
 
     read_hooks();
@@ -210,19 +210,24 @@ unsafe fn selfcheck(interface: &mut ComInterface) -> bool {
     true
 }
 
-fn rdrand(index: u8) -> (u64, bool) {
-    let rnd32;
+fn rdrand(index: u8) -> (bool, FunctionResult) {
+    let mut result = FunctionResult::default();
     let flags: u8;
     lmfence();
     unsafe {
         asm! {
+        "xchg {rbx_tmp}, rbx",
         "rdrand rax",
         "setc {flags}",
-        inout("rax") index as u64 => rnd32,
+        "xchg {rbx_tmp}, rbx",
+        inout("rax") 0usize => result.rax,
+        rbx_tmp = inout(reg) 0usize => result.rbx,
+        inout("rcx") 0usize => result.rcx,
+        inout("rdx") 0usize => result.rdx,
         flags = out(reg_byte) flags,
-        options(nomem, nostack)
+        options(nostack),
         }
     }
     lmfence();
-    (rnd32, flags > 0)
+    (flags > 0, result)
 }

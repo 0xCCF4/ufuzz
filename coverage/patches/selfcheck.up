@@ -19,4 +19,8 @@ tmp2 := SUB_DSZ32(tmp0, [table_size])
 UJMPCC_DIRECT_NOTTAKEN_CONDNZ(tmp2, <selfcheck_loop>)
 
 rbx := ADD_DSZ32(0x0000, tmp0)
-rax := ZEROEXT_DSZ32(0x00abc) SEQW LFNCEWAIT, UEND0
+rax := ZEROEXT_DSZ32(0x00abc)
+
+NOPB
+NOP SEQW LFNCEWAIT, UEND0
+NOPB

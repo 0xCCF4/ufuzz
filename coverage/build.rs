@@ -150,4 +150,27 @@ STADSTGBUF_DSZ64_ASZ16_SC1([adr_stg_r10], , r10) !m2  # save original value of r
     }
 
     std::fs::write(file, content).expect("write failed");
+
+    let file = path.as_ref().join("exits.up");
+    let mut content = "".to_string();
+    content.push_str("# ");
+    content.push_str(AUTOGEN);
+    content.push_str("\n\n");
+
+    for i in 0..interface.max_number_of_hooks {
+        let val = u16_to_u8_addr(i);
+        content.push_str(
+            format!(
+                "
+<hook_exit_{i:02}>
+r10 := LDSTGBUF_DSZ64_ASZ16_SC1([adr_stg_r10]) !m2
+NOP SEQW SYNCFULL
+NOP SEQW GOTO <exit_trap> # will be overriden when a new hook is set
+"
+            )
+                .as_str(),
+        )
+    }
+
+    std::fs::write(file, content).expect("write failed");
 }

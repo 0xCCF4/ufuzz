@@ -13,4 +13,8 @@ func lib/ldat_write([sys_hook_in_addr], [sys_hook_in_value], [sys_hook_tmp], 3)
 func lib/resume_frontend([sys_hook_frontend_prev])
 
 rax:= ZEROEXT_DSZ32(0x00001337)
-rax:= CONCAT_DSZ32(rax, 0x00001337) SEQW LFNCEWAIT, UEND0
+rax:= CONCAT_DSZ32(rax, 0x00001337)
+
+NOPB
+NOP SEQW LFNCEWAIT, UEND0
+NOPB
