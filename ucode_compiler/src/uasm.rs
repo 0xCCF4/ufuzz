@@ -448,12 +448,12 @@ struct DefineResolveReplacer {
 
 impl Replacer for &mut DefineResolveReplacer {
     fn replace_append(&mut self, caps: &Captures<'_>, dst: &mut String) {
-        let name = caps.get(2).expect("define name not given").as_str();
-        let value = caps.get(3).expect("define value not given").as_str();
+        let name = caps.get(2).expect("define name not given").as_str().trim();
+        let value = caps.get(3).expect("define value not given").as_str().trim();
 
         self.defines.push((name.to_string(), value.to_string()));
 
-        dst.push_str(format!("# def {value}").as_str());
+        dst.push_str(format!("# def {value}\n").as_str());
     }
 }
 

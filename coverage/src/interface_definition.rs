@@ -7,6 +7,19 @@ pub struct ComInterfaceDescription {
     pub offset_jump_back_table: usize,
 }
 
+impl ComInterfaceDescription {
+    pub const fn memory_usage(&self) -> usize {
+        let jump = self.offset_jump_back_table + self.max_number_of_hooks * 2;
+        let coverage = self.offset_coverage_result_table + self.max_number_of_hooks * 2;
+
+        if jump > coverage {
+            jump
+        } else {
+            coverage
+        }
+    }
+}
+
 const MAX_NUMBER_OF_HOOKS: usize = 3;
 
 pub const COM_INTERFACE_DESCRIPTION: ComInterfaceDescription = ComInterfaceDescription {

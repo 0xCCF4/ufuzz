@@ -12,9 +12,10 @@ ucode_compiler = { path = "../ucode_compiler", default-features = false, feature
 
 [features]
 default = ["main"]
-main = ["dep:uefi", "dep:log", "no_std"] # dependencies for the main.rs
+main = ["uefi", "dep:log", "no_std"] # dependencies for the main.rs
 no_std = [] # when using as a library: no_std
+uefi = ["dep:uefi"] # when using uefi features
 
 [build-dependencies]
-ucode_compiler = { path = "../ucode_compiler" }
+ucode_compiler = { path = "../ucode_compiler", default-features = false, features = ["uasm"] }
 regex = { version = "1.11.0"}

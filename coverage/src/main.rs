@@ -3,22 +3,17 @@
 
 extern crate alloc;
 
-use crate::page_allocation::PageAllocation;
+use coverage::page_allocation::PageAllocation;
 use core::arch::asm;
-use coverage::interface::ComInterface;
+use coverage::interface::safe::ComInterface;
 use coverage::{coverage_collector, interface, interface_definition};
-use custom_processing_unit::{
-    apply_patch, call_custom_ucode_function, hook, labels, lmfence, ms_seqw_read,
-    CustomProcessingUnit,
-};
+use custom_processing_unit::{apply_patch, calculate_hook_value, call_custom_ucode_function, hook, labels, lmfence, ms_seqw_read, CustomProcessingUnit};
 use data_types::addresses::{
     Address, MSRAMHookIndex, MSRAMSequenceWordAddress, UCInstructionAddress,
 };
 use log::info;
 use uefi::prelude::*;
 use uefi::{print, println};
-
-mod page_allocation;
 
 #[entry]
 unsafe fn main() -> Status {
@@ -42,10 +37,15 @@ unsafe fn main() -> Status {
         return Status::ABORTED;
     }
 
-    let mut interface =
-        interface::ComInterface::new(&interface_definition::COM_INTERFACE_DESCRIPTION);
+    let mut interface = match ComInterface::new(&interface_definition::COM_INTERFACE_DESCRIPTION) {
+        Ok(interface) => interface,
+        Err(e) => {
+            info!("Failed to initiate program {:?}", e);
+            return Status::ABORTED;
+        }
+    };
     let hooks = {
-        let max_hooks = interface.description.max_number_of_hooks;
+        let max_hooks = interface.description().max_number_of_hooks;
 
         let device_max_hooks = match cpu.current_glm_version {
             custom_processing_unit::GLM_OLD => 31,
@@ -60,14 +60,6 @@ unsafe fn main() -> Status {
         info!("No hooks available");
         return Status::ABORTED;
     }
-
-    let page = match PageAllocation::alloc_address(0x1000, 1) {
-        Ok(page) => page,
-        Err(e) => {
-            info!("Failed to allocate page {:?}", e);
-            return Status::ABORTED;
-        }
-    };
 
     interface.reset_coverage();
 
@@ -103,6 +95,7 @@ unsafe fn main() -> Status {
         address: UCInstructionAddress,
     ) {
         interface.write_jump_table(index, address.address() as u16);
+
         if let Err(err) = hook(
             coverage_collector::LABEL_FUNC_HOOK,
             MSRAMHookIndex::ZERO + index,
@@ -114,6 +107,30 @@ unsafe fn main() -> Status {
         }
     }
 
+    unsafe fn hook_many(interface: &mut ComInterface, addresses: &[UCInstructionAddress]) {
+        interface.zero_jump_table();
+        interface.write_jump_table_all(addresses);
+
+        let result =  call_custom_ucode_function(coverage_collector::LABEL_FUNC_HOOK_MANY, [0, 0, 0]);
+        println!("Hook Many: {:x?}", result);
+        if result.rax != 0x334100003341 {
+            println!("Failed to hook many");
+        }
+    }
+
+    read_hooks();
+    /*hook_many(&mut interface, &[
+        labels::RDRAND_XLAT,
+        labels::RDRAND_XLAT+2,
+        labels::RDRAND_XLAT+4,
+        UCInstructionAddress::from_const(0x1000),
+        UCInstructionAddress::from_const(0x2000),
+        UCInstructionAddress::from_const(0x3000),
+        UCInstructionAddress::from_const(0x4000),
+    ]);*/
+    read_hooks();
+    let _ = cpu.zero_hooks();
+
     interface.reset_coverage();
 
     println!(" ---- NORMAL ---- ");
@@ -124,19 +141,15 @@ unsafe fn main() -> Status {
     read_coverage_table(&interface);
 
     println!(" ---- HOOKING ---- ");
-    for i in 0..interface.description.max_number_of_hooks {
+    for i in 0..interface.description().max_number_of_hooks {
         hook_address(&mut interface, i, labels::RDRAND_XLAT + i * 2);
     }
     read_hooks();
-
-    println!("RDRAND:  {:x?}", rdrand(0));
     println!("SEQW:     {:x?}", ms_seqw_read(coverage_collector::LABEL_FUNC_LDAT_READ, MSRAMSequenceWordAddress::ZERO));
     read_coverage_table(&interface);
 
     for _i in 0..2 {
         println!(" ---- RUN ---- ");
-        read_hooks();
-
         println!("RDRAND:  {:x?}", rdrand(0));
         println!(
             "SEQW:     {:x?}",
@@ -145,6 +158,7 @@ unsafe fn main() -> Status {
                 MSRAMSequenceWordAddress::ZERO
             )
         );
+        read_hooks();
         read_coverage_table(&interface);
     }
 
@@ -161,18 +175,17 @@ unsafe fn main() -> Status {
 
     // cleanup in reverse order
     cpu.cleanup();
-    page.dealloc();
 
     Status::SUCCESS
 }
 
 unsafe fn selfcheck(interface: &mut ComInterface) -> bool {
-    for i in 0..interface.description.max_number_of_hooks {
+    for i in 0..interface.description().max_number_of_hooks {
         interface.write_jump_table(i, i as u16);
     }
     // check
     interface.reset_coverage();
-    for i in 0..interface.description.max_number_of_hooks {
+    for i in 0..interface.description().max_number_of_hooks {
         let val = interface.read_coverage_table(i);
         if val != 0 {
             println!("Coverage table not zeroed at index {}", i);
@@ -181,12 +194,12 @@ unsafe fn selfcheck(interface: &mut ComInterface) -> bool {
     }
 
     let result = call_custom_ucode_function(coverage_collector::LABEL_SELFCHECK_FUNC, [0, 0, 0]);
-    if result.rax != 0xABC || result.rbx >> 1 != interface.description.max_number_of_hooks {
+    if result.rax != 0xABC || result.rbx >> 1 != interface.description().max_number_of_hooks {
         println!("Selfcheck invoke failed: {:x?}", result);
         return false;
     }
 
-    for i in 0..interface.description.max_number_of_hooks {
+    for i in 0..interface.description().max_number_of_hooks {
         let val = interface.read_coverage_table(i);
         if val != i as u16 {
             println!("Selfcheck mismatch [{i:x}] {val:x}");

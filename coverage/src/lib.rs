@@ -5,3 +5,6 @@ pub use patches::patch as coverage_collector;
 pub mod coverage_harness;
 pub mod interface;
 pub mod interface_definition;
+
+#[cfg(feature = "uefi")]
+pub mod page_allocation;

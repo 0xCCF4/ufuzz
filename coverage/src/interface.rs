@@ -1,114 +1,151 @@
-use crate::interface_definition::ComInterfaceDescription;
-use core::ptr::NonNull;
+pub mod raw {
+    use core::ptr::NonNull;
+    use data_types::addresses::{Address, UCInstructionAddress};
+    use crate::interface_definition::ComInterfaceDescription;
 
-pub struct ComInterface<'a> {
-    base: NonNull<u16>,
-    pub description: &'a ComInterfaceDescription,
+    pub struct ComInterface<'a> {
+        base: NonNull<u16>,
+        pub description: &'a ComInterfaceDescription,
+    }
+
+    impl<'a> ComInterface<'a> {
+        pub unsafe fn new(description: &'a ComInterfaceDescription) -> Self {
+            if description.base == 0 {
+                panic!("Invalid base address");
+            }
+
+            let ptr = NonNull::new_unchecked(description.base as *mut u16);
+
+            Self {
+                base: ptr,
+                description,
+            }
+        }
+
+        unsafe fn jump_table(&self) -> NonNull<u16> {
+            self.base
+                .offset(self.description.offset_jump_back_table as isize)
+        }
+
+        #[allow(unused)]
+        pub unsafe fn read_jump_table(&self) -> &[u16] {
+            core::slice::from_raw_parts(
+                self.jump_table().as_ptr(),
+                self.description.max_number_of_hooks,
+            )
+        }
+
+        pub unsafe fn write_jump_table(&mut self, index: usize, value: u16) {
+            if index >= self.description.max_number_of_hooks {
+                return;
+            }
+            self.jump_table()
+                .offset(index as isize)
+                .write_volatile(value);
+        }
+
+        pub unsafe fn write_jump_table_all<P: Into<UCInstructionAddress>, T: IntoIterator<Item=P>>(&mut self, values: T) {
+            for (index, value) in values.into_iter().enumerate() {
+                self.write_jump_table(index, value.into().address() as u16);
+            }
+        }
+
+        pub unsafe fn zero_jump_table(&mut self) {
+            for i in 0..self.description.max_number_of_hooks {
+                self.write_jump_table(i, 0);
+            }
+        }
+
+        unsafe fn coverage_table(&self) -> NonNull<u16> {
+            self.base
+                .offset(self.description.offset_coverage_result_table as isize)
+        }
+
+        pub unsafe fn read_coverage_table(&self, index: usize) -> u16 {
+            if index >= self.description.max_number_of_hooks {
+                return 0;
+            }
+
+            self.coverage_table().offset(index as isize).read_volatile()
+        }
+
+        pub unsafe fn write_coverage_table(&mut self, index: usize, value: u16) {
+            if index >= self.description.max_number_of_hooks {
+                return;
+            }
+
+            self.coverage_table()
+                .offset(index as isize)
+                .write_volatile(value);
+        }
+
+        pub unsafe fn reset_coverage(&mut self) {
+            for index in 0..self.description.max_number_of_hooks {
+                self.write_coverage_table(index, 0);
+            }
+        }
+    }
 }
 
-impl<'a> ComInterface<'a> {
-    pub unsafe fn new(description: &'a ComInterfaceDescription) -> Self {
-        if description.base == 0 {
-            panic!("Invalid base address");
+#[cfg(feature = "uefi")]
+pub mod safe {
+    use uefi::data_types::PhysicalAddress;
+    use data_types::addresses::UCInstructionAddress;
+    use crate::interface_definition::ComInterfaceDescription;
+    use crate::page_allocation::PageAllocation;
+
+    pub struct ComInterface<'a> {
+        base: super::raw::ComInterface<'a>,
+        allocation: PageAllocation,
+    }
+
+    impl<'a> ComInterface<'a> {
+        pub fn new(description: &'a ComInterfaceDescription) -> uefi::Result<Self> {
+            if description.base == 0 {
+                return Err(uefi::Status::INVALID_PARAMETER.into());
+            }
+
+            let interface = unsafe { super::raw::ComInterface::new(description) };
+            let size = interface.description.memory_usage();
+            let page = PageAllocation::alloc_address(PhysicalAddress::from(interface.description.base as u64), (size/4096) + 1)?;
+
+            Ok(Self {
+                base: interface,
+                allocation: page,
+            })
         }
 
-        let ptr = NonNull::new_unchecked(description.base as *mut u16);
-
-        Self {
-            base: ptr,
-            description,
-        }
-    }
-
-    unsafe fn jump_table(&self) -> NonNull<u16> {
-        self.base
-            .offset(self.description.offset_jump_back_table as isize)
-    }
-
-    #[allow(unused)]
-    pub unsafe fn read_jump_table(&self) -> &[u16] {
-        core::slice::from_raw_parts(
-            self.jump_table().as_ptr(),
-            self.description.max_number_of_hooks,
-        )
-    }
-
-    pub unsafe fn write_jump_table(&mut self, index: usize, value: u16) {
-        if index >= self.description.max_number_of_hooks {
-            return;
-        }
-        self.jump_table()
-            .offset(index as isize)
-            .write_volatile(value);
-    }
-
-    #[allow(unused)]
-    pub unsafe fn write_jump_table_all(&mut self, values: &[u16]) {
-        for (index, value) in values.iter().enumerate() {
-            self.write_jump_table(index, *value);
-        }
-    }
-
-    pub unsafe fn zero_jump_table(&mut self) {
-        for i in 0..self.description.max_number_of_hooks {
-            self.write_jump_table(i, 0);
-        }
-    }
-
-    unsafe fn coverage_table(&self) -> NonNull<u16> {
-        self.base
-            .offset(self.description.offset_coverage_result_table as isize)
-    }
-
-    pub unsafe fn read_coverage_table(&self, index: usize) -> u16 {
-        if index >= self.description.max_number_of_hooks {
-            return 0;
+        pub const fn description(&self) -> &'a ComInterfaceDescription {
+            self.base.description
         }
 
-        self.coverage_table().offset(index as isize).read_volatile()
-    }
-
-    pub unsafe fn write_coverage_table(&mut self, index: usize, value: u16) {
-        if index >= self.description.max_number_of_hooks {
-            return;
+        pub fn read_jump_table(&self) -> &[u16] {
+            unsafe { self.base.read_jump_table() }
         }
 
-        self.coverage_table()
-            .offset(index as isize)
-            .write_volatile(value);
-    }
-
-    pub unsafe fn reset_coverage(&mut self) {
-        for index in 0..self.description.max_number_of_hooks {
-            self.write_coverage_table(index, 0);
-        }
-    }
-
-    /*
-    unsafe fn time_table(&self) -> NonNull<u16> {
-        self.base.offset(self.description.offset_timing_table as isize)
-    }
-
-    pub unsafe fn read_time_table(&self, index: usize) -> u16 {
-        if index >= self.description.max_number_of_hooks {
-            return 0;
+        pub fn write_jump_table(&mut self, index: usize, value: u16) {
+            unsafe { self.base.write_jump_table(index, value) }
         }
 
-        self.time_table().offset(index as isize).read_volatile()
-    }
-
-    pub unsafe fn write_time_table(&mut self, index: usize, value: u16) {
-        if index >= self.description.max_number_of_hooks {
-            return;
+        pub fn write_jump_table_all<P: Into<UCInstructionAddress>, T: IntoIterator<Item=P>>(&mut self, values: T) {
+            unsafe { self.base.write_jump_table_all(values) }
         }
 
-        self.time_table().offset(index as isize).write_volatile(value);
-    }
+        pub fn zero_jump_table(&mut self) {
+            unsafe { self.base.zero_jump_table() }
+        }
 
-    pub unsafe fn reset_time_table(&mut self) {
-        for index in 0..self.description.max_number_of_hooks {
-            self.write_time_table(index, 0);
+        pub fn read_coverage_table(&self, index: usize) -> u16 {
+            unsafe { self.base.read_coverage_table(index) }
+        }
+
+        pub fn write_coverage_table(&mut self, index: usize, value: u16) {
+            unsafe { self.base.write_coverage_table(index, value) }
+        }
+
+        pub fn reset_coverage(&mut self) {
+            unsafe { self.base.reset_coverage() }
         }
     }
-    */
 }
+

@@ -1,0 +1,52 @@
+# def hook_many(tmp0: address, tmp1: length)
+
+def [hm_in_addr] := tmp0
+def [hm_in_length] := tmp1
+
+def [hm_zero] := tmp10
+def [hm_frontend_prev] := tmp11
+def [hm_tmp] := tmp12
+def [hm_jt_base] := tmp13
+def [hm_hooked_address] := tmp14
+def [hm_redirect_address] := tmp15
+
+def [hm_offset] := tmp9
+def [hm_index] := tmp8
+
+NOPB
+
+[hm_zero] := ZEROEXT_DSZ32(0x00000000)
+[hm_jt_base] := ZEROEXT_DSZ32([address_jump_table_base])
+
+[hm_index] := ZEROEXT_DSZ32(0x0000)
+[hm_offset] := ZEROEXT_DSZ32(0x0000)
+
+func lib/pause_frontend([hm_frontend_prev], [hm_zero])
+
+<hm_loop>
+# Check if we are done
+[hm_tmp] := SUB_DSZ32([hm_in_length], [hm_index])
+UJMPCC_DIRECT_NOTTAKEN_CONDZ([hm_tmp], <hm_loop_end>)
+
+# LOAD address to hook from memory
+[hm_hooked_address] := LDPPHYS_DSZ16_ASZ32_SC1([hm_offset], [hm_jt_base])
+[hm_hooked_address] := ZEROEXT_DSZ32([hm_hooked_address])
+
+# Compute value to write to hook memory
+[hm_redirect_address] := SHL_DSZ32([hm_index], 0x0002)
+[hm_redirect_address] := ADD_DSZ32([hm_redirect_address], [hook_entry_address_offset]) # 0x7c00 + offset + index*4
+func lib/compute_hook([hm_hooked_address], [hm_redirect_address], [hm_tmp], [hm_redirect_address])
+# <-- [hm_redirect_address] now contains the hook value
+
+# Write value to hook memory
+func lib/ldat_write([hm_offset], [hm_redirect_address], [hm_tmp], 3)
+
+# Increase index and offset
+[hm_index] := ADD_DSZ32([hm_index], 0x0001)
+[hm_offset] := ADD_DSZ32([hm_offset], 0x0002) SEQW GOTO <hm_loop>
+
+<hm_loop_end>
+func lib/resume_frontend([hm_frontend_prev])
+
+rax:= ZEROEXT_DSZ32(0x00003341)
+rax:= CONCAT_DSZ32(rax, 0x00003341) SEQW LFNCEWAIT, UEND0

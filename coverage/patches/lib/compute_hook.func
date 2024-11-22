@@ -1,0 +1,12 @@
+# ARG0: {hooked_address} address to hook
+# ARG1: {redirect_address} address to redirect to 0x7c00 = 0x0000
+# ARG2: {tmp} temporary value
+# ARG3: {result} result value
+
+{tmp} := SHR_DSZ32({redirect_address}, 0x0001)
+
+{result} := ZEROEXT_DSZ32(0x3e00)
+{result} := OR_DSZ32({result}, {tmp})
+{result} := SHL_DSZ32({result}, 0x010)
+{result} := OR_DSZ32({result}, {hooked_address})
+{result} := OR_DSZ32({result}, 0x0001)

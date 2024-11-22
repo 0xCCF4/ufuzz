@@ -83,6 +83,11 @@ impl Div<usize> for LinearAddress {
         LinearAddress::from_const(self.0 / other)
     }
 }
+impl From<&LinearAddress> for LinearAddress {
+    fn from(value: &LinearAddress) -> Self {
+        *value
+    }
+}
 
 // An address of a code instruction.
 // Ucode instruction RAM starts at 0x7c00 counting up by 1
@@ -197,6 +202,12 @@ impl Sub<usize> for UCInstructionAddress {
     }
 }
 
+impl From<&UCInstructionAddress> for UCInstructionAddress {
+    fn from(value: &UCInstructionAddress) -> Self {
+        *value
+    }
+}
+
 /// An address of a location in the patch RAM.
 /// This address is used when writing or reading patch code.
 /// Memory layout is like this:
@@ -275,6 +286,12 @@ impl From<MSRAMInstructionPartWriteAddress> for UCInstructionAddress {
     }
 }
 
+impl From<&MSRAMInstructionPartWriteAddress> for MSRAMInstructionPartWriteAddress {
+    fn from(value: &MSRAMInstructionPartWriteAddress) -> Self {
+        *value
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct MSRAMInstructionPartReadAddress(usize);
 impl Address for MSRAMInstructionPartReadAddress {
@@ -334,6 +351,12 @@ impl fmt::Display for MSRAMInstructionPartReadAddress {
 impl fmt::Debug for MSRAMInstructionPartReadAddress {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Ir{:04x}", self.0)
+    }
+}
+
+impl From<&MSRAMInstructionPartReadAddress> for MSRAMInstructionPartReadAddress {
+    fn from(value: &MSRAMInstructionPartReadAddress) -> Self {
+        *value
     }
 }
 
@@ -411,6 +434,12 @@ impl Sub<usize> for MSRAMSequenceWordAddress {
     }
 }
 
+impl From<&MSRAMSequenceWordAddress> for MSRAMSequenceWordAddress {
+    fn from(value: &MSRAMSequenceWordAddress) -> Self {
+        *value
+    }
+}
+
 /// A patch index address. In the hook RAM hooks are labeled with an index.
 /// This address is used when writing or reading patch hooks.
 /// Patch indexes are multiples of 1 and start at 0. Till 31
@@ -473,6 +502,12 @@ impl Sub<usize> for MSRAMHookIndex {
 
     fn sub(self, other: usize) -> Self {
         MSRAMHookIndex::from_const(self.0 - other)
+    }
+}
+
+impl From<&MSRAMHookIndex> for MSRAMHookIndex {
+    fn from(value: &MSRAMHookIndex) -> Self {
+        *value
     }
 }
 

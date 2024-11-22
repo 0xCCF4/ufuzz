@@ -1,7 +1,7 @@
 use crate::coverage_collector;
-use crate::interface::ComInterface;
 use custom_processing_unit::{apply_patch, disable_all_hooks, enable_hooks, hook, lmfence};
 use data_types::addresses::{Address, MSRAMHookIndex, UCInstructionAddress};
+use crate::interface::safe::ComInterface;
 
 const COVERAGE_ENTRIES: usize = UCInstructionAddress::MAX.to_const();
 
@@ -22,18 +22,14 @@ impl<'a, 'b> CoverageHarness<'a, 'b> {
 
     fn init(&mut self) {
         apply_patch(&coverage_collector::PATCH);
-        unsafe {
-            self.interface.zero_jump_table();
-        }
+        self.interface.zero_jump_table();
     }
 
     #[inline(always)]
     fn pre_execution(&mut self, hooks: &[UCInstructionAddress]) -> Result<(), &'static str> {
-        unsafe {
-            self.interface.reset_coverage();
-        }
+        self.interface.reset_coverage();
 
-        if hooks.len() > self.interface.description.max_number_of_hooks {
+        if hooks.len() > self.interface.description().max_number_of_hooks {
             return Err("Requested too many hooks");
         }
 
@@ -72,28 +68,29 @@ impl<'a, 'b> CoverageHarness<'a, 'b> {
     #[inline(always)]
     fn post_execution(&mut self, hooks: &[UCInstructionAddress]) {
         for (index, address) in hooks.iter().enumerate() {
-            let covered = unsafe { self.interface.read_coverage_table(index) } > 0;
+            let covered = self.interface.read_coverage_table(index) > 0;
             if covered {
                 self.coverage[address.address()] += 1;
             }
         }
     }
 
-    pub fn execute<F: Fn()>(
+    pub fn execute<T, R, F: FnOnce(T) -> R>(
         &mut self,
         hooks: &[UCInstructionAddress],
         func: F,
-    ) -> Result<(), &'static str> {
+        param: T,
+    ) -> Result<R, &'static str> {
         self.pre_execution(hooks)?;
 
         lmfence();
-        func();
+        let result = func(param);
         lmfence();
 
         disable_all_hooks();
         self.post_execution(hooks);
         enable_hooks();
 
-        Ok(())
+        Ok(result)
     }
 }

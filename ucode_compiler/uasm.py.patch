@@ -1,5 +1,5 @@
 diff --git a/uasm-lib/uasm.py b/uasm-lib/uasm.py
-index 8cb98cf..21e2bba 100755
+index 8cb98cf..9448bdb 100755
 --- a/uasm-lib/uasm.py
 +++ b/uasm-lib/uasm.py
 @@ -1300,6 +1300,7 @@ def assemble_uop(uop, modifiers, labels, var_to_reg):
@@ -66,7 +66,131 @@ index 8cb98cf..21e2bba 100755
      seqw_bin = (sync_ctrl << 25) | (sync_ctrl_uidx << 23) | (tetrad_ctrl_next_uaddr << 8) | (tetrad_ctrl_uidx << 6) | (uop_ctrl << 2) | (uop_ctrl_uidx)
  
      # add both CRCs
-@@ -1680,6 +1698,8 @@ def assemble_ucode(ucode, avoid_unk_256, output):
+@@ -1558,6 +1576,50 @@ def assemble_seqword(partial_seqwords, labels, is_last):
+ 
+     return seqw_bin
+ 
++def compile_uop(uop_str, labels, var_to_reg):
++    uop = uop_str.split('!')[0].split("SEQW")[0].split('#')[0].strip()
++    modifiers = uop_str.split('!')[1].split("SEQW")[0].split('#')[0].strip() if '!' in uop_str else ''
++
++    seqw = uop_str.split("SEQW")[1].split('#')[0].strip() if 'SEQW' in uop_str else ''
++    # replace labels in seqw
++    for label, l_uaddr in labels.items():
++        seqw = seqw.replace(label, f"0x{l_uaddr:04x}")
++
++    # skip labels and declarations
++    if is_empty(uop) or is_label(uop) or is_decl(uop):
++        return None, None, None
++
++    # deal with raw instructions
++    if uop.startswith('$'):
++        raw_uop = True
++        uop_bin = int(uop[1:], 16)
++    else:
++        raw_uop = False
++        uop_bin = assemble_uop(uop, modifiers, labels, var_to_reg)
++
++    # add both CRCs
++    f_parity = lambda a,b: a^b
++    crc1 = reduce(f_parity, get_even_bits(uop_bin))
++    crc2 = reduce(f_parity, get_odd_bits(uop_bin))
++    uop_bin |= (crc1 << 47)
++    uop_bin |= (crc2 << 46)
++    assert crc(uop_bin) == (0,0)
++
++    uop_nolabels = uop + ((' !' + modifiers) if modifiers else '')
++    for label in labels:
++        uop_nolabels = uop_nolabels.replace(label, f'U{labels[label]:04x}')
++    for var, reg in var_to_reg.items():
++        uop_nolabels = uop_nolabels.replace(var, reg)
++    if not raw_uop and normalize(uop_disassemble(uop_bin, 0)) != normalize(uop_nolabels):
++        print('[ERROR] something went wrong while compiling:')
++        print(f'    input:  {uop_nolabels}')
++        print(f'    output: {hex(uop_bin)}')
++        print(f'    disass:  {uop_disassemble(uop_bin, 0)}')
++        # if opcode not in g_special_opcodes:
++        exit(1)
++
++    return uop_bin, seqw, uop_nolabels
++
+ def assemble_ucode(ucode, avoid_unk_256, output):
+     triads = [[]]
+     seqws = [[]]
+@@ -1608,6 +1670,13 @@ def assemble_ucode(ucode, avoid_unk_256, output):
+             reg_to_var[reg] = var
+             continue
+ 
++        if uop == "NOPBARRIER" or uop == "NOPB":
++            if _address & 3 == 0:
++                continue
++            else:
++                _address += 4 - (_address & 3)
++                continue
++
+         _address += 1
+         if _address & 3 == 3:
+             # skip fixed-nop uops slot
+@@ -1619,47 +1688,21 @@ def assemble_ucode(ucode, avoid_unk_256, output):
+ 
+     # now assemble
+     for uop_str in uops:
+-        uop = uop_str.split('!')[0].split("SEQW")[0].split('#')[0].strip()
+-        modifiers = uop_str.split('!')[1].split("SEQW")[0].split('#')[0].strip() if '!' in uop_str else ''
++        if uop_str.strip() == "NOPBARRIER" or uop_str.strip() == "NOPB":
++            while len(triads[-1]) < 3 and len(triads[-1]) != 0:
++                uop_bin, seqw, uop_nolabels = compile_uop("NOP", labels, var_to_reg)
++                
++                triads[-1].append(uop_bin)
++                seqws[-1].append(seqw)
++                instructions[-1].append(f"NOPB")
++                
++            continue
+ 
+-        seqw = uop_str.split("SEQW")[1].split('#')[0].strip() if 'SEQW' in uop_str else ''
+-        # replace labels in seqw
+-        for label, l_uaddr in labels.items():
+-            seqw = seqw.replace(label, f"0x{l_uaddr:04x}")
++        uop_bin, seqw, uop_nolabels = compile_uop(uop_str, labels, var_to_reg)
+ 
+-        # skip labels and declarations
+-        if is_empty(uop) or is_label(uop) or is_decl(uop):
++        if uop_bin is None:
+             continue
+ 
+-        # deal with raw instructions
+-        if uop.startswith('$'):
+-            raw_uop = True
+-            uop_bin = int(uop[1:], 16)
+-        else:
+-            raw_uop = False
+-            uop_bin = assemble_uop(uop, modifiers, labels, var_to_reg)
+-
+-        # add both CRCs
+-        f_parity = lambda a,b: a^b
+-        crc1 = reduce(f_parity, get_even_bits(uop_bin))
+-        crc2 = reduce(f_parity, get_odd_bits(uop_bin))
+-        uop_bin |= (crc1 << 47)
+-        uop_bin |= (crc2 << 46)
+-        assert crc(uop_bin) == (0,0)
+-
+-        uop_nolabels = uop + ((' !' + modifiers) if modifiers else '')
+-        for label in labels:
+-            uop_nolabels = uop_nolabels.replace(label, f'U{labels[label]:04x}')
+-        for var, reg in var_to_reg.items():
+-            uop_nolabels = uop_nolabels.replace(var, reg)
+-        if not raw_uop and normalize(uop_disassemble(uop_bin, 0)) != normalize(uop_nolabels):
+-            print('[ERROR] something went wrong while compiling:')
+-            print(f'    input:  {uop_nolabels}')
+-            print(f'    output: {hex(uop_bin)}')
+-            print(f'    disass:  {uop_disassemble(uop_bin, 0)}')
+-            # if opcode not in g_special_opcodes:
+-            exit(1)
+-
+         if len(triads[-1]) == 3:
+             triads.append([])
+             seqws.append([])
+@@ -1680,6 +1723,8 @@ def assemble_ucode(ucode, avoid_unk_256, output):
          tee(f'unsigned long hook_address = 0x{hook_address:04x};')
      if not hook_entry is None:
          tee(f'unsigned long hook_entry = 0x{hook_entry:02x};')
