@@ -422,12 +422,7 @@ pub fn transform_h_patch_to_rs_patch<P: AsRef<Path>, Q: AsRef<Path>>(
         let name = capture.get(1).expect("Capture not found").as_str();
         let address = capture.get(2).expect("Capture not found").as_str();
 
-        let public = if name.starts_with("func") || name.ends_with("func") || name.contains("entry")
-        {
-            "pub "
-        } else {
-            ""
-        };
+        let public = "pub";
 
         labels.push((name.to_uppercase(), address, public));
     }

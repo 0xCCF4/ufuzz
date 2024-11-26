@@ -57,7 +57,7 @@ func compute_exit_jump({0}, {2}, {1}, {3})
 {1} := ADD_DSZ64({1}, {tmp_counter}) # {1} := HOOK_EXIT (seqw addr) + index
 func lib/ldat_write({1}, {0}, {2}, 2) # SEQW_mem[{1} = EXIT + index] := {0} = SEQW GOTO {2}
 
-{tmp_counter} := ADD_DSZ64({tmp_counter}, 0x1) # SEQW GOTO <setup_exit_loop>
+{tmp_counter} := ADD_DSZ64({tmp_counter}, 0x1) SEQW GOTO <setup_exit_loop>
 <setup_exit_loop_end>
 
 
@@ -80,7 +80,7 @@ func lib/compute_hook({2}, {0}, {1}, {3})
 {0} := SHL_DSZ64({tmp_counter}, 0x01) # index * 2
 func lib/ldat_write({0}, {3}, {1}, 3)
 
-{tmp_counter} := ADD_DSZ64({tmp_counter}, 0x1) # SEQW GOTO <setup_hook_loop>
+{tmp_counter} := ADD_DSZ64({tmp_counter}, 0x1) SEQW GOTO <setup_hook_loop>
 <setup_hook_loop_end>
 
 # Reactivate frontend

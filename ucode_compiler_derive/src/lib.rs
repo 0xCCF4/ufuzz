@@ -1,7 +1,6 @@
 #![crate_type = "proc-macro"]
 extern crate proc_macro;
 use proc_macro::TokenStream;
-use std::error::Error;
 use std::path::PathBuf;
 use unindent::unindent;
 

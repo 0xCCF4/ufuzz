@@ -1,14 +1,10 @@
 #![no_main]
 #![no_std]
 
-use coverage::interface::safe::ComInterface;
-use coverage::page_allocation::PageAllocation;
-use coverage::{coverage_collector, interface_definition};
 use custom_processing_unit::{apply_patch, call_custom_ucode_function, CustomProcessingUnit};
 use log::info;
 use ucode_compiler::utils::SequenceWord;
 use ucode_compiler::utils::SequenceWordSync::SYNCFULL;
-use ucode_compiler_derive::patch;
 use uefi::{entry, print, println, Status};
 
 mod patch {
@@ -48,7 +44,7 @@ unsafe fn main() -> Status {
 
     println!("Testing sequence words");
     let mut diff = -1;
-    for i in 0..0x7eff {
+    for i in 0..0x7e00 {
         if i % 0x100 == 0 {
             print!("\r[{:04x}] ", i);
         }

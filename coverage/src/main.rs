@@ -7,15 +7,13 @@ use core::arch::asm;
 use coverage::interface::safe::ComInterface;
 use coverage::{coverage_collector, interface_definition};
 use custom_processing_unit::{
-    apply_patch, call_custom_ucode_function, hook, labels, lmfence, ms_seqw_read,
+    apply_patch, call_custom_ucode_function, labels, lmfence, ms_seqw_read,
     CustomProcessingUnit, FunctionResult,
 };
 use data_types::addresses::{
-    Address, MSRAMHookIndex, MSRAMSequenceWordAddress, UCInstructionAddress,
+    MSRAMSequenceWordAddress, UCInstructionAddress,
 };
 use log::info;
-use ucode_compiler::utils::SequenceWord;
-use ucode_compiler::utils::SequenceWordSync::SYNCFULL;
 use uefi::prelude::*;
 use uefi::{print, println};
 
@@ -90,25 +88,16 @@ unsafe fn main() -> Status {
         println!();
     }
 
-    //println!("First empty addr: {}", first_empty_addr);
-    selfcheck(&mut interface);
-
-    unsafe fn hook_address(
-        interface: &mut ComInterface,
-        index: usize,
-        address: UCInstructionAddress,
-    ) {
-        interface.write_jump_table(index, address.address() as u16);
-
-        if let Err(err) = hook(
-            coverage_collector::LABEL_FUNC_HOOK,
-            MSRAMHookIndex::ZERO + index,
-            address,
-            coverage_collector::LABEL_HOOK_ENTRY_00 + index * 4,
-            true,
-        ) {
-            println!("Failed to hook: {:?}", err);
+    fn read_seqws() {
+        print!("SEQW:     ");
+        for i in 0..8 {
+            let seqw = ms_seqw_read(
+                coverage_collector::LABEL_FUNC_LDAT_READ,
+                coverage_collector::LABEL_HOOK_EXIT_00 + i*4
+            );
+            print!("{:08x}, ", seqw);
         }
+        println!();
     }
 
     unsafe fn setup_hooks(interface: &mut ComInterface, addresses: &[UCInstructionAddress]) {
@@ -121,53 +110,12 @@ unsafe fn main() -> Status {
 
         println!("Setup: {:x?}", result);
 
-        if result.rax != 0x334100003341 {
+        if result.rax != 0x664200006642 {
             println!("Failed to setup");
         }
     }
 
     read_hooks();
-    for i in 0..0.max(hooks - 1) {
-        hook_address(&mut interface, i + 1, labels::RDRAND_XLAT + i * 2);
-    }
-    read_hooks();
-    let addr = [
-        labels::RDRAND_XLAT,
-        labels::RDRAND_XLAT + 2,
-        labels::RDRAND_XLAT + 4,
-        UCInstructionAddress::from_const(0x1000),
-        UCInstructionAddress::from_const(0x2000),
-        UCInstructionAddress::from_const(0x3000),
-        UCInstructionAddress::from_const(0x4000),
-    ];
-    setup_hooks(&mut interface, &addr);
-    print!("Expected SEQW: ");
-    for (i, _a) in (0..hooks.min(addr.len())).zip(addr.iter()) {
-        print!(
-            "{:08x?}, ",
-            SequenceWord::new()
-                .goto(2, labels::RDRAND_XLAT + i * 4)
-                .sync(1, SYNCFULL)
-                .assemble()
-        );
-    }
-    print!("\nGot SEQW:      ");
-    for i in 0..hooks.min(addr.len()) {
-        let a = coverage_collector::LABEL_FUNC_EXIT + i * 4;
-        print!(
-            "{:08x?}, ",
-            ms_seqw_read(coverage_collector::LABEL_FUNC_LDAT_READ, a)
-        );
-    }
-    println!();
-
-    read_hooks();
-    let _ = cpu.zero_hooks();
-
-    println!(
-        "SEQW base: {:08x?}",
-        SequenceWord::new().sync(1, SYNCFULL).goto(2, 0).assemble()
-    );
 
     apply_patch(&coverage_collector::PATCH); // todo: remove
 
@@ -177,39 +125,24 @@ unsafe fn main() -> Status {
     read_hooks();
 
     println!("RDRAND:  {:x?}", rdrand());
-    println!(
-        "SEQW:     {:x?}",
-        ms_seqw_read(
-            coverage_collector::LABEL_FUNC_LDAT_READ,
-            MSRAMSequenceWordAddress::ZERO
-        )
-    );
+    read_seqws();
     read_coverage_table(&interface);
 
     println!(" ---- HOOKING ---- ");
-    for i in 0..interface.description().max_number_of_hooks {
-        hook_address(&mut interface, i, labels::RDRAND_XLAT + i * 2);
-    }
+    let addr = [
+        labels::RDRAND_XLAT,
+        labels::RDRAND_XLAT + 2,
+        labels::RDRAND_XLAT + 4,
+    ];
+    setup_hooks(&mut interface, &addr);
     read_hooks();
-    println!(
-        "SEQW:     {:x?}",
-        ms_seqw_read(
-            coverage_collector::LABEL_FUNC_LDAT_READ,
-            MSRAMSequenceWordAddress::ZERO
-        )
-    );
+    read_seqws();
     read_coverage_table(&interface);
 
     for _i in 0..2 {
         println!(" ---- RUN ---- ");
         println!("RDRAND:  {:x?}", rdrand());
-        println!(
-            "SEQW:     {:x?}",
-            ms_seqw_read(
-                coverage_collector::LABEL_FUNC_LDAT_READ,
-                MSRAMSequenceWordAddress::ZERO
-            )
-        );
+        read_seqws();
         read_hooks();
         read_coverage_table(&interface);
     }
@@ -229,37 +162,6 @@ unsafe fn main() -> Status {
     cpu.cleanup();
 
     Status::SUCCESS
-}
-
-unsafe fn selfcheck(interface: &mut ComInterface) -> bool {
-    for i in 0..interface.description().max_number_of_hooks {
-        interface.write_jump_table(i, i as u16);
-    }
-    // check
-    interface.reset_coverage();
-    for i in 0..interface.description().max_number_of_hooks {
-        let val = interface.read_coverage_table(i);
-        if val != 0 {
-            println!("Coverage table not zeroed at index {}", i);
-            return false;
-        }
-    }
-
-    let result = call_custom_ucode_function(coverage_collector::LABEL_SELFCHECK_FUNC, [0, 0, 0]);
-    if result.rax != 0xABC || result.rbx >> 1 != interface.description().max_number_of_hooks {
-        println!("Selfcheck invoke failed: {:x?}", result);
-        return false;
-    }
-
-    for i in 0..interface.description().max_number_of_hooks {
-        let val = interface.read_coverage_table(i);
-        if val != i as u16 {
-            println!("Selfcheck mismatch [{i:x}] {val:x}");
-            return false;
-        }
-    }
-
-    true
 }
 
 fn rdrand() -> (bool, FunctionResult) {
