@@ -5,6 +5,12 @@ use ucode_compiler::uasm::AUTOGEN;
 mod interface_definition;
 
 fn main() {
+    if let Err(err) = build() {
+        panic!("Failed to compile: {:?}", err);
+    }
+}
+
+fn build() -> ucode_compiler::uasm::Result<()> {
     println!("cargo::rerun-if-changed=build.rs");
 
     if !std::fs::exists("src/patches").expect("fs perm denied") {
@@ -15,23 +21,40 @@ fn main() {
         std::fs::create_dir("patches/gen").expect("dir creation failed")
     }
 
+    fn extract_label_value(text: &str, label: &str) -> usize {
+        let regex = regex::Regex::new(format!(r"LABEL_{}:[^(]+\(0x([^)]+)\)", label).as_str())
+            .expect("regex failed");
+        let hook_entry = regex
+            .captures(text)
+            .expect("hook entry label not found")
+            .get(1)
+            .expect("hook entry not found")
+            .as_str();
+        usize::from_str_radix(hook_entry, 16).expect("hook entry not a number")
+    }
+
     // STAGE 1
 
     generate_ucode_files("patches/gen", None);
-    ucode_compiler::uasm::preprocess_scripts("patches", "src/patches");
-    ucode_compiler::uasm::build_script("src/patches", "src/patches", true);
+    ucode_compiler::uasm::preprocess_scripts("patches", "src/patches", "patches")?;
+    ucode_compiler::uasm::compile_source_and_create_module("src/patches", "src/patches", true)?;
 
-    let regex_hook_entry = regex::Regex::new(r"LABEL_HOOK_ENTRY_00:[^(]+\(0x([^)]+)\)").expect("regex failed");
-    let patch_text = std::fs::read_to_string("src/patches/patch.rs").expect("read failed");
-    let hook_entry = regex_hook_entry.captures(patch_text.as_str()).expect("hook entry label not found").get(1).expect("hook entry not found").as_str();
+    let result_text = std::fs::read_to_string("src/patches/patch.rs").expect("read failed");
 
     // STAGE 2
 
-    generate_ucode_files("patches/gen", Some(usize::from_str_radix(hook_entry, 16).expect("hook entry not a number")));
-    ucode_compiler::uasm::preprocess_scripts("patches", "src/patches");
-    ucode_compiler::uasm::build_script("src/patches", "src/patches", true);
+    let data = Stage2Pass {
+        hook_entry_address: extract_label_value(result_text.as_str(), "HOOK_ENTRY_00"),
+        hook_exit_address: extract_label_value(result_text.as_str(), "HOOK_EXIT_00"),
+    };
+
+    generate_ucode_files("patches/gen", Some(data));
+    ucode_compiler::uasm::preprocess_scripts("patches", "src/patches", "patches")?;
+    ucode_compiler::uasm::compile_source_and_create_module("src/patches", "src/patches", true)?;
 
     // delete_intermediate_files("src/patches");
+
+    Ok(())
 }
 
 #[allow(dead_code)]
@@ -54,7 +77,22 @@ fn delete_intermediate_files<A: AsRef<Path>>(path: A) {
     }
 }
 
-fn generate_ucode_files<A: AsRef<Path>>(path: A, hook_entry: Option<usize>) {
+#[derive(Copy, Clone)]
+struct Stage2Pass {
+    hook_entry_address: usize,
+    hook_exit_address: usize,
+}
+
+impl Default for Stage2Pass {
+    fn default() -> Self {
+        Stage2Pass {
+            hook_entry_address: 0x7c00,
+            hook_exit_address: 0x7c00,
+        }
+    }
+}
+
+fn generate_ucode_files<A: AsRef<Path>>(path: A, pass1data: Option<Stage2Pass>) {
     let file = path.as_ref().join("interface_definition.up");
 
     let interface = interface_definition::COM_INTERFACE_DESCRIPTION;
@@ -111,13 +149,27 @@ fn generate_ucode_files<A: AsRef<Path>>(path: A, hook_entry: Option<usize>) {
     ));
     definitions.push((
         "hook_entry_address",
-        hook_entry.unwrap_or(0),
-        "address of the first hook entry point"
+        pass1data
+            .unwrap_or_default()
+            .hook_entry_address,
+        "address of the first hook entry point",
     ));
     definitions.push((
         "hook_entry_address_offset",
-        hook_entry.unwrap_or(0x7c00)-0x7c00,
-        "address of the first hook entry point"
+        pass1data
+            .unwrap_or_default()
+            .hook_entry_address
+            - 0x7c00,
+        "address of the first hook entry point",
+    ));
+    definitions.push((
+        "hook_exit_offset",
+        (pass1data
+            .unwrap_or_default()
+            .hook_exit_address
+            - 0x7c00)
+            / 4,
+        "offset in sequence ram to exit SEQW",
     ));
 
     let definitions = definitions
@@ -158,7 +210,7 @@ STADSTGBUF_DSZ64_ASZ16_SC1([adr_stg_r10], , r10) !m2  # save original value of r
     content.push_str("\n\n");
 
     for i in 0..interface.max_number_of_hooks {
-        let val = u16_to_u8_addr(i);
+        let _val = u16_to_u8_addr(i);
         content.push_str(
             format!(
                 "
@@ -168,7 +220,7 @@ NOP SEQW SYNCFULL
 NOP SEQW GOTO <exit_trap> # will be overriden when a new hook is set
 "
             )
-                .as_str(),
+            .as_str(),
         )
     }
 

@@ -1,7 +1,7 @@
 use crate::coverage_collector;
+use crate::interface::safe::ComInterface;
 use custom_processing_unit::{apply_patch, disable_all_hooks, enable_hooks, hook, lmfence};
 use data_types::addresses::{Address, MSRAMHookIndex, UCInstructionAddress};
-use crate::interface::safe::ComInterface;
 
 const COVERAGE_ENTRIES: usize = UCInstructionAddress::MAX.to_const();
 
@@ -40,7 +40,9 @@ impl<'a, 'b> CoverageHarness<'a, 'b> {
                 *address,
                 coverage_collector::LABEL_HOOK_ENTRY_00 + index * 4, // todo: check
                 true,
-            ).is_err() {
+            )
+            .is_err()
+            {
                 return Err("failed to apply hook");
             }
         }
@@ -55,7 +57,9 @@ impl<'a, 'b> CoverageHarness<'a, 'b> {
                 UCInstructionAddress::ZERO,
                 UCInstructionAddress::ZERO,
                 false,
-            ).is_err() {
+            )
+            .is_err()
+            {
                 return Err("failed to remove hook");
             }
         }

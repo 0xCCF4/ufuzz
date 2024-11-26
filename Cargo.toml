@@ -1,4 +1,4 @@
 [workspace]
 
 resolver = "2"
-members = ["custom_processing_unit", "data_types", "efitest", "literature_search", "ucode_compiler", "emulation_test", "coverage"]
+members = ["custom_processing_unit", "data_types", "efitest", "literature_search", "ucode_compiler", "emulation_test", "coverage", "ucode_compiler_derive"]

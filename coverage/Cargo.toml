@@ -19,3 +19,6 @@ uefi = ["dep:uefi"] # when using uefi features
 [build-dependencies]
 ucode_compiler = { path = "../ucode_compiler", default-features = false, features = ["uasm"] }
 regex = { version = "1.11.0"}
+
+[dev-dependencies]
+ucode_compiler_derive = { path = "../ucode_compiler_derive" }

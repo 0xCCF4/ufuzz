@@ -6,7 +6,11 @@ use ucode_compiler::uasm::AUTOGEN;
 fn main() {
     println!("cargo::rerun-if-changed=build.rs");
 
-    ucode_compiler::uasm::build_script("patches", "src/patches", false);
+    if let Err(err) =
+        ucode_compiler::uasm::compile_source_and_create_module("patches", "src/patches", false)
+    {
+        panic!("Failed to compile: {:?}", err);
+    }
     generate_labels();
 }
 

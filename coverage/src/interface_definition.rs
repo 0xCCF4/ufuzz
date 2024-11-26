@@ -8,6 +8,7 @@ pub struct ComInterfaceDescription {
 }
 
 impl ComInterfaceDescription {
+    #[allow(dead_code)] // todo: maybe cargo error, since it is actually used, investigate and if valid, report to cargo
     pub const fn memory_usage(&self) -> usize {
         let jump = self.offset_jump_back_table + self.max_number_of_hooks * 2;
         let coverage = self.offset_coverage_result_table + self.max_number_of_hooks * 2;

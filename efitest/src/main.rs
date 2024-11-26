@@ -44,7 +44,7 @@ unsafe fn random_counter() {
 
     info!("Hooking...");
 
-    let patch = crate::patches::test_rdrand_counter_patch;
+    let patch = crate::patches::test_rdrand_counter_patch::PATCH;
     apply_patch(&patch);
     hook(
         apply_hook_patch_func(),
@@ -90,7 +90,7 @@ unsafe fn random_coverage() {
     let cpu = CustomProcessingUnit::new().error_unwrap();
     cpu.init().error_unwrap();
 
-    let patch = crate::patches::test_coverage_counter;
+    let patch = crate::patches::test_coverage_counter::PATCH;
     apply_patch(&patch);
     hook(
         apply_hook_patch_func(),
@@ -125,14 +125,14 @@ unsafe fn random_coverage() {
 
 #[allow(dead_code)]
 fn ldat_read() {
-    let ldat_read = custom_processing_unit::patches::func_ldat_read;
+    let ldat_read = custom_processing_unit::patches::func_ldat_read::PATCH;
     let cpu = CustomProcessingUnit::new().error_unwrap();
     cpu.init().error_unwrap();
     cpu.zero_hooks().error_unwrap();
 
     apply_patch(&ldat_read);
 
-    let rdrand_patch = crate::patches::test_rdrand_counter_patch;
+    let rdrand_patch = crate::patches::test_rdrand_counter_patch::PATCH;
     let mut rdrand_patch_read_before = [[0usize; 4]; 8];
     assert_eq!(
         rdrand_patch.ucode_patch.len(),

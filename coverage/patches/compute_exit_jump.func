@@ -1,0 +1,22 @@
+# ARG0: {result} resulting sequence word
+# ARG1: {address} jump address
+# ARG2: {buf} temporary value
+# ARG3: {tmp} temporary value
+# computes SEQW { NOP; SYNCFULL; GOTO {address} }
+
+{result} := ZEROEXT_DSZ32(0x2) # output
+{buf} := ZEROEXT_DSZ32({address})
+
+func lib/crc_calc({buf}, {result}, {tmp})
+
+{result} := SHL_DSZ32({result}, 0x05)
+# 5bit SYNC, uop2
+# 0x05 = SYNCFULL:1
+{result} := OR_DSZ32({result}, 0x11)
+{result} := SHL_DSZ32({result}, 0x0f)
+# 15bit GOTO address
+{tmp} := AND_DSZ32({address}, 0x7fff)
+{result} := OR_DSZ32({result}, {tmp})
+{result} := SHL_DSZ32({result}, 0x08)
+# 8bits up1, EFLOW, up0
+{result} := OR_DSZ32({result}, 0x80)

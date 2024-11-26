@@ -1,7 +1,8 @@
+#[allow(clippy::missing_safety_doc)] // todo: remove this and write safety docs
 pub mod raw {
+    use crate::interface_definition::ComInterfaceDescription;
     use core::ptr::NonNull;
     use data_types::addresses::{Address, UCInstructionAddress};
-    use crate::interface_definition::ComInterfaceDescription;
 
     pub struct ComInterface<'a> {
         base: NonNull<u16>,
@@ -44,7 +45,13 @@ pub mod raw {
                 .write_volatile(value);
         }
 
-        pub unsafe fn write_jump_table_all<P: Into<UCInstructionAddress>, T: IntoIterator<Item=P>>(&mut self, values: T) {
+        pub unsafe fn write_jump_table_all<
+            P: Into<UCInstructionAddress>,
+            T: IntoIterator<Item = P>,
+        >(
+            &mut self,
+            values: T,
+        ) {
             for (index, value) in values.into_iter().enumerate() {
                 self.write_jump_table(index, value.into().address() as u16);
             }
@@ -89,13 +96,14 @@ pub mod raw {
 
 #[cfg(feature = "uefi")]
 pub mod safe {
-    use uefi::data_types::PhysicalAddress;
-    use data_types::addresses::UCInstructionAddress;
     use crate::interface_definition::ComInterfaceDescription;
     use crate::page_allocation::PageAllocation;
+    use data_types::addresses::UCInstructionAddress;
+    use uefi::data_types::PhysicalAddress;
 
     pub struct ComInterface<'a> {
         base: super::raw::ComInterface<'a>,
+        #[allow(dead_code)] // this is required since, while PageAllocation is alive, the memory is reserved
         allocation: PageAllocation,
     }
 
@@ -107,7 +115,10 @@ pub mod safe {
 
             let interface = unsafe { super::raw::ComInterface::new(description) };
             let size = interface.description.memory_usage();
-            let page = PageAllocation::alloc_address(PhysicalAddress::from(interface.description.base as u64), (size/4096) + 1)?;
+            let page = PageAllocation::alloc_address(
+                PhysicalAddress::from(interface.description.base as u64),
+                (size / 4096) + 1,
+            )?;
 
             Ok(Self {
                 base: interface,
@@ -127,7 +138,10 @@ pub mod safe {
             unsafe { self.base.write_jump_table(index, value) }
         }
 
-        pub fn write_jump_table_all<P: Into<UCInstructionAddress>, T: IntoIterator<Item=P>>(&mut self, values: T) {
+        pub fn write_jump_table_all<P: Into<UCInstructionAddress>, T: IntoIterator<Item = P>>(
+            &mut self,
+            values: T,
+        ) {
             unsafe { self.base.write_jump_table_all(values) }
         }
 
@@ -148,4 +162,3 @@ pub mod safe {
         }
     }
 }
-

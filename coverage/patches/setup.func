@@ -1,0 +1,87 @@
+# ARG0: {n} - number of hooks to patch
+# ARG1: {tmp_counter} - temporary counter
+# ARG2: {tmp_frontend_prev} - temporary frontend value
+# ARG3: {0} - arbitrary temporary value
+# ARG4: {1} - arbitrary temporary value
+# ARG5: {2} - arbitrary temporary value
+# ARG6: {3} - arbitrary temporary value
+# ARG7: {tmp_zero} - zeroed temporary value
+
+# Workings:
+# 1. Zero all hooks
+# 2. Patch exit hooks with new return values
+# 3. Enable hooks until index n-1
+
+
+# todo: it now works, but combine all 3 loops into one for better performance
+
+
+NOPB
+
+# Initialization
+{tmp_zero} := ZEROEXT_DSZ64(0x0)
+
+
+# Deactivate frontend
+func lib/pause_frontend({tmp_frontend_prev}, {tmp_zero})
+
+
+# Zero all hooks
+{tmp_counter} := ZEROEXT_DSZ64(0x0)
+<setup_zero_loop>
+# if index == table_length
+func lib/jump_if_equal({tmp_counter}, [table_length], {0}, 32, setup_zero_loop)
+
+{0} := SHL_DSZ64({tmp_counter}, 0x1)
+#                   addr  value      tmp  HOOKS
+func lib/ldat_write({0}, {tmp_zero}, {1}, 3)
+
+{tmp_counter} := ADD_DSZ64({tmp_counter}, 0x1) SEQW GOTO <setup_zero_loop>
+<setup_zero_loop_end>
+
+
+# Patch exit hooks with new return values
+{tmp_counter} := ZEROEXT_DSZ64(0x0)
+<setup_exit_loop>
+# if index == n || index == table_length
+func lib/jump_if_equal({tmp_counter}, {n}, {0}, 32, setup_exit_loop)
+func lib/jump_if_equal({tmp_counter}, [table_length], {0}, 32, setup_exit_loop)
+
+{0} := SHL_DSZ64({tmp_counter}, 0x01)
+{1} := ZEROEXT_DSZ64([address_jump_table_base])
+{2} := LDPPHYS_DSZ16_ASZ32_SC1({0}, {1}) # {2} := JUMP_TABLE[index]
+func compute_exit_jump({0}, {2}, {1}, {3})
+# <-- {0} now contains SEQW GOTO {2}
+
+{1} := ZEROEXT_DSZ64([hook_exit_offset])
+{1} := ADD_DSZ64({1}, {tmp_counter}) # {1} := HOOK_EXIT (seqw addr) + index
+func lib/ldat_write({1}, {0}, {2}, 2) # SEQW_mem[{1} = EXIT + index] := {0} = SEQW GOTO {2}
+
+{tmp_counter} := ADD_DSZ64({tmp_counter}, 0x1) # SEQW GOTO <setup_exit_loop>
+<setup_exit_loop_end>
+
+
+# Write new hooks
+{tmp_counter} := ZEROEXT_DSZ64(0x0)
+<setup_hook_loop>
+# if index == n || index == table_length
+func lib/jump_if_equal({tmp_counter}, {n}, {0}, 32, setup_hook_loop)
+func lib/jump_if_equal({tmp_counter}, [table_length], {0}, 32, setup_hook_loop)
+
+{0} := SHL_DSZ64({tmp_counter}, 0x01)
+{1} := ZEROEXT_DSZ64([address_jump_table_base])
+{2} := LDPPHYS_DSZ16_ASZ32_SC1({0}, {1}) # {2} := JUMP_TABLE[index]
+
+{0} := SHL_DSZ64({tmp_counter}, 0x02) # {0} := index * 4
+{0} := ADD_DSZ64({0}, [hook_entry_address_offset]) # {0} := HOOK_ENTRY + index * 4
+func lib/compute_hook({2}, {0}, {1}, {3})
+# <-- {3} is now to value to place inside the hook register
+
+{0} := SHL_DSZ64({tmp_counter}, 0x01) # index * 2
+func lib/ldat_write({0}, {3}, {1}, 3)
+
+{tmp_counter} := ADD_DSZ64({tmp_counter}, 0x1) # SEQW GOTO <setup_hook_loop>
+<setup_hook_loop_end>
+
+# Reactivate frontend
+func lib/resume_frontend({tmp_frontend_prev})

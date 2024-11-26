@@ -8,25 +8,64 @@ use std::{env, fs};
 
 error_chain! {
     errors {
-        CompilerNotFound {
+        CompilerNotFound(path: PathBuf) {
             description("Compiler not found")
-            display("Compiler not found. Path does not exist")
+            display("Compiler not found {:?}. Path does not exist. Try setting the env variable UASM.", path)
         }
         CompilerInvocationError {
             description("Compiler invocation error")
             display("Compiler invocation error")
         }
-        CompilationFailed(exit_code: i32) {
+        CompilationFailed(exit_code: i32, stdout: String) {
             description("Compiler invocation error")
-            display("Compiler invocation error. Exit code: {}", exit_code)
+            display("Compiler invocation error. Exit code: {}.\n{}", exit_code, stdout)
         }
         SourceFileDoesNotExist(path: PathBuf) {
             description("Source file does not exist")
             display("Source file {:?} does not exist", path)
         }
+        TargetFolderDoesNotExist(path: PathBuf) {
+            description("Target folder does not exist")
+            display("Target folder {:?} does not exist", path)
+        }
+        FailedToWrite(path: PathBuf, description: String, error: std::io::Error) {
+            description("Failed to write file")
+            display("Failed to write file {:?} at step {}: {}", path, description, error)
+        }
+        FailedToRead(path: PathBuf, description: String, error: std::io::Error) {
+            description("Failed to read file")
+            display("Failed to read file {:?} at step {}: {}", path, description, error)
+        }
+        LossyFilenameConversion(path: PathBuf) {
+            description("Failed to convert filename to string")
+            display("Failed to convert filename {:?} to string, since it contains non UTF-8 characters", path)
+        }
+        ParentDirectoryReadError(path: PathBuf, description: String) {
+            description("Failed to read parent directory")
+            display("Failed to read parent directory of {:?} at {}", path, description)
+        }
+        FileDeletionError(path: PathBuf, description: String, error: std::io::Error) {
+            description("Failed to delete file")
+            display("Failed to delete file {:?} at {}: {}", path, description, error)
+        }
+        PreprocessorError(path: PathBuf, description: String) {
+            description("Preprocessor error")
+            display("Preprocessor error at {:?}: {}", path, description)
+        }
+        FileExistsButNoAutogen(path: PathBuf) {
+            description("File exists but does not contain AUTOGEN_NOTICE")
+            display("File {:?} exists but does not contain AUTOGEN_NOTICE", path)
+        }
     }
 
     skip_msg_variant
+}
+
+fn run_rustfmt<P: AsRef<Path>>(path: P) {
+    let _ = Command::new("rustfmt")
+        .arg(path.as_ref())
+        .spawn()
+        .map(|mut c| c.wait());
 }
 
 pub struct UcodeCompiler {
@@ -42,7 +81,7 @@ impl UcodeCompiler {
                 .unwrap_or("".to_string())
                 != "py"
         {
-            return Err(ErrorKind::CompilerNotFound.into());
+            return Err(ErrorKind::CompilerNotFound(path).into());
         }
 
         Ok(UcodeCompiler {
@@ -64,7 +103,9 @@ impl UcodeCompiler {
         let mut command = Command::new("python3");
 
         match self.compiler_path.to_str() {
-            None => return Err(ErrorKind::CompilerNotFound.into()),
+            None => {
+                return Err(ErrorKind::LossyFilenameConversion(self.compiler_path.clone()).into())
+            }
             Some(path) => command.arg(path),
         };
 
@@ -84,12 +125,15 @@ impl UcodeCompiler {
 
         let result = cmd.wait().map_err(|_| ErrorKind::CompilerInvocationError)?;
 
+        let mut error_text = String::new();
+
         if let Some(mut stdout) = cmd.stdout {
             let mut output = String::new();
             stdout
                 .read_to_string(&mut output)
                 .map_err(|_| ErrorKind::CompilerInvocationError)?;
             println!("{}", output);
+            error_text.push_str(&output);
         }
         if let Some(mut stderr) = cmd.stderr {
             let mut output = String::new();
@@ -97,13 +141,14 @@ impl UcodeCompiler {
                 .read_to_string(&mut output)
                 .map_err(|_| ErrorKind::CompilerInvocationError)?;
             eprintln!("{}", output);
+            error_text.push_str(&output);
         }
 
         if result.success() {
             Ok(())
         } else {
             match result.code() {
-                Some(code) => Err(ErrorKind::CompilationFailed(code).into()),
+                Some(code) => Err(ErrorKind::CompilationFailed(code, error_text).into()),
                 None => Err(ErrorKind::CompilerInvocationError.into()),
             }
         }
@@ -114,20 +159,37 @@ pub const AUTOGEN: &str = "// AUTOGEN_NOTICE: this file is automatically generat
 
 pub const AUTOGEN_PREFIX: &str = "// AUTOGEN_NOTICE: ";
 
-pub fn build_script<P: AsRef<Path>, Q: AsRef<Path>>(
+/// Compiles all source files and creates a patches.rs module file with all source files registered to.
+pub fn compile_source_and_create_module<P: AsRef<Path>, Q: AsRef<Path>>(
     patch_source_folder: P,
     target_rust_folder: Q,
     allow_unused: bool,
-) {
+) -> Result<()> {
     if !target_rust_folder.as_ref().exists() {
-        fs::create_dir(&target_rust_folder).expect("Failed to create target directory");
+        fs::create_dir(&target_rust_folder).or_else(|err| {
+            Err(ErrorKind::FailedToWrite(
+                target_rust_folder.as_ref().to_owned(),
+                "target folder creation".to_string(),
+                err,
+            ))
+        })?;
     } else {
-        for file in target_rust_folder
-            .as_ref()
-            .read_dir()
-            .expect("Target directory not readable")
-        {
-            let file = file.expect("Target file not found").path();
+        for file in target_rust_folder.as_ref().read_dir().or_else(|e| {
+            Err(ErrorKind::FailedToRead(
+                target_rust_folder.as_ref().to_owned(),
+                "compile: delete".to_string(),
+                e,
+            ))
+        })? {
+            let file = file
+                .or_else(|err| {
+                    Err(ErrorKind::FailedToRead(
+                        target_rust_folder.as_ref().to_owned(),
+                        "compile: delete content".to_string(),
+                        err,
+                    ))
+                })?
+                .path();
             if file
                 .extension()
                 .map(|v| v.to_string_lossy().to_string())
@@ -136,12 +198,24 @@ pub fn build_script<P: AsRef<Path>, Q: AsRef<Path>>(
                 == "rs"
             {
                 if std::fs::read_to_string(&file)
-                    .expect("Unable to read target file")
+                    .or_else(|e| {
+                        Err(ErrorKind::FailedToRead(
+                            file.to_owned(),
+                            "target file".to_string(),
+                            e,
+                        ))
+                    })?
                     .starts_with(AUTOGEN_PREFIX)
                 {
-                    fs::remove_file(file).expect("Unable to remove target file");
+                    fs::remove_file(&file).or_else(|e| {
+                        Err(ErrorKind::FileDeletionError(
+                            file.clone(),
+                            "compile folder".to_string(),
+                            e,
+                        ))
+                    })?;
                 } else {
-                    panic!("Target file {file:?} exists but does not contain AUTOGEN_NOTICE");
+                    return Err(ErrorKind::FileExistsButNoAutogen(file.clone()).into());
                 }
             }
         }
@@ -150,13 +224,23 @@ pub fn build_script<P: AsRef<Path>, Q: AsRef<Path>>(
     let module_path = target_rust_folder.as_ref().with_extension("rs");
     if module_path.exists() {
         // try to check if AUTOGEN_NOTICE
-        let content = std::fs::read_to_string(&module_path).expect("Module file not readable");
+        let content: Result<String> = match std::fs::read_to_string(&module_path) {
+            Ok(v) => Ok(v),
+            Err(e) => {
+                Err(
+                    ErrorKind::FailedToRead(module_path.to_owned(), "module source".to_string(), e)
+                        .into(),
+                )
+            }
+        };
+        let content = content?;
         if !content.starts_with(AUTOGEN_PREFIX) {
-            panic!("The target module file exists but does not contain AUTOGEN_NOTICE");
+            return Err(ErrorKind::FileExistsButNoAutogen(module_path.to_owned()).into());
         }
     }
 
-    let names = build_script_convert_folder(patch_source_folder, &target_rust_folder, allow_unused);
+    let names =
+        build_script_compile_folder(patch_source_folder, &target_rust_folder, allow_unused)?;
 
     let allow_import = if allow_unused {
         "#[allow(unused_imports)]\n"
@@ -167,23 +251,26 @@ pub fn build_script<P: AsRef<Path>, Q: AsRef<Path>>(
     let content = names.iter().fold(String::new(), |acc, name| {
         acc + &format!("pub mod {name};\n/*\n{allow_import}pub use {name}::PATCH as {name};\n*/\n")
     });
-    std::fs::write(&module_path, format!("{AUTOGEN}\n\n{content}").as_str())
-        .unwrap_or_else(|_| panic!("Failed to write {module_path:?}"));
+    if let Err(err) = std::fs::write(&module_path, format!("{AUTOGEN}\n\n{content}").as_str()) {
+        return Err(ErrorKind::FailedToWrite(
+            module_path.to_owned(),
+            "module source".to_string(),
+            err,
+        )
+        .into());
+    }
 
-    // run rustfmt
-    let _ = Command::new("rustfmt")
-        .arg(module_path)
-        .spawn()
-        .expect("rustfmt not found")
-        .wait()
-        .expect("rustfmt failed");
+    run_rustfmt(module_path);
+
+    Ok(())
 }
 
-pub fn build_script_convert_folder<P: AsRef<Path>, Q: AsRef<Path>>(
+// Compiles all source files in the source dir -> target dir
+pub fn build_script_compile_folder<P: AsRef<Path>, Q: AsRef<Path>>(
     patch_source_folder: P,
     target_rust_folder: Q,
     allow_unused: bool,
-) -> Vec<String> {
+) -> Result<Vec<String>> {
     let current_directory =
         PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("Cargo must include Manifest dir"));
 
@@ -191,10 +278,14 @@ pub fn build_script_convert_folder<P: AsRef<Path>, Q: AsRef<Path>>(
         panic!("CARGO_MANIFEST_DIR directory does not exist");
     }
     if !patch_source_folder.as_ref().exists() {
-        panic!("Source folder does not exist");
+        return Err(
+            ErrorKind::SourceFileDoesNotExist(patch_source_folder.as_ref().to_owned()).into(),
+        );
     }
     if !target_rust_folder.as_ref().exists() {
-        panic!("Target folder does not exist");
+        return Err(
+            ErrorKind::TargetFolderDoesNotExist(target_rust_folder.as_ref().to_owned()).into(),
+        );
     }
 
     println!(
@@ -206,29 +297,54 @@ pub fn build_script_convert_folder<P: AsRef<Path>, Q: AsRef<Path>>(
         patch_source_folder.as_ref().to_string_lossy()
     );
 
-    let ucode_compiler = current_directory
-        .parent()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .join("CustomProcessingUnit")
-        .join("uasm-lib")
-        .join("uasm.py");
+    let ucode_compiler = if let Ok(path) = env::var("UASM") {
+        PathBuf::from(path).join("uasm.py")
+    } else {
+        current_directory
+            .parent()
+            .ok_or_else(|| {
+                ErrorKind::ParentDirectoryReadError(
+                    current_directory.clone(),
+                    "searching uasm.py 1".to_string(),
+                )
+            })?
+            .parent()
+            .ok_or_else(|| {
+                ErrorKind::ParentDirectoryReadError(
+                    current_directory.clone(),
+                    "searching uasm.py 2".to_string(),
+                )
+            })?
+            .join("CustomProcessingUnit")
+            .join("uasm-lib")
+            .join("uasm.py")
+    };
+
     println!(
         "cargo::rerun-if-changed={}",
         ucode_compiler.to_string_lossy()
     );
 
-    let compiler = UcodeCompiler::new(ucode_compiler).expect("Ucode compiler not found");
+    let compiler = UcodeCompiler::new(ucode_compiler)?;
 
     let mut patch_names = Vec::new();
 
-    for patch in patch_source_folder
-        .as_ref()
-        .read_dir()
-        .expect("Patches directory not readable")
-    {
-        let patch = patch.expect("Patch not found").path();
+    for patch in patch_source_folder.as_ref().read_dir().or_else(|e| {
+        Err(ErrorKind::FailedToRead(
+            patch_source_folder.as_ref().to_owned(),
+            "compile folder".to_string(),
+            e,
+        ))
+    })? {
+        let patch = patch
+            .or_else(|err| {
+                Err(ErrorKind::FailedToRead(
+                    patch_source_folder.as_ref().to_owned(),
+                    "compile folder content".to_string(),
+                    err,
+                ))
+            })?
+            .path();
 
         if patch
             .extension()
@@ -247,29 +363,46 @@ pub fn build_script_convert_folder<P: AsRef<Path>, Q: AsRef<Path>>(
                     .with_extension("")
                     .file_name()
                     .unwrap()
-                    .to_string_lossy()
+                    .to_str()
+                    .ok_or_else(|| ErrorKind::LossyFilenameConversion(target_file.clone()))?
                     .to_string(),
             );
 
-            compiler
-                .compile(None, &patch, &target_file.with_extension("h"), true)
-                .expect("Compilation failed");
-            transform_patch(
+            compiler.compile(None, &patch, &target_file.with_extension("h"), true)?;
+            transform_h_patch_to_rs_patch(
                 target_file.with_extension("h"),
                 target_file.with_extension("rs"),
                 allow_unused,
-            );
-            fs::remove_file(target_file.with_extension("h")).expect("Patch file not removed");
+            )?;
+            fs::remove_file(target_file.with_extension("h")).or_else(|e| {
+                Err::<(), Error>(
+                    ErrorKind::FileDeletionError(
+                        target_file.with_extension("h"),
+                        "compile folder".to_string(),
+                        e,
+                    )
+                    .into(),
+                )
+            })?;
         }
     }
 
-    patch_names
+    Ok(patch_names)
 }
 
-fn transform_patch<P: AsRef<Path>, Q: AsRef<Path>>(patch: P, target: Q, allow_unused: bool) {
+pub fn transform_h_patch_to_rs_patch<P: AsRef<Path>, Q: AsRef<Path>>(
+    patch: P,
+    target: Q,
+    allow_unused: bool,
+) -> Result<()> {
     // Transform the patch file from C-header to rust
 
-    let content = std::fs::read_to_string(patch).expect("Patch file not readable");
+    let content = std::fs::read_to_string(&patch).or_else(|e| {
+        Err::<String, Error>(
+            ErrorKind::FailedToRead(patch.as_ref().to_owned(), "compile file".to_string(), e)
+                .into(),
+        )
+    })?;
 
     let mut addr = None;
     let mut hook_address = None;
@@ -379,34 +512,69 @@ fn transform_patch<P: AsRef<Path>, Q: AsRef<Path>>(patch: P, target: Q, allow_un
         patch
     );
 
-    std::fs::write(&target, content).expect("Patch file not writable");
+    std::fs::write(&target, content).or_else(|e| {
+        Err::<(), Error>(
+            ErrorKind::FailedToWrite(target.as_ref().to_owned(), "compile file".to_string(), e)
+                .into(),
+        )
+    })?;
 
-    // run rustfmt
-    let _ = Command::new("rustfmt")
-        .arg(target.as_ref())
-        .spawn()
-        .expect("rustfmt not found")
-        .wait()
-        .expect("rustfmt failed");
+    run_rustfmt(target);
+
+    Ok(())
 }
 
-#[derive(Default)]
-struct IncludeReplacer {}
+const ERROR_MARKER: &str = "PREPROCESSOR_ERROR_MARKER: ";
+
+struct IncludeReplacer {
+    cwd: PathBuf,
+}
+impl IncludeReplacer {
+    pub fn new<P: AsRef<Path>>(cwd: P) -> IncludeReplacer {
+        IncludeReplacer {
+            cwd: cwd.as_ref().to_owned(),
+        }
+    }
+}
 impl Replacer for IncludeReplacer {
     fn replace_append(&mut self, caps: &Captures<'_>, dst: &mut String) {
         let name = caps.get(2).expect("include path not given").as_str();
-        let path = PathBuf::from("patches").join(name);
+        let path = self.cwd.join(name);
         println!("cargo:rerun-if-changed={}", path.to_string_lossy());
-        let content = std::fs::read_to_string(path).expect("read failed");
+        let content = std::fs::read_to_string(&path);
 
-        dst.push_str(format!("#------------- INCLUDE {name}\n").as_str());
-        dst.push_str(content.trim());
-        dst.push_str(format!("\n#------------- END INCLUDE {name}\n").as_str());
+        match content {
+            Ok(content) => {
+                dst.push_str(format!("#------------- INCLUDE {name}\n").as_str());
+                dst.push_str(content.trim());
+                dst.push_str(format!("\n#------------- END INCLUDE {name}\n").as_str());
+            }
+            Err(err) => {
+                dst.push_str(format!("#------------- FAILED INCLUDE {name}\n").as_str());
+                dst.push_str(ERROR_MARKER);
+                dst.push_str(
+                    format!(
+                        "Error in include, the file {:?} could not be read: {:?}\n",
+                        path, err
+                    )
+                    .as_str(),
+                );
+                dst.push_str(format!("#------------- END FAILED INCLUDE {name}\n").as_str());
+            }
+        }
     }
 }
 
-#[derive(Default)]
-struct FuncIncludeReplacer {}
+struct FuncIncludeReplacer {
+    cwd: PathBuf,
+}
+impl FuncIncludeReplacer {
+    pub fn new<P: AsRef<Path>>(cwd: P) -> FuncIncludeReplacer {
+        FuncIncludeReplacer {
+            cwd: cwd.as_ref().to_owned(),
+        }
+    }
+}
 impl Replacer for FuncIncludeReplacer {
     fn replace_append(&mut self, caps: &Captures<'_>, dst: &mut String) {
         let name = caps.get(1).expect("func name not given").as_str();
@@ -418,26 +586,41 @@ impl Replacer for FuncIncludeReplacer {
             .map(|c| c.get(1).expect("arg not found").as_str())
             .collect::<Vec<&str>>();
 
-        let path = PathBuf::from("patches").join(name).with_extension("func");
+        let path = self.cwd.join(name).with_extension("func");
         println!("cargo:rerun-if-changed={}", path.to_string_lossy());
-        let mut content = std::fs::read_to_string(path).expect("read failed");
+        let content = std::fs::read_to_string(&path);
 
-        let rewrite_regex =
-            regex::Regex::new(r"(?m)^# *(ARG\d+) ?: ?(\S+)[^\n]*\n").expect("regex compile error");
-        for cap in rewrite_regex.captures_iter(content.clone().as_str()) {
-            let arg = cap.get(1).expect("arg not found").as_str();
-            let value = cap.get(2).expect("value not found").as_str();
-            content = content.replace(value, arg);
+        match content {
+            Ok(mut content) => {
+                let rewrite_regex = regex::Regex::new(r"(?m)^# *(ARG\d+) ?: ?(\S+)[^\n]*\n")
+                    .expect("regex compile error");
+                for cap in rewrite_regex.captures_iter(content.clone().as_str()) {
+                    let arg = cap.get(1).expect("arg not found").as_str();
+                    let value = cap.get(2).expect("value not found").as_str();
+                    content = content.replace(value, arg);
+                }
+                content = rewrite_regex.replace_all(&content, "").to_string();
+
+                for (i, arg) in args.iter().enumerate().rev() {
+                    content = content.replace(format!("ARG{i}").as_str(), arg);
+                }
+
+                dst.push_str(format!("#------------- FUNCTION {name}\n").as_str());
+                dst.push_str(content.trim());
+                dst.push_str(format!("\n#------------- END FUNCTION {name}\n").as_str());
+            }
+            Err(err) => {
+                dst.push_str(format!("#------------- FAILED FUNCTION {name}\n").as_str());
+                dst.push_str(
+                    format!(
+                        "Error in function, the file {:?} could not be read: {}\n",
+                        path, err
+                    )
+                    .as_str(),
+                );
+                dst.push_str(format!("#------------- END FAILED FUNCTION {name}\n").as_str());
+            }
         }
-        content = rewrite_regex.replace_all(&content, "").to_string();
-
-        for (i, arg) in args.iter().enumerate().rev() {
-            content = content.replace(format!("ARG{i}").as_str(), arg);
-        }
-
-        dst.push_str(format!("#------------- FUNCTION {name}\n").as_str());
-        dst.push_str(content.trim());
-        dst.push_str(format!("\n#------------- END FUNCTION {name}\n").as_str());
     }
 }
 
@@ -465,17 +648,40 @@ impl Replacer for RepeatReplacer {
         let number = caps.get(2).expect("repeat number not given").as_str();
         let content = caps.get(3).expect("repeat content not given").as_str();
 
-        dst.push_str("#------------- REPEAT\n");
-        for i in 0..number.parse::<usize>().expect("repeat number parse error") {
-            dst.push_str(format!("# REP: {i}\n").as_str());
-            dst.push_str(content.trim());
-            dst.push('\n');
+        let amount = number.parse::<usize>();
+
+        match amount {
+            Ok(amount) => {
+                dst.push_str("#------------- REPEAT\n");
+                for i in 0..amount {
+                    dst.push_str(format!("# REP: {i}\n").as_str());
+                    dst.push_str(content.trim());
+                    dst.push('\n');
+                }
+                dst.push_str("#------------- END REPEAT\n");
+            }
+            Err(_) => {
+                dst.push_str("#------------- FAILED REPEAT\n");
+                dst.push_str(ERROR_MARKER);
+                dst.push_str(
+                    format!(
+                        "Error in repeat, the repeat number could not be parsed: {:?}\n",
+                        number
+                    )
+                    .as_str(),
+                );
+                dst.push_str("#------------- END FAILED REPEAT\n");
+            }
         }
-        dst.push_str("#------------- END REPEAT\n");
     }
 }
 
-pub fn preprocess_scripts<A: AsRef<Path>, B: AsRef<Path>>(src: A, dst: B) {
+/// Execute the preprocessing stage on all files in the source directory and write the processed files to the destination directory.
+pub fn preprocess_scripts<A: AsRef<Path>, B: AsRef<Path>, C: AsRef<Path>>(
+    src: A,
+    dst: B,
+    cwd: C,
+) -> Result<()> {
     let include_regex =
         regex::Regex::new(r"(?m)^ *include( <?([^>]+)>?)?( *#.*)?$").expect("regex compile error");
     let func_include_regex =
@@ -486,12 +692,22 @@ pub fn preprocess_scripts<A: AsRef<Path>, B: AsRef<Path>>(src: A, dst: B) {
     let repeat_regex = regex::Regex::new(r"(?m)^\s*(repeat|rep)\s+(0*[1-9][0-9]*)\s*:\s*([^\n]*)$")
         .expect("regex compile error");
 
-    for file in dst
-        .as_ref()
-        .read_dir()
-        .expect("Target directory not readable")
-    {
-        let file = file.expect("Target file not found").path();
+    for file in dst.as_ref().read_dir().or_else(|e| {
+        Err(ErrorKind::FailedToRead(
+            dst.as_ref().to_owned(),
+            "preprocessing stage: dir: remove".to_string(),
+            e,
+        ))
+    })? {
+        let file = file
+            .or_else(|err| {
+                Err(ErrorKind::FailedToRead(
+                    dst.as_ref().to_owned(),
+                    "preprocessing stage: dir content: remove".to_string(),
+                    err,
+                ))
+            })?
+            .path();
 
         if file
             .extension()
@@ -499,16 +715,33 @@ pub fn preprocess_scripts<A: AsRef<Path>, B: AsRef<Path>>(src: A, dst: B) {
             .unwrap_or("".to_string())
             == "u"
         {
-            std::fs::remove_file(file).unwrap()
+            if let Err(e) = std::fs::remove_file(&file) {
+                return Err(ErrorKind::FileDeletionError(
+                    file.clone(),
+                    "preprocessing stage".to_string(),
+                    e,
+                )
+                .into());
+            }
         }
     }
 
-    for file in src
-        .as_ref()
-        .read_dir()
-        .expect("Source directory not readable")
-    {
-        let file = file.expect("Target file not found").path();
+    for file in src.as_ref().read_dir().or_else(|e| {
+        Err(ErrorKind::FailedToRead(
+            dst.as_ref().to_owned(),
+            "preprocessing stage: dir: compile".to_string(),
+            e,
+        ))
+    })? {
+        let file = file
+            .or_else(|err| {
+                Err(ErrorKind::FailedToRead(
+                    dst.as_ref().to_owned(),
+                    "preprocessing stage: dir content: compile".to_string(),
+                    err,
+                ))
+            })?
+            .path();
 
         println!("cargo:rerun-if-changed={}", file.to_string_lossy());
 
@@ -521,7 +754,12 @@ pub fn preprocess_scripts<A: AsRef<Path>, B: AsRef<Path>>(src: A, dst: B) {
             continue;
         }
 
-        let content = std::fs::read_to_string(&file).expect("read failed");
+        let content = std::fs::read_to_string(&file).or_else(|e| {
+            Err::<String, Error>(
+                ErrorKind::FailedToRead(file.clone(), "preprocessing stage: read".to_string(), e)
+                    .into(),
+            )
+        })?;
 
         const MAX_ITERATIONS: usize = 10;
 
@@ -533,10 +771,10 @@ pub fn preprocess_scripts<A: AsRef<Path>, B: AsRef<Path>>(src: A, dst: B) {
                 .replace_all(&target_content, RepeatReplacer::default())
                 .to_string();
             target_content = include_regex
-                .replace_all(&target_content, IncludeReplacer::default())
+                .replace_all(&target_content, IncludeReplacer::new(&cwd))
                 .to_string();
             target_content = func_include_regex
-                .replace_all(&target_content, FuncIncludeReplacer::default())
+                .replace_all(&target_content, FuncIncludeReplacer::new(&cwd))
                 .to_string();
 
             if content_before == target_content {
@@ -544,8 +782,25 @@ pub fn preprocess_scripts<A: AsRef<Path>, B: AsRef<Path>>(src: A, dst: B) {
             }
 
             if i == MAX_ITERATIONS {
-                panic!("Too many iterations. Nested includes?");
+                return Err(ErrorKind::PreprocessorError(
+                    file.clone(),
+                    "maximum iterations reached. lopped include?".to_string(),
+                )
+                .into());
             }
+        }
+
+        if target_content.contains(ERROR_MARKER) {
+            let error_description = target_content
+                .split(ERROR_MARKER)
+                .last()
+                .unwrap()
+                .lines()
+                .next()
+                .unwrap();
+            return Err(
+                ErrorKind::PreprocessorError(file.clone(), error_description.to_string()).into(),
+            );
         }
 
         let mut define_replacer = DefineResolveReplacer::default();
@@ -562,6 +817,17 @@ pub fn preprocess_scripts<A: AsRef<Path>, B: AsRef<Path>>(src: A, dst: B) {
             .as_ref()
             .join(file.file_name().expect("file name error"));
 
-        std::fs::write(target_file, target_content).expect("write failed");
+        std::fs::write(&target_file, target_content).or_else(|err| {
+            Err::<(), Error>(
+                ErrorKind::FailedToWrite(
+                    target_file.clone(),
+                    "preprocessing stage: write".to_string(),
+                    err,
+                )
+                .into(),
+            )
+        })?;
     }
+
+    Ok(())
 }

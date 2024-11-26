@@ -1,0 +1,12 @@
+# ARG0: {index} - loop index that counts up
+# ARG1: {max} - value to compare against
+# ARG2: {tmp} - temporary value
+# ARG3: {data_size} - data size of the comparison
+# ARG4: {label} - label to jump to if index == max
+
+# if (index == max) goto label_end
+
+# A using function must put a index++ and unconditional jump to the label afterwards
+
+{tmp} := SUB_DSZ{data_size}({max}, {index})
+UJMPCC_DIRECT_NOTTAKEN_CONDZ({tmp}, <{label}_end>)

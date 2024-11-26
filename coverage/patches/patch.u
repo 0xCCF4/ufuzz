@@ -67,44 +67,35 @@ NOP SEQW SYNCFULL
 r10 := SHL_DSZ32(r10, 0x1)
 r10 := ADD_DSZ32(r10, <hook_exit_00>)
 
-UJMP(,r10)
+UJMP(,r10) # jump to exit hook
 
 
-# todo: commenting in these lines crashes at runtime
-# NOP
-# NOP
-# NOP
-
+#---- auto generated entries and exits ----
 NOPB
 include <gen/entries.up>
 NOPB
+<func_exit>
 include <gen/exits.up>
+#---- auto generated entries and exits ----
 
 
-<func_hook_many>
+<func_setup>
+# IN: tmp0 length/size to apply hooks
+
+#                |- temporary variables ----------------------|
+func setup(tmp0, tmp10, tmp11, tmp12, tmp13, tmp14, tmp15, tmp9)
+
+NOPB
+NOP SEQW LFNCEWAIT, UEND0
+NOPB
+
+<func_hook_many_preset>
 tmp0 := ZEROEXT_DSZ32([address_jump_table_base])
 tmp1 := ZEROEXT_DSZ32([table_length])
+<func_hook_many>
 include <sys/func_hook_many.up>
 
 
-#  <crc_calc_func>
-#  # IN: tmp0 value 16bit
-#  # OUT: rax parity
-#
-#  func lib/compute_seqw_jump(rax, tmp0, tmp1, tmp2)
-#
-#  NOP SEQW LFNCEWAIT, UEND0
-#
-#
-#
-#  <write_seqw_func>
-#  # IN: tmp0 value 32bit
-#
-#  func write_exit_handler(tmp0, tmp1, tmp2, tmp3)
-#
-#  NOP SEQW LFNCEWAIT, UEND0
-#
-
 
 NOPB
-NOP SEQW NOP
+NOP

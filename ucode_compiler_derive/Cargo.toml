@@ -1,0 +1,12 @@
+[package]
+name = "ucode_compiler_derive"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tempfile = "3.14.0"
+unindent = "0.2.3"
+ucode_compiler = { path = "../ucode_compiler", features = ["uasm"] }
+
+[lib]
+proc-macro = true
