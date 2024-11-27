@@ -9,6 +9,7 @@ uefi = { version = "0.32.0", optional = true, features = ["logger", "panic_handl
 custom_processing_unit = { path = "../custom_processing_unit", features = ["no_std"] }
 data_types = { path = "../data_types", features = ["nostd"] }
 ucode_compiler = { path = "../ucode_compiler", default-features = false, features = ["no_std"] }
+itertools = { version = "0.13.0", default-features = false, features = ["use_alloc"] }
 
 [features]
 default = ["main"]

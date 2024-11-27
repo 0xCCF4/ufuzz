@@ -200,6 +200,7 @@ version = "0.1.0"
 dependencies = [
  "custom_processing_unit",
  "data_types",
+ "itertools",
  "log",
  "regex",
  "ucode_compiler",

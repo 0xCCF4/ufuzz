@@ -21,7 +21,7 @@ impl ComInterfaceDescription {
     }
 }
 
-const MAX_NUMBER_OF_HOOKS: usize = 3;
+const MAX_NUMBER_OF_HOOKS: usize = 20;
 
 pub const COM_INTERFACE_DESCRIPTION: ComInterfaceDescription = ComInterfaceDescription {
     base: 0x1000,

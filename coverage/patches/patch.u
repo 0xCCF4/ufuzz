@@ -49,6 +49,16 @@ NOPB
 NOP SEQW LFNCEWAIT, UEND0
 NOPB
 
+<func_dump_memory>
+# IN: tmp0 - address to dump to
+NOPB
+func sys/func_dump_memory(tmp0, tmp10, tmp11, tmp12)
+
+rax := ZEROEXT_DSZ32(0x4421)
+rax := CONCAT_DSZ32(rax, 0x4421)
+NOPB
+NOP SEQW LFNCEWAIT, UEND0
+NOPB
 
 # End of file
 NOPB

@@ -16,6 +16,8 @@ use unindent::unindent;
 /// }
 #[proc_macro]
 pub fn patch(_item: TokenStream) -> TokenStream {
+    // todo: change syntax to patch! { ... }
+
     let text = proc_macro::Span::call_site()
         .source_text()
         .expect("Failed to get source text from patch! macro!");

@@ -30,7 +30,7 @@ func lib/pause_frontend({tmp_frontend_prev}, {tmp_zero})
 {tmp_counter} := ZEROEXT_DSZ64(0x0)
 <setup_zero_loop>
 # if index == table_length
-func lib/jump_if_equal({tmp_counter}, [table_length], {0}, 32, setup_zero_loop)
+func lib/jump_if_equal({tmp_counter}, [table_length], {0}, 32, <setup_zero_loop_end>)
 
 {0} := SHL_DSZ64({tmp_counter}, 0x1)
 #                   addr  value      tmp  HOOKS
@@ -44,8 +44,8 @@ func lib/ldat_write({0}, {tmp_zero}, {1}, 3)
 {tmp_counter} := ZEROEXT_DSZ64(0x0)
 <setup_exit_loop>
 # if index == n || index == table_length
-func lib/jump_if_equal({tmp_counter}, {n}, {0}, 32, setup_exit_loop)
-func lib/jump_if_equal({tmp_counter}, [table_length], {0}, 32, setup_exit_loop)
+func lib/jump_if_equal({tmp_counter}, {n}, {0}, 32, <setup_exit_loop_end>)
+func lib/jump_if_equal({tmp_counter}, [table_length], {0}, 32, <setup_exit_loop_end>)
 
 {0} := SHL_DSZ64({tmp_counter}, 0x01)
 {1} := ZEROEXT_DSZ64([address_jump_table_base])
@@ -65,8 +65,8 @@ func lib/ldat_write({1}, {0}, {2}, 2) # SEQW_mem[{1} = EXIT + index] := {0} = SE
 {tmp_counter} := ZEROEXT_DSZ64(0x0)
 <setup_hook_loop>
 # if index == n || index == table_length
-func lib/jump_if_equal({tmp_counter}, {n}, {0}, 32, setup_hook_loop)
-func lib/jump_if_equal({tmp_counter}, [table_length], {0}, 32, setup_hook_loop)
+func lib/jump_if_equal({tmp_counter}, {n}, {0}, 32, <setup_hook_loop_end>)
+func lib/jump_if_equal({tmp_counter}, [table_length], {0}, 32, <setup_hook_loop_end>)
 
 {0} := SHL_DSZ64({tmp_counter}, 0x01)
 {1} := ZEROEXT_DSZ64([address_jump_table_base])

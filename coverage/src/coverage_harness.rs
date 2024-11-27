@@ -18,9 +18,10 @@ impl<'a, 'b> CoverageHarness<'a, 'b> {
         }
     }
 
-    fn init(&mut self) {
+    pub fn init(&mut self) {
         apply_patch(&coverage_collector::PATCH);
         self.interface.zero_jump_table();
+        disable_all_hooks();
     }
 
     #[inline(always)]
@@ -55,6 +56,28 @@ impl<'a, 'b> CoverageHarness<'a, 'b> {
         }
     }
 
+    pub fn execute_multiple_times<T, F: FnMut(usize, &mut T)>(
+        &mut self,
+        hooks: &[UCInstructionAddress],
+        mut func: F,
+        param: &mut T,
+        number_of_times: usize
+    ) -> Result<(), &'static str> {
+        self.pre_execution(hooks)?;
+        enable_hooks();
+
+        lmfence();
+        for i in 0..number_of_times {
+            core::hint::black_box(&mut func)(i, param);
+            lmfence();
+        }
+
+        disable_all_hooks();
+        self.post_execution(hooks);
+
+        Ok(())
+    }
+
     pub fn execute<T, R, F: FnOnce(T) -> R>(
         &mut self,
         hooks: &[UCInstructionAddress],
@@ -62,14 +85,14 @@ impl<'a, 'b> CoverageHarness<'a, 'b> {
         param: T,
     ) -> Result<R, &'static str> {
         self.pre_execution(hooks)?;
+        enable_hooks();
 
         lmfence();
-        let result = func(param);
+        let result = core::hint::black_box(func)(param);
         lmfence();
 
         disable_all_hooks();
         self.post_execution(hooks);
-        enable_hooks();
 
         Ok(result)
     }

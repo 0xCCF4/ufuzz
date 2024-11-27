@@ -1,0 +1,70 @@
+# ARG0: {target} address to save dump to
+# ARG1: {counter}
+# ARG1: {0} - temporary value
+# ARG2: {1} - temporary value
+# ARG3: {2} - temporary value
+
+
+#todo remove
+
+{counter} := ZEROEXT_DSZ32(0x00)
+
+<dump_mem_instruction_loop_t>
+func lib/jump_if_equal({counter}, 0x180, {0}, 32, <dump_mem_instruction_loop_t_end>)
+# value now in {0}
+STADPPHYS_DSZ64_ASZ64_SC1({target},, {counter})
+{target} := ADD_DSZ32({target}, 0x04)
+{counter} := ADD_DSZ32({counter}, 0x01) SEQW GOTO <dump_mem_instruction_loop_t>
+<dump_mem_instruction_loop_t_end>
+
+rbx := ZEROEXT_DSZ32({counter})
+
+# then dump seqw memory
+
+{counter} := ZEROEXT_DSZ32(0x00)
+
+<dump_mem_seqw_loop_t>
+func lib/jump_if_equal({counter}, 0x80, {0}, 32, <dump_mem_seqw_loop_t_end>)
+STADPPHYS_DSZ64_ASZ64_SC1({target},, {counter})
+{target} := ADD_DSZ32({target}, 0x04)
+{counter} := ADD_DSZ32({counter}, 0x01) SEQW GOTO <dump_mem_seqw_loop_t>
+<dump_mem_seqw_loop_t_end>
+
+rcx := ZEROEXT_DSZ32({counter})
+
+rax := ZEROEXT_DSZ64(0x3341)
+
+NOP SEQW LFNCEWAIT, UEND0
+NOPB
+
+
+
+
+
+
+
+# first dump instruction memory
+
+{counter} := ZEROEXT_DSZ32(0x00)
+
+<dump_mem_instruction_loop>
+func lib/jump_if_equal({counter}, 0x180, {0}, 32, <dump_mem_instruction_loop_end>)
+func lib/ldat_read({counter}, {0}, {1}, 4)
+# value now in {0}
+STADPPHYS_DSZ64_ASZ64_SC1({target},, {0})
+{target} := ADD_DSZ32({target}, 0x04)
+{counter} := ADD_DSZ32({counter}, 0x01)
+<dump_mem_instruction_loop_end>
+
+# then dump seqw memory
+
+{counter} := ZEROEXT_DSZ32(0x00)
+
+<dump_mem_seqw_loop>
+func lib/jump_if_equal({counter}, 0x80, {0}, 32, <dump_mem_seqw_loop_end>)
+func lib/ldat_read({counter}, {0}, {1}, 2)
+# value now in {0}
+STADPPHYS_DSZ64_ASZ64_SC1({target},, {0})
+{target} := ADD_DSZ32({target}, 0x04)
+{counter} := ADD_DSZ32({counter}, 0x01)
+<dump_mem_seqw_loop_end>

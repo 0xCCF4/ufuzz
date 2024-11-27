@@ -1,3 +1,4 @@
+use core::mem;
 use core::ptr::NonNull;
 use uefi::boot::{AllocateType, MemoryType};
 use uefi::data_types::PhysicalAddress;
@@ -22,12 +23,21 @@ impl PageAllocation {
         )?;
         Ok(PageAllocation { count, base: data })
     }
+
+    pub fn alloc(count: usize) -> uefi::Result<PageAllocation> {
+        let data = uefi::boot::allocate_pages(AllocateType::AnyPages, MemoryType::LOADER_DATA, count)?;
+        Ok(PageAllocation { count, base: data })
+    }
     #[allow(unused)]
     pub fn ptr(&self) -> &NonNull<u8> {
         &self.base
     }
     pub fn dealloc(self) {
         drop(self)
+    }
+
+    pub fn address(&self) -> usize {
+        unsafe { mem::transmute(self.base.cast::<()>()) }
     }
 }
 
