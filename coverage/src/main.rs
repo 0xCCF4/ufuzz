@@ -4,21 +4,19 @@
 extern crate alloc;
 
 use core::arch::asm;
-use itertools::Itertools;
+use coverage::coverage_harness::CoverageHarness;
 use coverage::interface::safe::ComInterface;
 use coverage::{coverage_collector, interface_definition};
 use custom_processing_unit::{
-    apply_patch, call_custom_ucode_function, lmfence, ms_seqw_read,
-    CustomProcessingUnit, FunctionResult,
+    apply_patch, call_custom_ucode_function, lmfence, ms_seqw_read, CustomProcessingUnit,
+    FunctionResult,
 };
-use data_types::addresses::{UCInstructionAddress,
-};
+use data_types::addresses::UCInstructionAddress;
+use data_types::UcodePatchBlob;
+use itertools::Itertools;
 use log::info;
 use uefi::prelude::*;
 use uefi::{print, println};
-use coverage::coverage_harness::CoverageHarness;
-use coverage::udump::dump_ucode;
-use data_types::UcodePatchBlob;
 
 #[entry]
 unsafe fn main() -> Status {
@@ -66,16 +64,6 @@ unsafe fn main() -> Status {
         return Status::ABORTED;
     }
 
-    print!("Dumping memory ... ");
-    let dump = match dump_ucode(coverage_collector::LABEL_FUNC_DUMP_MEMORY) {
-        Ok(value) => value,
-        Err(err) => {
-            info!("Failed to dump memory {:?}", err);
-            return Status::ABORTED;
-        }
-    };
-    println!("OK");
-
     interface.reset_coverage();
 
     unsafe fn read_coverage_table(interface: &ComInterface) {
@@ -106,7 +94,7 @@ unsafe fn main() -> Status {
         for i in 0..8 {
             let seqw = ms_seqw_read(
                 coverage_collector::LABEL_FUNC_LDAT_READ,
-                coverage_collector::LABEL_HOOK_EXIT_00 + i*4
+                coverage_collector::LABEL_HOOK_EXIT_00 + i * 4,
             );
             print!("{:08x}, ", seqw);
         }
@@ -133,20 +121,40 @@ unsafe fn main() -> Status {
     let mut harness = CoverageHarness::new(&mut interface);
     harness.init();
 
-    for chunk in (0..0x7c00).into_iter().filter(|i| (i%2) == 0 && (i%4) < 3).filter(|address| filter_blacklisted_instruction(*address, &dump)).chunks(hooks).into_iter() {
-        let addresses = chunk.map(|i| UCInstructionAddress::from_const(i)).collect_vec();
+    for chunk in (0..0x7c00)
+        .into_iter()
+        .filter(|i| (i % 2) == 0 && (i % 4) < 3)
+        .filter(|address| filter_blacklisted_instruction(*address))
+        .chunks(hooks.min(1))
+        .into_iter()
+    {
+        let addresses = chunk
+            .map(|i| UCInstructionAddress::from_const(i))
+            .collect_vec();
 
         if addresses.len() == 0 {
             break;
         }
 
-        println!("\r[{}]->[{}]: ", &addresses.first().unwrap(), &addresses.last().unwrap());
+        print!(
+            "\r[{}]->[{}]: ",
+            &addresses.first().unwrap(),
+            &addresses.last().unwrap()
+        );
 
-        if let Err(e) = harness.execute(&addresses, |_| {
-            rdrand();
-        }, ()) {
+        if let Err(e) = harness.execute(
+            &addresses,
+            |_| {
+                rdrand();
+            },
+            (),
+        ) {
             println!("Failed to execute harness: {:?}", e);
             return Status::ABORTED;
+        }
+
+        if harness.covered(addresses[0]) {
+            println!("Covered");
         }
     }
 
@@ -163,15 +171,21 @@ unsafe fn main() -> Status {
 }
 
 #[rustfmt::skip]
-fn filter_blacklisted_instruction(address: usize, dump: &UcodePatchBlob) -> bool {
+fn filter_blacklisted_instruction(address: usize) -> bool {
     // todo: recheck and reduce possible?
 
     // Copied from custom processing unit
 
-    assert_ne!(address % 4, 3, "Precondition failed. address % 4 == 3");
-    assert!(address / 4 < dump.len(), "Precondition failed. address / 4 < dump.len(). Address out of bounds.");
+    const DUMP: [u64; 0x8000] = include!("ucode_dump.txt");
 
-    let opcode = dump[address/4][address%4];
+    fn get_opcode(uop: u64) -> u16 {
+        ((uop >> 32) & 0xfff) as u16
+    }
+
+    assert_ne!(address % 4, 3, "Precondition failed. address % 4 == 3");
+    assert!(address / 4 < DUMP.len(), "Precondition failed. address / 4 < dump.len(). Address out of bounds.");
+
+    let opcode = get_opcode(DUMP[address]);
     if opcode == 0xfef { return false; } // LBSYNC
     
     // new GLM

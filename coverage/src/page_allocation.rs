@@ -25,7 +25,8 @@ impl PageAllocation {
     }
 
     pub fn alloc(count: usize) -> uefi::Result<PageAllocation> {
-        let data = uefi::boot::allocate_pages(AllocateType::AnyPages, MemoryType::LOADER_DATA, count)?;
+        let data =
+            uefi::boot::allocate_pages(AllocateType::AnyPages, MemoryType::LOADER_DATA, count)?;
         Ok(PageAllocation { count, base: data })
     }
     #[allow(unused)]

@@ -149,26 +149,17 @@ fn generate_ucode_files<A: AsRef<Path>>(path: A, pass1data: Option<Stage2Pass>) 
     ));
     definitions.push((
         "hook_entry_address",
-        pass1data
-            .unwrap_or_default()
-            .hook_entry_address,
+        pass1data.unwrap_or_default().hook_entry_address,
         "address of the first hook entry point",
     ));
     definitions.push((
         "hook_entry_address_offset",
-        pass1data
-            .unwrap_or_default()
-            .hook_entry_address
-            - 0x7c00,
+        pass1data.unwrap_or_default().hook_entry_address - 0x7c00,
         "address of the first hook entry point",
     ));
     definitions.push((
         "hook_exit_offset",
-        (pass1data
-            .unwrap_or_default()
-            .hook_exit_address
-            - 0x7c00)
-            / 4,
+        (pass1data.unwrap_or_default().hook_exit_address - 0x7c00) / 4,
         "offset in sequence ram to exit SEQW",
     ));
 

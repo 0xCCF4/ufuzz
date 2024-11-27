@@ -8,6 +8,3 @@ pub mod interface_definition;
 
 #[cfg(feature = "uefi")]
 pub mod page_allocation;
-
-#[cfg(feature = "uefi")]
-pub mod udump;

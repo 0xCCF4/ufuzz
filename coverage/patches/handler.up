@@ -1,3 +1,5 @@
+NOP SEQW SYNCMARK
+NOPB
 NOP SEQW SYNCFULL
 
 # save remaining context

@@ -1,6 +1,8 @@
 use crate::coverage_collector;
 use crate::interface::safe::ComInterface;
-use custom_processing_unit::{apply_patch, call_custom_ucode_function, disable_all_hooks, enable_hooks, lmfence};
+use custom_processing_unit::{
+    apply_patch, call_custom_ucode_function, disable_all_hooks, enable_hooks, lmfence,
+};
 use data_types::addresses::{Address, UCInstructionAddress};
 
 const COVERAGE_ENTRIES: usize = UCInstructionAddress::MAX.to_const();
@@ -34,10 +36,8 @@ impl<'a, 'b> CoverageHarness<'a, 'b> {
 
         self.interface.write_jump_table_all(hooks);
 
-        let result = call_custom_ucode_function(
-            coverage_collector::LABEL_FUNC_SETUP,
-            [hooks.len(), 0, 0],
-        );
+        let result =
+            call_custom_ucode_function(coverage_collector::LABEL_FUNC_SETUP, [hooks.len(), 0, 0]);
 
         if result.rax != 0x664200006642 {
             return Err("Failed to setup");
@@ -61,7 +61,7 @@ impl<'a, 'b> CoverageHarness<'a, 'b> {
         hooks: &[UCInstructionAddress],
         mut func: F,
         param: &mut T,
-        number_of_times: usize
+        number_of_times: usize,
     ) -> Result<(), &'static str> {
         self.pre_execution(hooks)?;
         enable_hooks();
@@ -95,5 +95,9 @@ impl<'a, 'b> CoverageHarness<'a, 'b> {
         self.post_execution(hooks);
 
         Ok(result)
+    }
+
+    pub fn covered(&self, address: UCInstructionAddress) -> bool {
+        self.coverage[address.address()] > 0
     }
 }

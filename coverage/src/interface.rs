@@ -103,7 +103,8 @@ pub mod safe {
 
     pub struct ComInterface<'a> {
         base: super::raw::ComInterface<'a>,
-        #[allow(dead_code)] // this is required since, while PageAllocation is alive, the memory is reserved
+        #[allow(dead_code)]
+        // this is required since, while PageAllocation is alive, the memory is reserved
         allocation: PageAllocation,
     }
 

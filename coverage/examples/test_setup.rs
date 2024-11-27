@@ -7,12 +7,10 @@ use core::arch::asm;
 use coverage::interface::safe::ComInterface;
 use coverage::{coverage_collector, interface_definition};
 use custom_processing_unit::{
-    apply_patch, call_custom_ucode_function, lmfence, ms_seqw_read,
-    CustomProcessingUnit, FunctionResult,
+    apply_patch, call_custom_ucode_function, lmfence, ms_seqw_read, CustomProcessingUnit,
+    FunctionResult,
 };
-use data_types::addresses::{
-    UCInstructionAddress,
-};
+use data_types::addresses::UCInstructionAddress;
 use log::info;
 use uefi::prelude::*;
 use uefi::{print, println};
@@ -93,7 +91,7 @@ unsafe fn main() -> Status {
         for i in 0..8 {
             let seqw = ms_seqw_read(
                 coverage_collector::LABEL_FUNC_LDAT_READ,
-                coverage_collector::LABEL_HOOK_EXIT_00 + i*4
+                coverage_collector::LABEL_HOOK_EXIT_00 + i * 4,
             );
             print!("{:08x}, ", seqw);
         }
