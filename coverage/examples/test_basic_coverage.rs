@@ -65,14 +65,19 @@ unsafe fn main() -> Status {
 
     interface.reset_coverage();
 
+    interface.reset_coverage();
+
     let mut harness = CoverageHarness::new(&mut interface);
     harness.init();
+
+    let mut count = 0;
+    let mut covered = 0;
 
     for chunk in (0..0x7c00)
         .into_iter()
         .filter(|i| (i % 2) == 0 && (i % 4) < 3)
         .filter(|address| filter_blacklisted_instruction(*address))
-        .chunks(hooks)
+        .chunks(hooks.min(1))
         .into_iter()
     {
         let addresses = chunk
@@ -84,9 +89,8 @@ unsafe fn main() -> Status {
         }
 
         print!(
-            "\r[{}]->[{}]: ",
-            &addresses.first().unwrap(),
-            &addresses.last().unwrap()
+            "\r[{}]: ",
+            &addresses.first().unwrap()
         );
 
         if let Err(e) = harness.execute(
@@ -99,19 +103,24 @@ unsafe fn main() -> Status {
             (),
         ) {
             println!("Failed to execute harness: {:?}", e);
-            return Status::ABORTED;
+            continue;
         }
+
+        count += addresses.len();
 
         if addresses.iter().any(|a| harness.covered(a)) {
             print!("Covered: ");
             for address in &addresses {
                 if harness.covered(address) {
-                    print!("{}, ", address);
+                    print!("{} ", address);
+                    covered += 1;
                 }
             }
             println!();
         }
     }
+
+    println!("Covered: {}/{} {}%", covered, count, (covered as f64 / count as f64)*100.0);
 
     if let Err(err) = cpu.zero_hooks() {
         println!("Failed to zero hooks: {:?}", err);
@@ -123,7 +132,7 @@ unsafe fn main() -> Status {
 
 #[rustfmt::skip]
 fn filter_blacklisted_instruction(address: usize) -> bool {
-    let blacklist = include!("blacklist.txt");
+    let blacklist = include!("../src/blacklist.txt");
     !blacklist.contains(&address)
     /*
 

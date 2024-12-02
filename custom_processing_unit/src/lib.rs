@@ -114,8 +114,8 @@ impl CustomProcessingUnit {
 
         if result.rax != 0x0000133700001337 && cfg!(not(feature = "emulation")) {
             return Err(Error::InitMatchAndPatchFailed(format!(
-                "invoke(U{:04x}) = {:016x}, {:016x}, {:016x}, {:016x}",
-                0x7da0, result.rax, result.rbx, result.rcx, result.rdx
+                "invoke({}) = {:016x}, {:016x}, {:016x}, {:016x}",
+                zero_hooks_func, result.rax, result.rbx, result.rcx, result.rdx
             )));
         }
 
@@ -133,6 +133,11 @@ impl CustomProcessingUnit {
 
 impl Drop for CustomProcessingUnit {
     fn drop(&mut self) {
-        self.zero_hooks().unwrap();
+        match self.zero_hooks() {
+            Ok(_) => {}
+            Err(e) => {
+                log::error!("Failed to zero hooks: {}", e);
+            }
+        }
     }
 }

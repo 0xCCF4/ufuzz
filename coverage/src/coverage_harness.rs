@@ -1,7 +1,7 @@
 use crate::coverage_collector;
 use crate::interface::safe::ComInterface;
 use custom_processing_unit::{
-    apply_patch, call_custom_ucode_function, disable_all_hooks, enable_hooks, lmfence,
+    apply_patch, call_custom_ucode_function, lmfence,
 };
 use data_types::addresses::{Address, UCInstructionAddress};
 
@@ -23,7 +23,11 @@ impl<'a, 'b> CoverageHarness<'a, 'b> {
     pub fn init(&mut self) {
         apply_patch(&coverage_collector::PATCH);
         self.interface.zero_jump_table();
-        disable_all_hooks();
+        //disable_all_hooks();
+    }
+
+    pub fn reset_coverage(&mut self) {
+        self.coverage = [0; COVERAGE_ENTRIES];
     }
 
     #[inline(always)]
@@ -56,6 +60,7 @@ impl<'a, 'b> CoverageHarness<'a, 'b> {
         }
     }
 
+    /*
     pub fn execute_multiple_times<T, F: FnMut(usize, &mut T)>(
         &mut self,
         hooks: &[UCInstructionAddress],
@@ -76,7 +81,7 @@ impl<'a, 'b> CoverageHarness<'a, 'b> {
         self.post_execution(hooks);
 
         Ok(())
-    }
+    }*/
 
     pub fn execute<T, R, F: FnOnce(T) -> R>(
         &mut self,
@@ -85,19 +90,23 @@ impl<'a, 'b> CoverageHarness<'a, 'b> {
         param: T,
     ) -> Result<R, &'static str> {
         self.pre_execution(hooks)?;
-        enable_hooks();
+        //enable_hooks();
 
         lmfence();
         let result = core::hint::black_box(func)(param);
         lmfence();
 
-        disable_all_hooks();
+        //disable_all_hooks();
         self.post_execution(hooks);
 
         Ok(result)
     }
 
-    pub fn covered(&self, address: UCInstructionAddress) -> bool {
-        self.coverage[address.address()] > 0
+    pub fn covered<A: AsRef<UCInstructionAddress>>(&self, address: A) -> bool {
+        self.coverage[address.as_ref().address()] > 0
+    }
+
+    pub fn get_coverage(&self) -> &[u8; COVERAGE_ENTRIES] {
+        &self.coverage
     }
 }

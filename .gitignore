@@ -2,3 +2,4 @@ target/
 api.key
 .idea/
 vscode/
+uefi_watchdog/

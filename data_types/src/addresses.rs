@@ -208,6 +208,12 @@ impl From<&UCInstructionAddress> for UCInstructionAddress {
     }
 }
 
+impl AsRef<UCInstructionAddress> for UCInstructionAddress {
+    fn as_ref(&self) -> &UCInstructionAddress {
+        self
+    }
+}
+
 /// An address of a location in the patch RAM.
 /// This address is used when writing or reading patch code.
 /// Memory layout is like this:
