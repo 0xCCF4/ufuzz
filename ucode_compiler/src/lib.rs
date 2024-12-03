@@ -1,5 +1,6 @@
 #![cfg_attr(feature = "no_std", no_std)]
 extern crate alloc;
+extern crate core;
 
 #[cfg(all(feature = "uasm", not(feature = "no_std")))]
 #[allow(clippy::bind_instead_of_map)] // todo: if time, then remove this line
