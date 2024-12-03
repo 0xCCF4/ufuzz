@@ -3,6 +3,8 @@
 
 extern crate alloc;
 
+use alloc::format;
+use alloc::vec::Vec;
 use core::arch::asm;
 use coverage::coverage_harness::CoverageHarness;
 use coverage::interface::safe::ComInterface;
@@ -11,11 +13,12 @@ use custom_processing_unit::{
     lmfence, CustomProcessingUnit,
     FunctionResult,
 };
-use data_types::addresses::UCInstructionAddress;
+use data_types::addresses::{Address, UCInstructionAddress};
 use itertools::Itertools;
 use log::info;
 use uefi::prelude::*;
-use uefi::{print, println};
+use uefi::{print, println, CString16};
+use uefi::proto::media::file::{File, FileAttribute, FileMode};
 
 #[entry]
 unsafe fn main() -> Status {
@@ -73,6 +76,8 @@ unsafe fn main() -> Status {
     let mut count = 0;
     let mut covered = 0;
 
+    let mut covered_addresses = Vec::new();
+
     for chunk in (0..0x7c00)
         .into_iter()
         .filter(|i| (i % 2) == 0 && (i % 4) < 3)
@@ -112,6 +117,7 @@ unsafe fn main() -> Status {
             print!("Covered: ");
             for address in &addresses {
                 if harness.covered(address) {
+                    covered_addresses.push(address.clone());
                     print!("{} ", address);
                     covered += 1;
                 }
@@ -122,12 +128,49 @@ unsafe fn main() -> Status {
 
     println!("Covered: {}/{} {}%", covered, count, (covered as f64 / count as f64)*100.0);
 
+    if let Err(err) = write_coverage(covered_addresses) {
+        println!("Failed to write result file: {:?}", err);
+        return Status::ABORTED;
+    };
+
     if let Err(err) = cpu.zero_hooks() {
         println!("Failed to zero hooks: {:?}", err);
     }
 
     println!("Goodbye!");
+
+    cpu.cleanup();
+
     Status::SUCCESS
+}
+
+fn file_name(name: &str) -> uefi::Result<CString16> {
+    const PREFIX: &str = "test_basic_coverage_";
+
+    CString16::try_from(format!("{}{}", PREFIX, name).as_str()).map_err(|_| uefi::Error::from(uefi::Status::UNSUPPORTED))
+}
+
+fn write_coverage(covered_addresses: Vec<UCInstructionAddress>) -> uefi::Result<()> {
+    let mut proto = uefi::boot::get_image_file_system(uefi::boot::image_handle())?;
+    let mut root_dir = proto.open_volume()?;
+    let file = root_dir.open(file_name("covered.txt")?.as_ref(), FileMode::CreateReadWrite, FileAttribute::empty())?;
+    file.delete()?;
+
+    let file = root_dir.open(file_name("covered.txt")?.as_ref(), FileMode::CreateReadWrite, FileAttribute::empty())?;
+
+    let mut regular_file = file.into_regular_file().ok_or_else(|| uefi::Error::from(uefi::Status::UNSUPPORTED))?;
+
+    for address in covered_addresses {
+        regular_file.write(format!("{:x}\n", address.address()).as_bytes()).map_err(|_err| uefi::Error::from(uefi::Status::UNSUPPORTED))?;
+    }
+
+    regular_file.flush()?;
+    regular_file.close();
+
+    root_dir.flush()?;
+    root_dir.close();
+
+    Ok(())
 }
 
 #[rustfmt::skip]

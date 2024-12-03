@@ -588,3 +588,13 @@ pub fn disable_all_hooks() -> usize {
     crbus_write(0x692, mp | 1usize);
     mp
 }
+
+pub fn restore_hooks(previous_value: usize) -> usize {
+    let mp = crbus_read(0x692);
+    crbus_write(0x692, (mp&!1) | (previous_value&1));
+    mp
+}
+
+pub fn read_hook_status() -> usize {
+    crbus_read(0x692)
+}

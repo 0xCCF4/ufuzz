@@ -1,8 +1,8 @@
+#[cfg(feature = "no_std")]
+use alloc::vec::Vec;
 use crate::coverage_collector;
 use crate::interface::safe::ComInterface;
-use custom_processing_unit::{
-    apply_patch, call_custom_ucode_function, lmfence,
-};
+use custom_processing_unit::{apply_patch, call_custom_ucode_function, disable_all_hooks, enable_hooks, lmfence, restore_hooks};
 use data_types::addresses::{Address, UCInstructionAddress};
 
 const COVERAGE_ENTRIES: usize = UCInstructionAddress::MAX.to_const();
@@ -10,6 +10,7 @@ const COVERAGE_ENTRIES: usize = UCInstructionAddress::MAX.to_const();
 pub struct CoverageHarness<'a, 'b> {
     interface: &'a mut ComInterface<'b>,
     coverage: [u8; COVERAGE_ENTRIES], // every forth entry, beginning at 3 is zero
+    previous_hook_settings: usize
 }
 
 impl<'a, 'b> CoverageHarness<'a, 'b> {
@@ -17,13 +18,14 @@ impl<'a, 'b> CoverageHarness<'a, 'b> {
         CoverageHarness {
             interface,
             coverage: [0; COVERAGE_ENTRIES],
+            previous_hook_settings: 0
         }
     }
 
     pub fn init(&mut self) {
         apply_patch(&coverage_collector::PATCH);
         self.interface.zero_jump_table();
-        //disable_all_hooks();
+        self.previous_hook_settings = disable_all_hooks();
     }
 
     pub fn reset_coverage(&mut self) {
@@ -90,13 +92,13 @@ impl<'a, 'b> CoverageHarness<'a, 'b> {
         param: T,
     ) -> Result<R, &'static str> {
         self.pre_execution(hooks)?;
-        //enable_hooks();
+        enable_hooks();
 
         lmfence();
         let result = core::hint::black_box(func)(param);
         lmfence();
 
-        //disable_all_hooks();
+        disable_all_hooks();
         self.post_execution(hooks);
 
         Ok(result)
@@ -108,5 +110,20 @@ impl<'a, 'b> CoverageHarness<'a, 'b> {
 
     pub fn get_coverage(&self) -> &[u8; COVERAGE_ENTRIES] {
         &self.coverage
+    }
+}
+
+impl<'a, 'b> Drop for CoverageHarness<'a, 'b> {
+    fn drop(&mut self) {
+        let mut v = Vec::with_capacity(self.interface.description().max_number_of_hooks);
+
+        for _ in 0..self.interface.description().max_number_of_hooks {
+            v.push(UCInstructionAddress::ZERO);
+        }
+
+        // zero hooks
+        let _ = self.pre_execution(v.as_ref());
+
+        restore_hooks(self.previous_hook_settings);
     }
 }

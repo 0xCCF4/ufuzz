@@ -91,7 +91,7 @@ impl UcodeCompiler {
 
     pub fn compile(
         &self,
-        cpuid: Option<String>,
+        cpuid: Option<&str>,
         input: &PathBuf,
         output: &PathBuf,
         avoid_unknown_256: bool,

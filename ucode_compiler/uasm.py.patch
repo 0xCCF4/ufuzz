@@ -1,5 +1,5 @@
 diff --git a/uasm-lib/uasm.py b/uasm-lib/uasm.py
-index 8cb98cf..9448bdb 100755
+index 8cb98cf..8042aef 100755
 --- a/uasm-lib/uasm.py
 +++ b/uasm-lib/uasm.py
 @@ -1300,6 +1300,7 @@ def assemble_uop(uop, modifiers, labels, var_to_reg):
@@ -199,3 +199,12 @@ index 8cb98cf..9448bdb 100755
      tee('unsigned long ucode_patch[][4] = {')
      for i, (triad, partial_seqwords, instruction) in enumerate(zip(triads, seqws, instructions)):
          is_last = i == len(triads)-1
+@@ -1786,7 +1831,7 @@ def print_patches():
+ 
+ cpuid_ = ''
+ @click.command()
+-@click.option('-c', '--cpuid', type=str, default='0x000506C9', help='the cpuid of the target CPU')
++@click.option('-c', '--cpuid', type=str, default='0x000506CA', help='the cpuid of the target CPU')
+ @click.option('-d', '--disasm', is_flag=True)
+ @click.option('-s','--seqwords', type=str, default=None)
+ @click.option('-u','--uops',type=str,default=None)
