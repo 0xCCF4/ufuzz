@@ -1,6 +1,13 @@
 #![no_main]
 #![no_std]
 
+//! Experiment for testing what happens when two hooks are applied to the same triad.
+//!
+//! Observations: The hook for the index 2 is applied, but the hook for the index 0 is discarded.
+//! The declaration order of the hooks does not matter.
+//!
+//! Implications: Hook only one address per triad.
+
 use core::arch::asm;
 use custom_processing_unit::{apply_hook_patch_func, apply_patch, call_custom_ucode_function, hook, lmfence, CustomProcessingUnit};
 use log::info;
@@ -16,31 +23,30 @@ mod patch {
         <func_ldat_read_hooks>
         include <sys/func_ldat_read_hooks.up>
 
-        <entry>
-        rbx := ZEROEXT_DSZ32(0xabab)
+        <entry_0428>
+        rbx := ZEROEXT_DSZ32(0x0428)
+        tmp4:= ZEROEXT_DSZ32(0x0000002b) SEQW GOTO 0x0429
 
-        # disables hook entry 0
-        r10 := ZEROEXT_DSZ64(0x0)
-        r11 := ZEROEXT_DSZ64(0x0)
-
-        #func lib/pause_frontend(r12, r11)
-        #func lib/ldat_write(r10, r11, r11, 3)
-        #func lib/resume_frontend(r12)
-
-        tmp4:= ZEROEXT_DSZ32(0x0000002b) SEQW GOTO 0x19c9
-
+        <entry_042a>
+        rcx := ZEROEXT_DSZ32(0x042a)
+        tmp0:= ZEROEXT_DSZ32(0x00000439) SEQW GOTO 0x19c9
         NOPB
 
-        <exit>
-        #rax := ZEROEXT_DSZ32(0x7777)
-        #rbx := ZEROEXT_DSZ32(0x7777)
-        rcx := ZEROEXT_DSZ32(0x7777)
-        rdx := ZEROEXT_DSZ32(0x7777)
+        <entry_19ca>
+        rdx := ZEROEXT_DSZ32(0x19ca)
     );
 
     // U06bc: rax:= ZEROEXT_DSZ8(tmp1, rax) SEQW UEND0
     // U06bd: NOP
     // U06be: UJMP( , tmp3)
+
+    // U0428: tmp4:= ZEROEXT_DSZ32(0x0000002b)
+    // U0429: tmp2:= ZEROEXT_DSZ32(0x40004e00)
+    // U042a: tmp0:= ZEROEXT_DSZ32(0x00000439) SEQW GOTO U19c9
+
+    // U19c8: FETCHFROMEIP1_ASZ64( , tmp6) !m1 SEQW UEND0
+    // U19c9: tmp1:= READURAM( , 0x0035, 64)
+    // U19ca: TESTUSTATE( , SYS, UST_SMM) !m1 ? SEQW GOTO U19ce
 }
 
 #[entry]
@@ -67,11 +73,17 @@ unsafe fn main() -> Status {
     apply_patch(&patch::PATCH);
     let patch_func = apply_hook_patch_func();
 
-    if let Err(err) = hook(patch_func, MSRAMHookIndex::ZERO, UCInstructionAddress::from_const(0x42a), patch::LABEL_ENTRY, true) {
+    // this was also tested with different orderings and indexes
+
+    if let Err(err) = hook(patch_func, MSRAMHookIndex::ZERO+0, UCInstructionAddress::from_const(0x42a), patch::LABEL_ENTRY_042A, true) {
         info!("Failed to hook {:?}", err);
         return Status::ABORTED;
     }
-    if let Err(err) = hook(patch_func, MSRAMHookIndex::ZERO+1, UCInstructionAddress::from_const(0x19ca), patch::LABEL_EXIT, true) {
+    if let Err(err) = hook(patch_func, MSRAMHookIndex::ZERO+1, UCInstructionAddress::from_const(0x428), patch::LABEL_ENTRY_042A, true) {
+        info!("Failed to hook {:?}", err);
+        return Status::ABORTED;
+    }
+    if let Err(err) = hook(patch_func, MSRAMHookIndex::ZERO+2, UCInstructionAddress::from_const(0x19ca), patch::LABEL_ENTRY_19CA, true) {
         info!("Failed to hook {:?}", err);
         return Status::ABORTED;
     }

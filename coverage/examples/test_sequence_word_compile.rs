@@ -1,6 +1,8 @@
 #![no_main]
 #![no_std]
 
+//! Runtime test for the runtime sequence word compiler.
+
 use custom_processing_unit::{apply_patch, call_custom_ucode_function, CustomProcessingUnit};
 use log::info;
 use ucode_compiler::utils::SequenceWord;

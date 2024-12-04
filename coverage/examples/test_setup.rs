@@ -1,6 +1,8 @@
 #![no_main]
 #![no_std]
 
+//! Runtime test for the coverage collector patch (setup) ucode function.
+
 extern crate alloc;
 
 use core::arch::asm;
