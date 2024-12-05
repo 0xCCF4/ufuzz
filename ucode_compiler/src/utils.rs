@@ -1,6 +1,6 @@
+use data_types::addresses::{Address, UCInstructionAddress};
 use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
-use data_types::addresses::{Address, UCInstructionAddress};
 
 // output parity1 || parity0
 pub fn parity(mut value: u32) -> u32 {
@@ -193,7 +193,7 @@ impl SequenceWord {
         let tetrad_uidx = (seqw >> 6) & 0b11;
         let uop_ctrl = (seqw >> 2) & 0b1111;
         let uop_uidx = seqw & 0b11;
-        
+
         let goto = if tetrad_address == 0 {
             None
         } else {
@@ -206,7 +206,7 @@ impl SequenceWord {
                 value: UCInstructionAddress::from_const(tetrad_address as usize),
             })
         };
-        
+
         let sync = if sync_uidx == 0x3 || sync_ctrl == 0 {
             if sync_ctrl != 0 {
                 return Err(DisassembleError::InvalidSync(sync_uidx, sync_ctrl));
@@ -216,7 +216,10 @@ impl SequenceWord {
         } else {
             Some(SequenceWordPart {
                 apply_to_index: sync_uidx as u8,
-                value: SequenceWordSync::from_u32(sync_ctrl).map_or(Err(DisassembleError::InvalidSyncValue(sync_ctrl)), DisassembleResult::Ok)?,
+                value: SequenceWordSync::from_u32(sync_ctrl).map_or(
+                    Err(DisassembleError::InvalidSyncValue(sync_ctrl)),
+                    DisassembleResult::Ok,
+                )?,
             })
         };
 
@@ -225,7 +228,10 @@ impl SequenceWord {
         } else {
             Some(SequenceWordPart {
                 apply_to_index: uop_uidx as u8,
-                value: SequenceWordControl::from_u32(uop_ctrl).map_or(Err(DisassembleError::InvalidControlValue(uop_ctrl)), DisassembleResult::Ok)?,
+                value: SequenceWordControl::from_u32(uop_ctrl).map_or(
+                    Err(DisassembleError::InvalidControlValue(uop_ctrl)),
+                    DisassembleResult::Ok,
+                )?,
             })
         };
 
@@ -323,7 +329,11 @@ mod test {
                 Err(err) => panic!("Failed to disassemble: {:x} @ {:?}", seqw, err),
             };
             let asm = disasm.assemble_no_crc();
-            assert_eq!(*seqw, asm, "DISASM -> ASM mismatch: {:x} -> {:x}", seqw, asm);
+            assert_eq!(
+                *seqw, asm,
+                "DISASM -> ASM mismatch: {:x} -> {:x}",
+                seqw, asm
+            );
         }
     }
 }

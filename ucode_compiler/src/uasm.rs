@@ -61,6 +61,19 @@ error_chain! {
     skip_msg_variant
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompilerOptions {
+    pub cpuid: Option<String>,
+    pub avoid_unknown_256: bool,
+    pub allow_unused: bool,
+}
+
+impl AsRef<CompilerOptions> for CompilerOptions {
+    fn as_ref(&self) -> &CompilerOptions {
+        self
+    }
+}
+
 fn run_rustfmt<P: AsRef<Path>>(path: P) {
     let _ = Command::new("rustfmt")
         .arg(path.as_ref())
@@ -89,12 +102,11 @@ impl UcodeCompiler {
         })
     }
 
-    pub fn compile(
+    pub fn compile<C: AsRef<CompilerOptions>>(
         &self,
-        cpuid: Option<&str>,
         input: &PathBuf,
         output: &PathBuf,
-        avoid_unknown_256: bool,
+        compiler_options: C,
     ) -> Result<()> {
         if !input.exists() {
             return Err(ErrorKind::SourceFileDoesNotExist(input.to_owned()).into());
@@ -109,13 +121,13 @@ impl UcodeCompiler {
             Some(path) => command.arg(path),
         };
 
-        if let Some(cpuid) = cpuid {
+        if let Some(cpuid) = compiler_options.as_ref().clone().cpuid {
             command.arg("--cpuid").arg(cpuid);
         }
 
         command.arg("-i").arg(input).arg("-o").arg(output);
 
-        if avoid_unknown_256 {
+        if compiler_options.as_ref().avoid_unknown_256 {
             command.arg("--avoid_unk_256");
         }
 
@@ -160,10 +172,14 @@ pub const AUTOGEN: &str = "// AUTOGEN_NOTICE: this file is automatically generat
 pub const AUTOGEN_PREFIX: &str = "// AUTOGEN_NOTICE: ";
 
 /// Compiles all source files and creates a patches.rs module file with all source files registered to.
-pub fn compile_source_and_create_module<P: AsRef<Path>, Q: AsRef<Path>>(
+pub fn compile_source_and_create_module<
+    P: AsRef<Path>,
+    Q: AsRef<Path>,
+    C: AsRef<CompilerOptions>,
+>(
     patch_source_folder: P,
     target_rust_folder: Q,
-    allow_unused: bool,
+    compiler_options: C,
 ) -> Result<()> {
     if !target_rust_folder.as_ref().exists() {
         fs::create_dir(&target_rust_folder).or_else(|err| {
@@ -240,9 +256,9 @@ pub fn compile_source_and_create_module<P: AsRef<Path>, Q: AsRef<Path>>(
     }
 
     let names =
-        build_script_compile_folder(patch_source_folder, &target_rust_folder, allow_unused)?;
+        build_script_compile_folder(patch_source_folder, &target_rust_folder, &compiler_options)?;
 
-    let allow_import = if allow_unused {
+    let allow_import = if compiler_options.as_ref().allow_unused {
         "#[allow(unused_imports)]\n"
     } else {
         ""
@@ -266,10 +282,10 @@ pub fn compile_source_and_create_module<P: AsRef<Path>, Q: AsRef<Path>>(
 }
 
 // Compiles all source files in the source dir -> target dir
-pub fn build_script_compile_folder<P: AsRef<Path>, Q: AsRef<Path>>(
+pub fn build_script_compile_folder<P: AsRef<Path>, Q: AsRef<Path>, C: AsRef<CompilerOptions>>(
     patch_source_folder: P,
     target_rust_folder: Q,
-    allow_unused: bool,
+    compiler_options: C,
 ) -> Result<Vec<String>> {
     let current_directory =
         PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("Cargo must include Manifest dir"));
@@ -368,11 +384,11 @@ pub fn build_script_compile_folder<P: AsRef<Path>, Q: AsRef<Path>>(
                     .to_string(),
             );
 
-            compiler.compile(None, &patch, &target_file.with_extension("h"), true)?;
+            compiler.compile(&patch, &target_file.with_extension("h"), &compiler_options)?;
             transform_h_patch_to_rs_patch(
                 target_file.with_extension("h"),
                 target_file.with_extension("rs"),
-                allow_unused,
+                compiler_options.as_ref().allow_unused,
             )?;
             fs::remove_file(target_file.with_extension("h")).or_else(|e| {
                 Err::<(), Error>(
@@ -475,12 +491,71 @@ pub fn transform_h_patch_to_rs_patch<P: AsRef<Path>, Q: AsRef<Path>>(
     let patch = &patch[0..patch.len() - 4];
     let length = patch.lines().count() / 2;
 
+    let mut space_requirement_analysis = String::new();
+    space_requirement_analysis.push_str("// Space requirement analysis:\n");
+
+    let mut sorted_labels_by_size = labels
+        .iter()
+        .filter_map(|(name, address, _)| {
+            if let Some(other) = labels.iter().find(|(other_name, _, _)| {
+                format!("{name}_end").to_lowercase() == other_name.to_lowercase()
+            }) {
+                Some((name, address, other.1.to_string()))
+            } else {
+                None
+            }
+        })
+        .map(|(name, address, other_address)| {
+            (
+                name,
+                u64::from_str_radix(&address[2..], 16).expect("Address parse error"),
+                u64::from_str_radix(&other_address[2..], 16).expect("Address parse error") - 1,
+            )
+        })
+        .map(|(name, address, other_address)| {
+            (
+                name,
+                address,
+                other_address,
+                if other_address > address {
+                    other_address - address
+                } else {
+                    0
+                },
+            )
+        })
+        .collect::<Vec<(&String, u64, u64, u64)>>();
+
+    sorted_labels_by_size.sort_by_key(|(_, _, _, size)| *size);
+
+    for (name, address, other_address, size) in sorted_labels_by_size.iter().rev() {
+        println!("{name} {address:04x} -> {other_address:04x} {size:3}");
+        assert!(
+            other_address >= address,
+            "Address with XXX_end postfix must be used later than label XXX"
+        );
+        let triads = size / 4 + if size % 4 > 0 { 1 } else { 0 };
+        space_requirement_analysis.push_str(
+            format!("// {size:3}|{triads:3} [{address:04x} -> {other_address:04x}] {name}\n")
+                .as_str(),
+        )
+    }
+    if !sorted_labels_by_size.is_empty() {
+        space_requirement_analysis.push_str("// ---------------------- \n");
+    }
+    space_requirement_analysis
+        .push_str(format!("// Total: {:3}| {:3} of 128 triads\n", length * 4, length).as_str());
+
+    assert!(length <= 128, "Patch code is too large to fit in MSRAM");
+
     let content = format!(
         "{AUTOGEN}
 
         use data_types::{{UcodePatchEntry, Patch, LabelMapping}};
         #[allow(unused_imports)]
         use data_types::addresses::{{UCInstructionAddress, MSRAMHookIndex}};
+
+        {space_requirement_analysis}
 
         {labels_const}
 

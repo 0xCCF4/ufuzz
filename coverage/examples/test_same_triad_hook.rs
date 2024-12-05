@@ -3,19 +3,21 @@
 
 extern crate alloc;
 
-use alloc::string::{String};
+use alloc::string::String;
 use core::arch::asm;
-use itertools::Itertools;
 use coverage::coverage_harness::CoverageHarness;
 use coverage::interface::safe::ComInterface;
 use coverage::{coverage_collector, interface_definition};
-use custom_processing_unit::{call_custom_ucode_function, lmfence, ms_seqw_read, CustomProcessingUnit, FunctionResult};
+use custom_processing_unit::{
+    call_custom_ucode_function, lmfence, ms_seqw_read, CustomProcessingUnit, FunctionResult,
+};
 use data_types::addresses::{Address, UCInstructionAddress};
+use itertools::Itertools;
 use log::info;
-use uefi::prelude::*;
-use uefi::{print, println};
 use uefi::boot::ScopedProtocol;
+use uefi::prelude::*;
 use uefi::proto::loaded_image::LoadedImage;
+use uefi::{print, println};
 
 #[entry]
 unsafe fn main() -> Status {
@@ -72,7 +74,7 @@ unsafe fn main() -> Status {
                 coverage_collector::LABEL_FUNC_LDAT_READ_HOOKS,
                 [i, 0, 0],
             )
-                .rax;
+            .rax;
             print!("{:08x}, ", hook);
         }
         println!();
@@ -105,37 +107,49 @@ unsafe fn main() -> Status {
     harness.init();
     harness.reset_coverage();
 
-    let loaded_image_proto: ScopedProtocol<LoadedImage> = match uefi::boot::open_protocol_exclusive(uefi::boot::image_handle()) {
-        Err(err) => {
-            println!("Failed to open image protocol: {:?}", err);
-            return Status::ABORTED;
-        },
-        Ok(loaded_image_proto) => loaded_image_proto,
-    };
-    let options = match loaded_image_proto.load_options_as_bytes().map(|options| options.into_iter().filter(|p| **p != 0 && (p.is_ascii_alphanumeric() || p.is_ascii_whitespace())).cloned().collect_vec()) {
+    let loaded_image_proto: ScopedProtocol<LoadedImage> =
+        match uefi::boot::open_protocol_exclusive(uefi::boot::image_handle()) {
+            Err(err) => {
+                println!("Failed to open image protocol: {:?}", err);
+                return Status::ABORTED;
+            }
+            Ok(loaded_image_proto) => loaded_image_proto,
+        };
+    let options = match loaded_image_proto.load_options_as_bytes().map(|options| {
+        options
+            .into_iter()
+            .filter(|p| **p != 0 && (p.is_ascii_alphanumeric() || p.is_ascii_whitespace()))
+            .cloned()
+            .collect_vec()
+    }) {
         None => {
             println!("No args set.");
             return Status::ABORTED;
-        },
+        }
         Some(options) => String::from_utf8(options).unwrap(),
     };
     println!("Options: {:?}", options);
-    let mut addresses = options.split(" ").map(|address| {
-        let address = address.trim();
-        if address.len() == 0 {
-            return None;
-        }
-        match usize::from_str_radix(address, 16) {
-            Err(_err) => {
-                None
-            },
-            Ok(address) => if address < 0x7c00 {
-                Some(UCInstructionAddress::from(address))
-            } else {
-                None
-            },
-        }
-    }).filter(|address| address.is_some()).map(|address| address.unwrap()).collect_vec();
+    let mut addresses = options
+        .split(" ")
+        .map(|address| {
+            let address = address.trim();
+            if address.len() == 0 {
+                return None;
+            }
+            match usize::from_str_radix(address, 16) {
+                Err(_err) => None,
+                Ok(address) => {
+                    if address < 0x7c00 {
+                        Some(UCInstructionAddress::from(address))
+                    } else {
+                        None
+                    }
+                }
+            }
+        })
+        .filter(|address| address.is_some())
+        .map(|address| address.unwrap())
+        .collect_vec();
 
     if addresses.len() <= 1 {
         println!("No addresses to hook. Specify args: [number of executions] [HOOK...]");
@@ -148,25 +162,27 @@ unsafe fn main() -> Status {
     println!("Hooking: {:?}", addresses);
 
     println!(" ---- Execute {number_of_executions} times ----");
-    if let Err(err) = harness.execute(&addresses, |n| {
-        read_hooks();
-        let x = rdrand();
-        println!("RDRAND: {:?}", x);
-        for _ in 0..(n-1) {
+    if let Err(err) = harness.execute(
+        &addresses,
+        |n| {
+            read_hooks();
             let x = rdrand();
-            if !x.0 {
-                println!("RDRAND: {:?}", x);
-                break;
+            println!("RDRAND: {:?}", x);
+            for _ in 0..(n - 1) {
+                let x = rdrand();
+                if !x.0 {
+                    println!("RDRAND: {:?}", x);
+                    break;
+                }
             }
-        }
-    }, number_of_executions) {
+        },
+        number_of_executions,
+    ) {
         println!("Failed to execute experiment: {:?}", err);
     }
     read_hooks();
     read_coverage(&harness);
     read_seqws();
-
-
 
     println!("Goodbye!");
     Status::SUCCESS

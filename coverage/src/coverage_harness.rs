@@ -1,8 +1,11 @@
-#[cfg(feature = "no_std")]
-use alloc::vec::Vec;
 use crate::coverage_collector;
 use crate::interface::safe::ComInterface;
-use custom_processing_unit::{apply_patch, call_custom_ucode_function, disable_all_hooks, enable_hooks, lmfence, restore_hooks};
+#[cfg(feature = "no_std")]
+use alloc::vec::Vec;
+use custom_processing_unit::{
+    apply_patch, call_custom_ucode_function, disable_all_hooks, enable_hooks, lmfence,
+    restore_hooks,
+};
 use data_types::addresses::{Address, UCInstructionAddress};
 
 const COVERAGE_ENTRIES: usize = UCInstructionAddress::MAX.to_const();
@@ -10,7 +13,7 @@ const COVERAGE_ENTRIES: usize = UCInstructionAddress::MAX.to_const();
 pub struct CoverageHarness<'a, 'b> {
     interface: &'a mut ComInterface<'b>,
     coverage: [u8; COVERAGE_ENTRIES], // every forth entry, beginning at 3 is zero
-    previous_hook_settings: usize
+    previous_hook_settings: usize,
 }
 
 impl<'a, 'b> CoverageHarness<'a, 'b> {
@@ -18,7 +21,7 @@ impl<'a, 'b> CoverageHarness<'a, 'b> {
         CoverageHarness {
             interface,
             coverage: [0; COVERAGE_ENTRIES],
-            previous_hook_settings: 0
+            previous_hook_settings: 0,
         }
     }
 
@@ -36,7 +39,7 @@ impl<'a, 'b> CoverageHarness<'a, 'b> {
     fn pre_execution(&mut self, hooks: &[UCInstructionAddress]) -> Result<(), &'static str> {
         self.interface.reset_coverage();
 
-        if hooks.len() > self.interface.description().max_number_of_hooks {
+        if hooks.len() > self.interface.description().max_number_of_hooks as usize {
             return Err("Requested too many hooks");
         }
 
@@ -115,7 +118,7 @@ impl<'a, 'b> CoverageHarness<'a, 'b> {
 
 impl<'a, 'b> Drop for CoverageHarness<'a, 'b> {
     fn drop(&mut self) {
-        let mut v = Vec::with_capacity(self.interface.description().max_number_of_hooks);
+        let mut v = Vec::with_capacity(self.interface.description().max_number_of_hooks as usize);
 
         for _ in 0..self.interface.description().max_number_of_hooks {
             v.push(UCInstructionAddress::ZERO);

@@ -2,10 +2,13 @@
 #![no_std]
 
 use core::arch::asm;
-use custom_processing_unit::{apply_hook_patch_func, apply_patch, call_custom_ucode_function, hook, lmfence, CustomProcessingUnit};
+use custom_processing_unit::{
+    apply_hook_patch_func, apply_patch, call_custom_ucode_function, hook, lmfence,
+    CustomProcessingUnit,
+};
+use data_types::addresses::{Address, MSRAMHookIndex, UCInstructionAddress};
 use log::info;
 use uefi::{entry, print, println, Status};
-use data_types::addresses::{MSRAMHookIndex, UCInstructionAddress, Address};
 
 mod patch {
     use ucode_compiler_derive::patch;
@@ -23,7 +26,7 @@ mod patch {
         r10 := ZEROEXT_DSZ64(0x0)
         r11 := ZEROEXT_DSZ64(0x0)
         func lib/pause_frontend(r12, r11)
-        func lib/ldat_write(r10, r11, r11, 3)
+        func lib/ldat_write(r10, r11, r11, 0x3)
         func lib/resume_frontend(r12)
 
         rax := ZEROEXT_DSZ32(0x1212)
@@ -73,11 +76,23 @@ unsafe fn main() -> Status {
 
     apply_patch(&patch::PATCH);
 
-    if let Err(err) = hook(apply_hook_patch_func(), MSRAMHookIndex::ZERO, UCInstructionAddress::from_const(0x06bc), patch::LABEL_ENTRY, true) {
+    if let Err(err) = hook(
+        apply_hook_patch_func(),
+        MSRAMHookIndex::ZERO,
+        UCInstructionAddress::from_const(0x06bc),
+        patch::LABEL_ENTRY,
+        true,
+    ) {
         info!("Failed to hook {:?}", err);
         return Status::ABORTED;
     }
-    if let Err(err) = hook(apply_hook_patch_func(), MSRAMHookIndex::ZERO+1, UCInstructionAddress::from_const(0x06be), patch::LABEL_EXIT, true) {
+    if let Err(err) = hook(
+        apply_hook_patch_func(),
+        MSRAMHookIndex::ZERO + 1,
+        UCInstructionAddress::from_const(0x06be),
+        patch::LABEL_EXIT,
+        true,
+    ) {
         info!("Failed to hook {:?}", err);
         return Status::ABORTED;
     }
@@ -126,11 +141,7 @@ unsafe fn main() -> Status {
 fn read_hooks() {
     print!("Hooks:    ");
     for i in 0..8 {
-        let hook = call_custom_ucode_function(
-            patch::LABEL_FUNC_LDAT_READ_HOOKS,
-            [i, 0, 0],
-        )
-            .rax;
+        let hook = call_custom_ucode_function(patch::LABEL_FUNC_LDAT_READ_HOOKS, [i, 0, 0]).rax;
         print!("{:08x}, ", hook);
     }
     println!();

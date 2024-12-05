@@ -1,5 +1,5 @@
 diff --git a/uasm-lib/uasm.py b/uasm-lib/uasm.py
-index 8cb98cf..8042aef 100755
+index 8cb98cf..34ff1f2 100755
 --- a/uasm-lib/uasm.py
 +++ b/uasm-lib/uasm.py
 @@ -1300,6 +1300,7 @@ def assemble_uop(uop, modifiers, labels, var_to_reg):
@@ -117,11 +117,12 @@ index 8cb98cf..8042aef 100755
  def assemble_ucode(ucode, avoid_unk_256, output):
      triads = [[]]
      seqws = [[]]
-@@ -1608,6 +1670,13 @@ def assemble_ucode(ucode, avoid_unk_256, output):
+@@ -1608,6 +1670,14 @@ def assemble_ucode(ucode, avoid_unk_256, output):
              reg_to_var[reg] = var
              continue
  
-+        if uop == "NOPBARRIER" or uop == "NOPB":
++        uop_str_no_comment = uop.strip().split('#')[0].strip()
++        if uop_str_no_comment == "NOPBARRIER" or uop_str_no_comment == "NOPB":
 +            if _address & 3 == 0:
 +                continue
 +            else:
@@ -131,13 +132,14 @@ index 8cb98cf..8042aef 100755
          _address += 1
          if _address & 3 == 3:
              # skip fixed-nop uops slot
-@@ -1619,47 +1688,21 @@ def assemble_ucode(ucode, avoid_unk_256, output):
+@@ -1619,47 +1689,22 @@ def assemble_ucode(ucode, avoid_unk_256, output):
  
      # now assemble
      for uop_str in uops:
 -        uop = uop_str.split('!')[0].split("SEQW")[0].split('#')[0].strip()
 -        modifiers = uop_str.split('!')[1].split("SEQW")[0].split('#')[0].strip() if '!' in uop_str else ''
-+        if uop_str.strip() == "NOPBARRIER" or uop_str.strip() == "NOPB":
++        uop_str_no_comment = uop_str.strip().split('#')[0].strip()
++        if uop_str_no_comment == "NOPBARRIER" or uop_str_no_comment == "NOPB":
 +            while len(triads[-1]) < 3 and len(triads[-1]) != 0:
 +                uop_bin, seqw, uop_nolabels = compile_uop("NOP", labels, var_to_reg)
 +                
@@ -190,7 +192,7 @@ index 8cb98cf..8042aef 100755
          if len(triads[-1]) == 3:
              triads.append([])
              seqws.append([])
-@@ -1680,6 +1723,8 @@ def assemble_ucode(ucode, avoid_unk_256, output):
+@@ -1680,6 +1725,8 @@ def assemble_ucode(ucode, avoid_unk_256, output):
          tee(f'unsigned long hook_address = 0x{hook_address:04x};')
      if not hook_entry is None:
          tee(f'unsigned long hook_entry = 0x{hook_entry:02x};')
@@ -199,7 +201,7 @@ index 8cb98cf..8042aef 100755
      tee('unsigned long ucode_patch[][4] = {')
      for i, (triad, partial_seqwords, instruction) in enumerate(zip(triads, seqws, instructions)):
          is_last = i == len(triads)-1
-@@ -1786,7 +1831,7 @@ def print_patches():
+@@ -1786,7 +1833,7 @@ def print_patches():
  
  cpuid_ = ''
  @click.command()

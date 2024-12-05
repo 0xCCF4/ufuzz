@@ -23,45 +23,85 @@ NOPB
 
 
 # Deactivate frontend
+# -----------------------------
 func lib/pause_frontend({tmp_frontend_prev}, {tmp_zero})
 
 
-# Zero all hooks
+# 1. Zero all hooks
+# -----------------------------
 {tmp_counter} := ZEROEXT_DSZ64(0x0)
 <setup_zero_loop>
 # if index == table_length
 func lib/jump_if_equal({tmp_counter}, [table_length], {0}, 32, <setup_zero_loop_end>)
 
-{0} := SHL_DSZ64({tmp_counter}, 0x1)
+{0} := SHL_DSZ64({tmp_counter}, 0x1) # in hooks memory, only even addresses writable
 #                   addr  value      tmp  HOOKS
-func lib/ldat_write({0}, {tmp_zero}, {1}, 3)
+func lib/ldat_write({0}, {tmp_zero}, {1}, 0x3)
 
 {tmp_counter} := ADD_DSZ64({tmp_counter}, 0x1) SEQW GOTO <setup_zero_loop>
 <setup_zero_loop_end>
 
 
-# Patch exit hooks with new return values
+# 2. Patch exit hooks with new return values
+# -------------------------------------------
 {tmp_counter} := ZEROEXT_DSZ64(0x0)
 <setup_exit_loop>
 # if index == n || index == table_length
 func lib/jump_if_equal({tmp_counter}, {n}, {0}, 32, <setup_exit_loop_end>)
 func lib/jump_if_equal({tmp_counter}, [table_length], {0}, 32, <setup_exit_loop_end>)
 
-{0} := SHL_DSZ64({tmp_counter}, 0x01)
+# Write exit jump to replacement triad
+{0} := SHL_DSZ64({tmp_counter}, [convert_index_to_jump_table_offset])
 {1} := ZEROEXT_DSZ64([address_jump_table_base])
 {2} := LDPPHYS_DSZ16_ASZ32_SC1({0}, {1}) # {2} := JUMP_TABLE[index]
-func compute_exit_jump({0}, {2}, {1}, {3})
-# <-- {0} now contains SEQW GOTO {2}
+{2} := AND_DSZ64({2}, 0x2)
+# since we can only hook on even addresses, {2} now contains the triad offset
+{0} := SHL_DSZ64({tmp_counter}, 0x02) # {0} := index * 4
+{0} := ADD_DSZ64({0}, {2}) # {0} := index * 4 + triad_offset
+{1} := ADD_DSZ64({0}, <hook_exit_replacement_00>)
+# {1} := HOOK_EXIT_REPLACER + index * 4 + triad_offset
 
-{1} := ZEROEXT_DSZ64([hook_exit_offset])
+func compute_exit_jump({0}, {1}, {2}, {3})
+# {1} := SEQW { GOTO {1}; NOP; NOP }
+
+{1} := ZEROEXT_DSZ64([hook_exit_offset_in_seqw])
 {1} := ADD_DSZ64({1}, {tmp_counter}) # {1} := HOOK_EXIT (seqw addr) + index
-func lib/ldat_write({1}, {0}, {2}, 2) # SEQW_mem[{1} = EXIT + index] := {0} = SEQW GOTO {2}
+func lib/ldat_write({1}, {0}, {2}, 0x2) # SEQW_mem[{1} = EXIT + index] := {0} = SEQW GOTO {2}
+
+
+# Write replacement triad
+{3} := ZEROEXT_DSZ64(0x00)
+
+<setup_replacement_loop>
+func lib/jump_if_equal({3}, 0x03, {0}, 32, <setup_replacement_loop_end>)
+{0} := SHL_DSZ64({tmp_counter}, [convert_index_to_instruction_table_offset])
+{0} := ADD_DSZ64({0}, [address_instruction_table_base])
+{1} := SHL_DSZ64({3}, 0x03) # 64bit values
+{2} := LDPPHYS_DSZ64_ASZ32_SC1({0}, {1}) # {2} := INSTRUCTION_TABLE[index][offset]
+{0} := SHL_DSZ64({tmp_counter}, 0x02) # {0} := index * 4
+{0} := ADD_DSZ64({0}, [hook_replacement_offset]) # {0} := <hook_exit_replacement_00> - 0x7c00 + index * 4
+{0} := ADD_DSZ64({0}, {3}) # {0} := <hook_exit_replacement_00> - 0x7c00 + index * 4 + triad_offset
+
+func lib/ldat_write({0}, {2}, {1}, 0x4)
+
+{3} := ADD_DSZ64({3}, 0x1) SEQW GOTO <setup_replacement_loop>
+<setup_replacement_loop_end>
+
+{0} := SHL_DSZ64({tmp_counter}, [convert_index_to_instruction_table_offset])
+{0} := ADD_DSZ64({0}, 0x18)
+{1} := ZEROEXT_DSZ64([address_instruction_table_base])
+{2} := LDPPHYS_DSZ64_ASZ32_SC1({0}, {1}) # {2} := INSTRUCTION_TABLE[index][3]
+
+{0} := ADD_DSZ64({tmp_counter}, [hook_replacement_offset_in_seqw])
+func lib/ldat_write({0}, {2}, {1}, 0x2)
+
 
 {tmp_counter} := ADD_DSZ64({tmp_counter}, 0x1) SEQW GOTO <setup_exit_loop>
 <setup_exit_loop_end>
 
 
-# Write new hooks
+# 3. Write new hooks
+# ---------------------------
 {tmp_counter} := ZEROEXT_DSZ64(0x0)
 <setup_hook_loop>
 # if index == n || index == table_length
@@ -78,10 +118,11 @@ func lib/compute_hook({2}, {0}, {1}, {3})
 # <-- {3} is now to value to place inside the hook register
 
 {0} := SHL_DSZ64({tmp_counter}, 0x01) # index * 2
-func lib/ldat_write({0}, {3}, {1}, 3)
+func lib/ldat_write({0}, {3}, {1}, 0x3)
 
 {tmp_counter} := ADD_DSZ64({tmp_counter}, 0x1) SEQW GOTO <setup_hook_loop>
 <setup_hook_loop_end>
 
 # Reactivate frontend
+# -----------------------
 func lib/resume_frontend({tmp_frontend_prev})

@@ -6,11 +6,8 @@ extern crate alloc;
 use core::arch::asm;
 use coverage::coverage_harness::CoverageHarness;
 use coverage::interface::safe::ComInterface;
-use coverage::{interface_definition};
-use custom_processing_unit::{
-    lmfence, CustomProcessingUnit,
-    FunctionResult,
-};
+use coverage::interface_definition;
+use custom_processing_unit::{lmfence, CustomProcessingUnit, FunctionResult};
 use data_types::addresses::UCInstructionAddress;
 use itertools::Itertools;
 use log::info;
@@ -72,7 +69,7 @@ unsafe fn main() -> Status {
         .into_iter()
         .filter(|i| (i % 2) == 0 && (i % 4) < 3)
         .filter(|address| filter_blacklisted_instruction(*address))
-        .chunks(hooks)
+        .chunks(hooks as usize)
         .into_iter()
     {
         let addresses = chunk

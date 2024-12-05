@@ -5,12 +5,12 @@
 
 extern crate alloc;
 
-use core::arch::asm;
 use coverage::interface::safe::ComInterface;
+use coverage::interface_definition::InstructionTableEntry;
 use coverage::{coverage_collector, interface_definition};
 use custom_processing_unit::{
-    apply_patch, call_custom_ucode_function, lmfence, ms_seqw_read, CustomProcessingUnit,
-    FunctionResult,
+    apply_patch, call_custom_ucode_function, disable_all_hooks, ms_patch_instruction_read,
+    ms_seqw_read, CustomProcessingUnit,
 };
 use data_types::addresses::UCInstructionAddress;
 use log::info;
@@ -65,19 +65,11 @@ unsafe fn main() -> Status {
 
     interface.reset_coverage();
 
-    unsafe fn read_coverage_table(interface: &ComInterface) {
-        print!("Coverage: ");
-        for i in 0..8 {
-            print!("{}, ", interface.read_coverage_table(i));
-        }
-        println!();
-    }
-
     apply_patch(&coverage_collector::PATCH);
 
-    fn read_hooks() {
+    fn print_status() {
         print!("Hooks:    ");
-        for i in 0..8 {
+        for i in 0..interface_definition::COM_INTERFACE_DESCRIPTION.max_number_of_hooks as usize {
             let hook = call_custom_ucode_function(
                 coverage_collector::LABEL_FUNC_LDAT_READ_HOOKS,
                 [i, 0, 0],
@@ -86,22 +78,37 @@ unsafe fn main() -> Status {
             print!("{:08x}, ", hook);
         }
         println!();
-    }
 
-    fn read_seqws() {
-        print!("SEQW:     ");
-        for i in 0..8 {
+        for i in 0..interface_definition::COM_INTERFACE_DESCRIPTION.max_number_of_hooks as usize {
+            print!("EXIT {:02}: ", i);
             let seqw = ms_seqw_read(
                 coverage_collector::LABEL_FUNC_LDAT_READ,
                 coverage_collector::LABEL_HOOK_EXIT_00 + i * 4,
             );
-            print!("{:08x}, ", seqw);
+            print!("{:08x} -> ", seqw);
+            for offset in 0..3 {
+                let instruction = ms_patch_instruction_read(
+                    coverage_collector::LABEL_FUNC_LDAT_READ,
+                    coverage_collector::LABEL_HOOK_EXIT_REPLACEMENT_00 + i * 4 + offset,
+                );
+                print!("{:08x}, ", instruction);
+            }
+            let seqw = ms_seqw_read(
+                coverage_collector::LABEL_FUNC_LDAT_READ,
+                coverage_collector::LABEL_HOOK_EXIT_REPLACEMENT_00 + i * 4,
+            );
+            println!("{:08x}", seqw);
         }
-        println!();
     }
 
-    unsafe fn setup_hooks(interface: &mut ComInterface, addresses: &[UCInstructionAddress]) {
+    unsafe fn setup_hooks(
+        interface: &mut ComInterface,
+        addresses: &[UCInstructionAddress],
+        instructions: &[InstructionTableEntry],
+    ) {
+        assert_eq!(addresses.len(), instructions.len());
         interface.write_jump_table_all(addresses);
+        interface.write_instruction_table_all(instructions.iter().cloned().into_iter());
 
         let result = call_custom_ucode_function(
             coverage_collector::LABEL_FUNC_SETUP,
@@ -115,20 +122,14 @@ unsafe fn main() -> Status {
         }
     }
 
-    read_hooks();
-
     apply_patch(&coverage_collector::PATCH); // todo: remove
-
     interface.reset_coverage();
+    disable_all_hooks();
 
     println!(" ---- NORMAL ---- ");
-    read_hooks();
+    print_status();
 
-    println!("RDRAND:  {:x?}", rdrand());
-    read_seqws();
-    read_coverage_table(&interface);
-
-    println!(" ---- HOOKING ---- ");
+    println!(" ---- SETUP ---- ");
     let addr = [
         UCInstructionAddress::from_const(0x428),
         UCInstructionAddress::from_const(0x42a),
@@ -138,27 +139,29 @@ unsafe fn main() -> Status {
         UCInstructionAddress::from_const(0x1868),
         UCInstructionAddress::from_const(0x186a),
     ];
-    setup_hooks(&mut interface, &addr);
-    read_hooks();
-    read_seqws();
-    read_coverage_table(&interface);
+    let instructions: [InstructionTableEntry; 7] = [
+        [0x01, 0x02, 0x03, 0x04],
+        [0x11, 0x12, 0x13, 0x14],
+        [0x21, 0x22, 0x23, 0x24],
+        [0x31, 0x32, 0x33, 0x34],
+        [0x41, 0x42, 0x43, 0x44],
+        [0x51, 0x52, 0x53, 0x54],
+        [0x61, 0x62, 0x63, 0x64],
+    ];
 
-    for _i in 0..4 {
-        println!(" ---- RUN ---- ");
-        println!("RDRAND:  {:x?}", rdrand());
-        read_seqws();
-        read_hooks();
-        read_coverage_table(&interface);
-    }
+    setup_hooks(&mut interface, &addr, &instructions);
+    print_status();
 
-    println!(" ---- WAITING ---- ");
-    boot::stall(2e6 as usize);
-    read_hooks();
-    read_coverage_table(&interface);
-
-    if let Err(err) = cpu.zero_hooks() {
-        println!("Failed to zero hooks: {:?}", err);
-    }
+    /* for i in (0x7c00..0x7e00).filter(|i| i % 4 != 3) {
+        let i = UCInstructionAddress::from_const(i);
+        let instruction = ms_patch_instruction_read(
+            coverage_collector::LABEL_FUNC_LDAT_READ,
+            i,
+        );
+        if instruction == 0x01 {
+            println!("Found instruction at {}", i);
+        }
+    } */
 
     println!("Goodbye!");
 
@@ -166,26 +169,4 @@ unsafe fn main() -> Status {
     cpu.cleanup();
 
     Status::SUCCESS
-}
-
-fn rdrand() -> (bool, FunctionResult) {
-    let mut result = FunctionResult::default();
-    let flags: u8;
-    lmfence();
-    unsafe {
-        asm! {
-        "xchg {rbx_tmp}, rbx",
-        "rdrand rax",
-        "setc {flags}",
-        "xchg {rbx_tmp}, rbx",
-        inout("rax") 0usize => result.rax,
-        rbx_tmp = inout(reg) 0usize => result.rbx,
-        inout("rcx") 0usize => result.rcx,
-        inout("rdx") 0usize => result.rdx,
-        flags = out(reg_byte) flags,
-        options(nostack),
-        }
-    }
-    lmfence();
-    (flags > 0, result)
 }

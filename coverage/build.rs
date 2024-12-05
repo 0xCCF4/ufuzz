@@ -1,18 +1,23 @@
+use crate::interface_definition::{
+    ComInterfaceDescription, CoverageEntry, InstructionTableEntry, JumpTableEntry,
+};
 use std::path::Path;
-use ucode_compiler::uasm::AUTOGEN;
+use ucode_compiler::uasm::{CompilerOptions, AUTOGEN};
 
 #[path = "src/interface_definition.rs"]
 mod interface_definition;
 
 fn main() {
-    if let Err(err) = build() {
-        panic!("Failed to compile: {:?}", err);
+    println!("cargo::rerun-if-changed=build.rs");
+    if let Err(err) = build_ms_rom() {
+        panic!("Failed to parse ucode rom files: {:?}", err);
+    }
+    if let Err(err) = build_ucode_scripts() {
+        panic!("Failed to compile ucode scripts: {:?}", err);
     }
 }
 
-fn build() -> ucode_compiler::uasm::Result<()> {
-    println!("cargo::rerun-if-changed=build.rs");
-
+fn build_ucode_scripts() -> ucode_compiler::uasm::Result<()> {
     if !std::fs::exists("src/patches").expect("fs perm denied") {
         std::fs::create_dir("src/patches").expect("dir creation failed")
     }
@@ -33,11 +38,21 @@ fn build() -> ucode_compiler::uasm::Result<()> {
         usize::from_str_radix(hook_entry, 16).expect("hook entry not a number")
     }
 
+    let options = CompilerOptions {
+        allow_unused: true,
+        avoid_unknown_256: true,
+        cpuid: None,
+    };
+
     // STAGE 1
 
-    generate_ucode_files("patches/gen", None);
+    generate_ucode_files(
+        "patches/gen",
+        None,
+        &interface_definition::COM_INTERFACE_DESCRIPTION,
+    );
     ucode_compiler::uasm::preprocess_scripts("patches", "src/patches", "patches")?;
-    ucode_compiler::uasm::compile_source_and_create_module("src/patches", "src/patches", true)?;
+    ucode_compiler::uasm::compile_source_and_create_module("src/patches", "src/patches", &options)?;
 
     let result_text = std::fs::read_to_string("src/patches/patch.rs").expect("read failed");
 
@@ -46,11 +61,19 @@ fn build() -> ucode_compiler::uasm::Result<()> {
     let data = Stage2Pass {
         hook_entry_address: extract_label_value(result_text.as_str(), "HOOK_ENTRY_00"),
         hook_exit_address: extract_label_value(result_text.as_str(), "HOOK_EXIT_00"),
+        hook_exit_replacement_address: extract_label_value(
+            result_text.as_str(),
+            "HOOK_EXIT_REPLACEMENT_00",
+        ),
     };
 
-    generate_ucode_files("patches/gen", Some(data));
+    generate_ucode_files(
+        "patches/gen",
+        Some(data),
+        &interface_definition::COM_INTERFACE_DESCRIPTION,
+    );
     ucode_compiler::uasm::preprocess_scripts("patches", "src/patches", "patches")?;
-    ucode_compiler::uasm::compile_source_and_create_module("src/patches", "src/patches", true)?;
+    ucode_compiler::uasm::compile_source_and_create_module("src/patches", "src/patches", &options)?;
 
     // delete_intermediate_files("src/patches");
 
@@ -81,6 +104,7 @@ fn delete_intermediate_files<A: AsRef<Path>>(path: A) {
 struct Stage2Pass {
     hook_entry_address: usize,
     hook_exit_address: usize,
+    hook_exit_replacement_address: usize,
 }
 
 impl Default for Stage2Pass {
@@ -88,19 +112,29 @@ impl Default for Stage2Pass {
         Stage2Pass {
             hook_entry_address: 0x7c00,
             hook_exit_address: 0x7c00,
+            hook_exit_replacement_address: 0x7c00,
         }
     }
 }
 
-fn generate_ucode_files<A: AsRef<Path>>(path: A, pass1data: Option<Stage2Pass>) {
+fn generate_ucode_files<A: AsRef<Path>>(
+    path: A,
+    pass1data: Option<Stage2Pass>,
+    interface: &ComInterfaceDescription,
+) {
+    generate_interface_definitions(path.as_ref(), pass1data, interface);
+    generate_entries(path.as_ref(), interface);
+    generate_exits(path.as_ref(), interface);
+}
+
+fn generate_interface_definitions<A: AsRef<Path>>(
+    path: A,
+    pass1data: Option<Stage2Pass>,
+    interface: &ComInterfaceDescription,
+) {
     let file = path.as_ref().join("interface_definition.up");
 
-    let interface = interface_definition::COM_INTERFACE_DESCRIPTION;
     let mut definitions = Vec::default();
-
-    fn u16_to_u8_addr(addr: usize) -> usize {
-        addr << 1
-    }
 
     definitions.push((
         "index_mask",
@@ -114,28 +148,76 @@ fn generate_ucode_files<A: AsRef<Path>>(path: A, pass1data: Option<Stage2Pass>) 
     ));
     definitions.push((
         "address_base",
-        interface.base,
+        interface.base as usize,
         "base address of the interface",
     ));
     definitions.push((
         "address_coverage_table_base",
-        interface.base + u16_to_u8_addr(interface.offset_coverage_result_table),
+        interface.base as usize + interface.offset_coverage_result_table,
         "base address of the coverage table",
     ));
     definitions.push((
         "address_jump_table_base",
-        interface.base + u16_to_u8_addr(interface.offset_jump_back_table),
+        interface.base as usize + interface.offset_jump_back_table,
         "base address of the jump table",
     ));
     definitions.push((
+        "address_instruction_table_base",
+        interface.base as usize + interface.offset_instruction_table,
+        "base address of the instruction table",
+    ));
+    definitions.push((
         "table_length",
-        interface.max_number_of_hooks,
+        interface.max_number_of_hooks as usize,
         "number of entries in the tables",
     ));
     definitions.push((
-        "table_size",
-        u16_to_u8_addr(interface.max_number_of_hooks),
-        "size of the tables in bytes",
+        "table_size_jump",
+        interface.max_number_of_hooks as usize * size_of::<JumpTableEntry>(),
+        "size of the jump table in bytes",
+    ));
+    definitions.push((
+        "table_size_coverage",
+        interface.max_number_of_hooks as usize * size_of::<CoverageEntry>(),
+        "size of the coverage table in bytes",
+    ));
+    definitions.push((
+        "table_size_instruction",
+        interface.max_number_of_hooks as usize * size_of::<InstructionTableEntry>(),
+        "size of the instruction table in bytes",
+    ));
+    definitions.push((
+        "size_jump_table_entry",
+        size_of::<JumpTableEntry>(),
+        "size of a jump table entry in bytes",
+    ));
+    definitions.push((
+        "size_coverage_table_entry",
+        size_of::<CoverageEntry>(),
+        "size of a coverage table entry in bytes",
+    ));
+    definitions.push((
+        "size_instruction_table_entry",
+        size_of::<InstructionTableEntry>(),
+        "size of a instruction table entry in bytes",
+    ));
+    assert!(size_of::<JumpTableEntry>().is_power_of_two());
+    assert!(size_of::<CoverageEntry>().is_power_of_two());
+    assert!(size_of::<InstructionTableEntry>().is_power_of_two());
+    definitions.push((
+        "convert_index_to_jump_table_offset",
+        size_of::<JumpTableEntry>().ilog2() as usize,
+        "shift by this amount to get the offset in the jump table",
+    ));
+    definitions.push((
+        "convert_index_to_coverage_table_offset",
+        size_of::<CoverageEntry>().ilog2() as usize,
+        "shift by this amount to get the offset in the coverage table",
+    ));
+    definitions.push((
+        "convert_index_to_instruction_table_offset",
+        size_of::<InstructionTableEntry>().ilog2() as usize,
+        "shift by this amount to get the offset in the instruction table",
     ));
     //assert!(interface.offset_timing_table > interface.offset_coverage_result_table);
     //assert!(interface.offset_jump_back_table > interface.offset_timing_table);
@@ -144,7 +226,7 @@ fn generate_ucode_files<A: AsRef<Path>>(path: A, pass1data: Option<Stage2Pass>) 
     // definitions.push(("offset_time2jump_table", u16_to_u8_addr(interface.offset_jump_back_table - interface.offset_timing_table), "offset between the timing and jump tables"));
     definitions.push((
         "offset_cov2jump_table",
-        u16_to_u8_addr(interface.offset_jump_back_table - interface.offset_coverage_result_table),
+        interface.offset_jump_back_table - interface.offset_coverage_result_table,
         "offset between the coverage and jump tables",
     ));
     definitions.push((
@@ -158,9 +240,24 @@ fn generate_ucode_files<A: AsRef<Path>>(path: A, pass1data: Option<Stage2Pass>) 
         "address of the first hook entry point",
     ));
     definitions.push((
-        "hook_exit_offset",
+        "hook_exit_offset_in_seqw",
         (pass1data.unwrap_or_default().hook_exit_address - 0x7c00) / 4,
         "offset in sequence ram to exit SEQW",
+    ));
+    definitions.push((
+        "hook_replacement_offset_in_seqw",
+        (pass1data.unwrap_or_default().hook_exit_replacement_address - 0x7c00) / 4,
+        "offset in sequence ram to replacement SEQW",
+    ));
+    assert_eq!(
+        pass1data.unwrap_or_default().hook_exit_replacement_address % 4,
+        0,
+        "exit replacer triads must be aligned"
+    );
+    definitions.push((
+        "hook_replacement_offset",
+        (pass1data.unwrap_or_default().hook_exit_replacement_address - 0x7c00),
+        "offset in instruction ram to replacement triad",
     ));
 
     let definitions = definitions
@@ -170,7 +267,9 @@ fn generate_ucode_files<A: AsRef<Path>>(path: A, pass1data: Option<Stage2Pass>) 
         .join("\n\n");
 
     std::fs::write(file, format!("# {AUTOGEN}\n\n{definitions}").as_str()).expect("write failed");
+}
 
+fn generate_entries<A: AsRef<Path>>(path: A, interface: &ComInterfaceDescription) {
     let file = path.as_ref().join("entries.up");
     let mut content = "".to_string();
     content.push_str("# ");
@@ -178,13 +277,12 @@ fn generate_ucode_files<A: AsRef<Path>>(path: A, pass1data: Option<Stage2Pass>) 
     content.push_str("\n\n");
 
     for i in 0..interface.max_number_of_hooks {
-        let val = u16_to_u8_addr(i);
         content.push_str(
             format!(
                 "
 <hook_entry_{i:02}>
 STADSTGBUF_DSZ64_ASZ16_SC1([adr_stg_r10], , r10) !m2 # save original value of r10
-[in_hook_offset] := ZEROEXT_DSZ32(0x{val:02x}) SEQW GOTO <handler> # hook index {i} -> offset {val}
+[in_hook_offset] := ZEROEXT_DSZ32(0x{i:02x}) SEQW GOTO <handler> # index {i}
 NOP
 "
             )
@@ -193,22 +291,41 @@ NOP
     }
 
     std::fs::write(file, content).expect("write failed");
+}
 
+fn generate_exits<A: AsRef<Path>>(path: A, interface: &ComInterfaceDescription) {
     let file = path.as_ref().join("exits.up");
     let mut content = "".to_string();
     content.push_str("# ");
     content.push_str(AUTOGEN);
     content.push_str("\n\n");
 
-    for i in 0..interface.max_number_of_hooks {
-        let _val = u16_to_u8_addr(i);
+    content.push_str("NOPB # Align to 4\n\n");
+
+    for i in 0..interface.max_number_of_hooks as usize {
         content.push_str(
             format!(
                 "
 <hook_exit_{i:02}>
 r10 := LDSTGBUF_DSZ64_ASZ16_SC1([adr_stg_r10]) !m2
-NOP SEQW SYNCFULL
-NOP SEQW GOTO <exit_trap> # will be overriden when a new hook is set
+NOP
+NOP SEQW GOTO <exit_trap>
+"
+            )
+            .as_str(),
+        )
+    }
+
+    content.push_str("\n# Must be 4 aligned\n\n");
+
+    for i in 0..interface.max_number_of_hooks {
+        content.push_str(
+            format!(
+                "
+<hook_exit_replacement_{i:02}>
+NOP
+NOP
+NOP SEQW GOTO <exit_trap>
 "
             )
             .as_str(),
@@ -216,4 +333,79 @@ NOP SEQW GOTO <exit_trap> # will be overriden when a new hook is set
     }
 
     std::fs::write(file, content).expect("write failed");
+}
+
+fn build_ms_rom() -> ucode_compiler::uasm::Result<()> {
+    let rom_instructions = parse_rom_file("src/ms_array0.txt");
+    let seqw_instructions = parse_rom_file("src/ms_array1.txt");
+    for chunk in seqw_instructions.chunks(4) {
+        assert!(chunk.iter().all(|v| v == chunk.first().unwrap()));
+    }
+    let seqw_instructions = seqw_instructions
+        .chunks(4)
+        .map(|v| v[0])
+        .collect::<Vec<_>>();
+
+    let mut content = "".to_string();
+
+    content.push_str("/// The microcode firmware dump: Instruction memory\n");
+    content.push_str(
+        format!(
+            "pub const MS_ARRAY_0: [u64; {}] = [\n",
+            rom_instructions.len()
+        )
+        .as_str(),
+    );
+    for value in rom_instructions {
+        content.push_str(format!("    0x{:016x},\n", value).as_str());
+    }
+    content.push_str("];\n\n");
+
+    content.push_str("/// The microcode firmware dump: Sequence memory\n");
+    content.push_str(
+        format!(
+            "pub const MS_ARRAY_1: [u32; {}] = [\n",
+            seqw_instructions.len()
+        )
+        .as_str(),
+    );
+    for value in seqw_instructions {
+        content.push_str(format!("    0x{:08x},\n", value).as_str());
+    }
+    content.push_str("];\n\n");
+
+    std::fs::write("src/ms_array.rs", content).expect("write failed");
+
+    Ok(())
+}
+
+fn parse_rom_file<A: AsRef<Path>>(file: A) -> Vec<u64> {
+    println!(
+        "cargo:rerun-if-changed={}",
+        file.as_ref().to_str().expect("path not utf8")
+    );
+    let file = std::fs::read_to_string(file).expect("read failed");
+    file.lines()
+        .filter_map(|line| {
+            let line = line.trim();
+            if let Some((_addr, content)) = line.split_once(":") {
+                let content = content.trim();
+                let values = content.split(" ").map(|v| v.trim()).collect::<Vec<&str>>();
+                assert_eq!(values.len(), 4);
+
+                let mut result = [0u64; 4];
+
+                for (value, r) in values.iter().zip(result.iter_mut()) {
+                    let parsed_hex = u64::from_str_radix(value, 16).expect("parse failed");
+                    *r = parsed_hex;
+                }
+
+                Some(result)
+            } else {
+                None
+            }
+        })
+        .map(|v| v.into_iter())
+        .flatten()
+        .collect::<Vec<u64>>()
 }

@@ -1,11 +1,13 @@
 #[allow(clippy::missing_safety_doc)] // todo: remove this and write safety docs
 pub mod raw {
-    use crate::interface_definition::ComInterfaceDescription;
+    use crate::interface_definition::{
+        ComInterfaceDescription, CoverageEntry, InstructionTableEntry, JumpTableEntry,
+    };
     use core::ptr::NonNull;
     use data_types::addresses::{Address, UCInstructionAddress};
 
     pub struct ComInterface<'a> {
-        base: NonNull<u16>,
+        base: NonNull<u8>,
         pub description: &'a ComInterfaceDescription,
     }
 
@@ -15,7 +17,7 @@ pub mod raw {
                 panic!("Invalid base address");
             }
 
-            let ptr = NonNull::new_unchecked(description.base as *mut u16);
+            let ptr = NonNull::new_unchecked(description.base as *mut u8);
 
             Self {
                 base: ptr,
@@ -23,26 +25,31 @@ pub mod raw {
             }
         }
 
-        unsafe fn jump_table(&self) -> NonNull<u16> {
+        unsafe fn jump_table(&self) -> NonNull<JumpTableEntry> {
             self.base
-                .offset(self.description.offset_jump_back_table as isize)
+                .add(self.description.offset_jump_back_table)
+                .cast()
         }
 
         #[allow(unused)]
-        pub unsafe fn read_jump_table(&self) -> &[u16] {
+        pub unsafe fn read_jump_table(&self) -> &[JumpTableEntry] {
             core::slice::from_raw_parts(
                 self.jump_table().as_ptr(),
-                self.description.max_number_of_hooks,
+                self.description.max_number_of_hooks.into(),
             )
         }
 
-        pub unsafe fn write_jump_table(&mut self, index: usize, value: u16) {
-            if index >= self.description.max_number_of_hooks {
+        pub unsafe fn write_jump_table<P: Into<UCInstructionAddress>>(
+            &mut self,
+            index: usize,
+            value: P,
+        ) {
+            if index >= self.description.max_number_of_hooks.into() {
                 return;
             }
             self.jump_table()
-                .offset(index as isize)
-                .write_volatile(value);
+                .add(index)
+                .write_volatile(value.into().address() as JumpTableEntry);
         }
 
         pub unsafe fn write_jump_table_all<
@@ -53,42 +60,75 @@ pub mod raw {
             values: T,
         ) {
             for (index, value) in values.into_iter().enumerate() {
-                self.write_jump_table(index, value.into().address() as u16);
+                self.write_jump_table(index, value);
             }
         }
 
         pub unsafe fn zero_jump_table(&mut self) {
-            for i in 0..self.description.max_number_of_hooks {
-                self.write_jump_table(i, 0);
+            for i in 0..self.description.max_number_of_hooks as usize {
+                self.write_jump_table(i, UCInstructionAddress::ZERO);
             }
         }
 
-        unsafe fn coverage_table(&self) -> NonNull<u16> {
+        unsafe fn coverage_table(&self) -> NonNull<CoverageEntry> {
             self.base
-                .offset(self.description.offset_coverage_result_table as isize)
+                .add(self.description.offset_coverage_result_table)
+                .cast()
         }
 
-        pub unsafe fn read_coverage_table(&self, index: usize) -> u16 {
-            if index >= self.description.max_number_of_hooks {
+        pub unsafe fn read_coverage_table(&self, index: usize) -> CoverageEntry {
+            if index >= self.description.max_number_of_hooks.into() {
                 return 0;
             }
 
-            self.coverage_table().offset(index as isize).read_volatile()
+            self.coverage_table().add(index).read_volatile()
         }
 
-        pub unsafe fn write_coverage_table(&mut self, index: usize, value: u16) {
-            if index >= self.description.max_number_of_hooks {
+        pub unsafe fn write_coverage_table(&mut self, index: usize, value: CoverageEntry) {
+            if index >= self.description.max_number_of_hooks.into() {
                 return;
             }
 
-            self.coverage_table()
-                .offset(index as isize)
-                .write_volatile(value);
+            self.coverage_table().add(index).write_volatile(value);
         }
 
         pub unsafe fn reset_coverage(&mut self) {
-            for index in 0..self.description.max_number_of_hooks {
+            for index in 0..self.description.max_number_of_hooks as usize {
                 self.write_coverage_table(index, 0);
+            }
+        }
+
+        unsafe fn instruction_table(&self) -> NonNull<InstructionTableEntry> {
+            self.base
+                .add(self.description.offset_instruction_table)
+                .cast()
+        }
+
+        pub fn read_instruction_table(&self, index: usize) -> InstructionTableEntry {
+            if index >= self.description.max_number_of_hooks.into() {
+                return [0; 4];
+            }
+
+            unsafe { self.instruction_table().add(index).read_volatile() }
+        }
+
+        pub fn write_instruction_table(&mut self, index: usize, value: InstructionTableEntry) {
+            if index >= self.description.max_number_of_hooks.into() {
+                return;
+            }
+
+            unsafe { self.instruction_table().add(index).write_volatile(value) }
+        }
+
+        pub unsafe fn write_instruction_table_all<
+            P: Into<InstructionTableEntry>,
+            T: IntoIterator<Item = P>,
+        >(
+            &mut self,
+            values: T,
+        ) {
+            for (index, value) in values.into_iter().enumerate() {
+                self.write_instruction_table(index, value.into());
             }
         }
     }
@@ -96,7 +136,9 @@ pub mod raw {
 
 #[cfg(feature = "uefi")]
 pub mod safe {
-    use crate::interface_definition::ComInterfaceDescription;
+    use crate::interface_definition::{
+        ComInterfaceDescription, CoverageEntry, InstructionTableEntry, JumpTableEntry,
+    };
     use crate::page_allocation::PageAllocation;
     use data_types::addresses::UCInstructionAddress;
     use uefi::data_types::PhysicalAddress;
@@ -131,11 +173,11 @@ pub mod safe {
             self.base.description
         }
 
-        pub fn read_jump_table(&self) -> &[u16] {
+        pub fn read_jump_table(&self) -> &[JumpTableEntry] {
             unsafe { self.base.read_jump_table() }
         }
 
-        pub fn write_jump_table(&mut self, index: usize, value: u16) {
+        pub fn write_jump_table<P: Into<UCInstructionAddress>>(&mut self, index: usize, value: P) {
             unsafe { self.base.write_jump_table(index, value) }
         }
 
@@ -150,16 +192,34 @@ pub mod safe {
             unsafe { self.base.zero_jump_table() }
         }
 
-        pub fn read_coverage_table(&self, index: usize) -> u16 {
+        pub fn read_coverage_table(&self, index: usize) -> CoverageEntry {
             unsafe { self.base.read_coverage_table(index) }
         }
 
-        pub fn write_coverage_table(&mut self, index: usize, value: u16) {
+        pub fn write_coverage_table(&mut self, index: usize, value: CoverageEntry) {
             unsafe { self.base.write_coverage_table(index, value) }
         }
 
         pub fn reset_coverage(&mut self) {
             unsafe { self.base.reset_coverage() }
+        }
+
+        pub fn read_instruction_table(&self, index: usize) -> InstructionTableEntry {
+            self.base.read_instruction_table(index)
+        }
+
+        pub fn write_instruction_table(&mut self, index: usize, value: InstructionTableEntry) {
+            self.base.write_instruction_table(index, value)
+        }
+
+        pub fn write_instruction_table_all<
+            P: Into<InstructionTableEntry>,
+            T: IntoIterator<Item = P>,
+        >(
+            &mut self,
+            values: T,
+        ) {
+            unsafe { self.base.write_instruction_table_all(values) }
         }
     }
 }

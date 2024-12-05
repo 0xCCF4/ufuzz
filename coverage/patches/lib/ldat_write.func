@@ -2,7 +2,7 @@
 # ARG1: {value} - value to write
 # ARG2: {tmp} - temporary value that will be overwritten
 # ARG2: {zero} - later used as zero reg
-# ARG3: {SELECTOR} - ldat selector (one hex char)
+# ARG3: {SELECTOR} - ldat selector  2-4 (reg or const)
 
 # def ucode_sequencer_write(SELECTOR, ADDR, VAL):
 #     CRBUS[0x6a1] = 0x30000 | (SELECTOR << 8) = 0x30000 | (0x{SELECTOR} << 8)
@@ -11,7 +11,8 @@
 #     CRBUS[0x6a5] = VAL >> 32                 = {value} >> 32
 #     CRBUS[0x6a1] = 0                         = 0
 
-{tmp} := ZEROEXT_DSZ32(0x0000030{SELECTOR})
+{tmp} := ZEROEXT_DSZ32(0x00000300)
+{tmp} := OR_DSZ32({tmp}, {SELECTOR})
 {tmp} := SHL_DSZ32({tmp}, 0x00000008)
 
 MOVETOCREG_DSZ64({tmp}, 0x6a1) !m2  # selector

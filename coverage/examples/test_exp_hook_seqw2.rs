@@ -9,10 +9,13 @@
 //! Implications: Hook only one address per triad.
 
 use core::arch::asm;
-use custom_processing_unit::{apply_hook_patch_func, apply_patch, call_custom_ucode_function, hook, lmfence, CustomProcessingUnit};
+use custom_processing_unit::{
+    apply_hook_patch_func, apply_patch, call_custom_ucode_function, hook, lmfence,
+    CustomProcessingUnit,
+};
+use data_types::addresses::{MSRAMHookIndex, UCInstructionAddress};
 use log::info;
 use uefi::{entry, print, println, Status};
-use data_types::addresses::{MSRAMHookIndex, UCInstructionAddress};
 
 mod patch {
     use ucode_compiler_derive::patch;
@@ -75,15 +78,33 @@ unsafe fn main() -> Status {
 
     // this was also tested with different orderings and indexes
 
-    if let Err(err) = hook(patch_func, MSRAMHookIndex::ZERO+0, UCInstructionAddress::from_const(0x42a), patch::LABEL_ENTRY_042A, true) {
+    if let Err(err) = hook(
+        patch_func,
+        MSRAMHookIndex::ZERO + 0,
+        UCInstructionAddress::from_const(0x42a),
+        patch::LABEL_ENTRY_042A,
+        true,
+    ) {
         info!("Failed to hook {:?}", err);
         return Status::ABORTED;
     }
-    if let Err(err) = hook(patch_func, MSRAMHookIndex::ZERO+1, UCInstructionAddress::from_const(0x428), patch::LABEL_ENTRY_042A, true) {
+    if let Err(err) = hook(
+        patch_func,
+        MSRAMHookIndex::ZERO + 1,
+        UCInstructionAddress::from_const(0x428),
+        patch::LABEL_ENTRY_042A,
+        true,
+    ) {
         info!("Failed to hook {:?}", err);
         return Status::ABORTED;
     }
-    if let Err(err) = hook(patch_func, MSRAMHookIndex::ZERO+2, UCInstructionAddress::from_const(0x19ca), patch::LABEL_ENTRY_19CA, true) {
+    if let Err(err) = hook(
+        patch_func,
+        MSRAMHookIndex::ZERO + 2,
+        UCInstructionAddress::from_const(0x19ca),
+        patch::LABEL_ENTRY_19CA,
+        true,
+    ) {
         info!("Failed to hook {:?}", err);
         return Status::ABORTED;
     }
@@ -133,11 +154,7 @@ unsafe fn main() -> Status {
 fn read_hooks() {
     print!("Hooks:    ");
     for i in 0..8 {
-        let hook = call_custom_ucode_function(
-            patch::LABEL_FUNC_LDAT_READ_HOOKS,
-            [i, 0, 0],
-        )
-            .rax;
+        let hook = call_custom_ucode_function(patch::LABEL_FUNC_LDAT_READ_HOOKS, [i, 0, 0]).rax;
         print!("{:08x}, ", hook);
     }
     println!();

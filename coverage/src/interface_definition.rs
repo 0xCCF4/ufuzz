@@ -1,31 +1,48 @@
-// everything is data size 16bit width
 pub struct ComInterfaceDescription {
-    pub base: usize,
-    pub max_number_of_hooks: usize,
-    pub offset_coverage_result_table: usize, // in 2bytes
-    // pub offset_timing_table: usize,
-    pub offset_jump_back_table: usize, // in 2bytes
+    pub base: u16,
+    pub max_number_of_hooks: u8,
+    pub offset_coverage_result_table: usize,
+    pub offset_jump_back_table: usize,
+    pub offset_instruction_table: usize,
 }
 
 impl ComInterfaceDescription {
+    /// Memory usage in bytes
     #[allow(dead_code)] // todo: maybe cargo error, since it is actually used, investigate and if valid, report to cargo
     pub const fn memory_usage(&self) -> usize {
-        let jump = self.offset_jump_back_table + self.max_number_of_hooks * 2;
-        let coverage = self.offset_coverage_result_table + self.max_number_of_hooks * 2;
+        let jump = self.offset_jump_back_table + JUMP_TABLE_BYTE_SIZE;
+        let coverage = self.offset_coverage_result_table + COVERAGE_RESULT_TABLE_BYTE_SIZE;
+        let instructions = self.offset_instruction_table + INSTRUCTION_TABLE_BYTE_SIZE;
 
-        if jump > coverage {
-            jump
-        } else {
-            coverage
+        const fn max(a: usize, b: usize) -> usize {
+            if a > b {
+                a
+            } else {
+                b
+            }
         }
+
+        max(max(jump, coverage), instructions)
     }
 }
 
-const MAX_NUMBER_OF_HOOKS: usize = 16;
+const MAX_NUMBER_OF_HOOKS: u8 = 8;
+
+pub type CoverageEntry = u16;
+const COVERAGE_RESULT_TABLE_BYTE_SIZE: usize =
+    size_of::<CoverageEntry>() * MAX_NUMBER_OF_HOOKS as usize;
+
+pub type JumpTableEntry = u16;
+const JUMP_TABLE_BYTE_SIZE: usize = size_of::<JumpTableEntry>() * MAX_NUMBER_OF_HOOKS as usize;
+
+pub type InstructionTableEntry = [u64; 4];
+const INSTRUCTION_TABLE_BYTE_SIZE: usize =
+    size_of::<InstructionTableEntry>() * MAX_NUMBER_OF_HOOKS as usize;
 
 pub const COM_INTERFACE_DESCRIPTION: ComInterfaceDescription = ComInterfaceDescription {
     base: 0x1000,
     max_number_of_hooks: MAX_NUMBER_OF_HOOKS,
     offset_coverage_result_table: 0,
-    offset_jump_back_table: MAX_NUMBER_OF_HOOKS,
+    offset_jump_back_table: COVERAGE_RESULT_TABLE_BYTE_SIZE,
+    offset_instruction_table: COVERAGE_RESULT_TABLE_BYTE_SIZE + JUMP_TABLE_BYTE_SIZE,
 };

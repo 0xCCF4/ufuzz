@@ -4,7 +4,7 @@
 tmp5 := ZEROEXT_DSZ32(0x000)
 
 func lib/pause_frontend(tmp4, tmp5)
-func lib/ldat_read(tmp0, rax, tmp3, 3)
+func lib/ldat_read(tmp0, rax, tmp3, 0x3)
 func lib/resume_frontend(tmp4)
 
 NOPB
