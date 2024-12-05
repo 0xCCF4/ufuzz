@@ -10,7 +10,8 @@ use data_types::addresses::UCInstructionAddress;
 
 mod helpers;
 pub use helpers::*;
-pub mod labels;
+pub mod dump;
+pub mod opcodes;
 pub mod patches;
 
 #[derive(Debug)]

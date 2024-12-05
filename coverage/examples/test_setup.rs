@@ -68,7 +68,7 @@ unsafe fn main() -> Status {
     apply_patch(&coverage_collector::PATCH);
 
     fn print_status() {
-        print!("Hooks:    ");
+        print!("Hooks  : ");
         for i in 0..interface_definition::COM_INTERFACE_DESCRIPTION.max_number_of_hooks as usize {
             let hook = call_custom_ucode_function(
                 coverage_collector::LABEL_FUNC_LDAT_READ_HOOKS,
@@ -91,13 +91,13 @@ unsafe fn main() -> Status {
                     coverage_collector::LABEL_FUNC_LDAT_READ,
                     coverage_collector::LABEL_HOOK_EXIT_REPLACEMENT_00 + i * 4 + offset,
                 );
-                print!("{:08x}, ", instruction);
+                print!("{:08x} ", instruction);
             }
             let seqw = ms_seqw_read(
                 coverage_collector::LABEL_FUNC_LDAT_READ,
                 coverage_collector::LABEL_HOOK_EXIT_REPLACEMENT_00 + i * 4,
             );
-            println!("{:08x}", seqw);
+            println!("-> {:08x}", seqw);
         }
     }
 
@@ -150,6 +150,8 @@ unsafe fn main() -> Status {
     ];
 
     setup_hooks(&mut interface, &addr, &instructions);
+
+    println!(" ---- SETUP ---- ");
     print_status();
 
     /* for i in (0x7c00..0x7e00).filter(|i| i % 4 != 3) {

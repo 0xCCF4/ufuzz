@@ -133,7 +133,7 @@ impl SequenceWord {
             .sync
             .clone()
             .map(|value| (value.apply_to_index.into(), value.value as u32))
-            .unwrap_or((0x3u32, 0x0u32));
+            .unwrap_or((0x0u32, 0x0u32));
 
         let (uop_uidx, uop_ctrl) = self
             .control

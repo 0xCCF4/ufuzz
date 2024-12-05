@@ -6,7 +6,6 @@
 use custom_processing_unit::{apply_patch, call_custom_ucode_function, CustomProcessingUnit};
 use log::info;
 use ucode_compiler::utils::SequenceWord;
-use ucode_compiler::utils::SequenceWordSync::SYNCFULL;
 use uefi::{entry, print, println, Status};
 
 mod patch {
@@ -52,8 +51,7 @@ unsafe fn main() -> Status {
         }
 
         let seqw = SequenceWord::new()
-            .set_goto(2, i)
-            .set_sync(1, SYNCFULL)
+            .set_goto(0, i)
             .assemble();
         let calculation = call_custom_ucode_function(patch::LABEL_FUNC_TEST, [i, 0, 0]).rax;
 

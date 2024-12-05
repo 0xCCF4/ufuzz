@@ -74,7 +74,7 @@ impl AsRef<CompilerOptions> for CompilerOptions {
     }
 }
 
-fn run_rustfmt<P: AsRef<Path>>(path: P) {
+pub fn run_rustfmt<P: AsRef<Path>>(path: P) {
     let _ = Command::new("rustfmt")
         .arg(path.as_ref())
         .spawn()
