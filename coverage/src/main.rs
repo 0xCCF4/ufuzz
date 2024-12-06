@@ -66,7 +66,6 @@ unsafe fn main() -> Status {
     harness.init();
 
     for chunk in (0..0x7c00)
-        .into_iter()
         .filter(|i| (i % 2) == 0 && (i % 4) < 3)
         .filter(|address| filter_blacklisted_instruction(*address))
         .chunks(hooks as usize)
@@ -76,7 +75,7 @@ unsafe fn main() -> Status {
             .map(|i| UCInstructionAddress::from_const(i))
             .collect_vec();
 
-        if addresses.len() == 0 {
+        if addresses.is_empty() {
             break;
         }
 

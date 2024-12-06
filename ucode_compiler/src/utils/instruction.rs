@@ -1,6 +1,6 @@
+use crate::utils::even_odd_parity_u64;
 use crate::utils::opcodes::Opcode;
 use num_traits::FromPrimitive;
-use crate::utils::even_odd_parity_u64;
 
 pub struct Instruction {
     instruction: u64,
@@ -18,7 +18,8 @@ impl Instruction {
     }
 
     pub fn opcode(&self) -> Opcode {
-        Opcode::from_u16(self.opcode_raw()).expect("Since OpcodeEnum contains all possible values, this should never fail")
+        Opcode::from_u16(self.opcode_raw())
+            .expect("Since OpcodeEnum contains all possible values, this should never fail")
     }
 
     pub fn assemble_no_crc(&self) -> u64 {

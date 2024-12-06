@@ -1,7 +1,11 @@
+use core::fmt::{Display};
+use crate::utils::even_odd_parity_u32;
 use data_types::addresses::{Address, UCInstructionAddress};
 use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
-use crate::utils::even_odd_parity_u32;
+
+use alloc::vec::Vec;
+use alloc::format;
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, FromPrimitive)]
 #[allow(non_camel_case_types)] // these are the names
@@ -162,14 +166,12 @@ impl SequenceWord {
             .map(|value| (value.apply_to_index.into(), value.value as u32))
             .unwrap_or((0x0u32, 0x0u32));
 
-        let seqw = (sync_ctrl << 25)
+        (sync_ctrl << 25)
             | (sync_uidx << 23)
             | ((tetrad_address & 0x7fff) << 8)
             | (tetrad_uidx << 6)
             | (uop_ctrl << 2)
-            | uop_uidx;
-
-        seqw
+            | uop_uidx
     }
 
     pub fn assemble(&self) -> u32 {
@@ -189,7 +191,7 @@ impl SequenceWord {
 
     fn check_crc(seqw: u32) -> DisassembleResult<()> {
         let set_crc = (seqw >> 28) & 0b11;
-        let sequence_word = seqw & Self::MASK;
+        let sequence_word = seqw & (Self::MASK >> 2);
         let expected_crc = even_odd_parity_u32(sequence_word);
 
         if set_crc == expected_crc {
@@ -237,10 +239,8 @@ impl SequenceWord {
         } else {
             Some(SequenceWordPart {
                 apply_to_index: sync_uidx as u8,
-                value: SequenceWordSync::from_u32(sync_ctrl).map_or(
-                    Err(DisassembleError::InvalidSyncValue(sync_ctrl)),
-                    DisassembleResult::Ok,
-                )?,
+                value: SequenceWordSync::from_u32(sync_ctrl)
+                    .ok_or(DisassembleError::InvalidSyncValue(sync_ctrl))?,
             })
         };
 
@@ -253,10 +253,8 @@ impl SequenceWord {
         } else {
             Some(SequenceWordPart {
                 apply_to_index: uop_uidx as u8,
-                value: SequenceWordControl::from_u32(uop_ctrl).map_or(
-                    Err(DisassembleError::InvalidControlValue(uop_ctrl)),
-                    DisassembleResult::Ok,
-                )?,
+                value: SequenceWordControl::from_u32(uop_ctrl)
+                    .ok_or(DisassembleError::InvalidControlValue(uop_ctrl))?,
             })
         };
 
@@ -268,8 +266,27 @@ impl SequenceWord {
     }
 }
 
+impl Display for SequenceWord {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut text = [Vec::new(), Vec::new(), Vec::new()];
+        if let Some(control) = &self.control {
+            text[control.apply_to_index as usize].push(format!("{:?}", control.value));
+        }
+        if let Some(sync) = &self.sync {
+            text[sync.apply_to_index as usize].push(format!("{:?}", sync.value));
+        }
+        if let Some(goto) = &self.goto {
+            text[goto.apply_to_index as usize].push(format!("GOTO {:?}", goto.value));
+        }
+
+        write!(f, "SEQW [")?;
+        write!(f, "{}", text.map(|v| v.join(" ")).join(", "))?;
+        write!(f, "]")
+    }
+}
+
 pub type DisassembleResult<T> = Result<T, DisassembleError>;
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum DisassembleError {
     InvalidLength(u32),
     InvalidCRC(u32),
@@ -356,5 +373,20 @@ mod test {
                 seqw, asm
             );
         }
+    }
+
+    #[test]
+    fn test_seq_manual() -> Result<(), DisassembleError> {
+        let input = 0x31856900;
+
+        let word = SequenceWord::disassemble(input)?;
+
+        let output = word.assemble();
+
+        assert_eq!(input, output);
+
+        panic!("{}", word);
+
+        Ok(())
     }
 }

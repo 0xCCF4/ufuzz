@@ -497,13 +497,12 @@ pub fn transform_h_patch_to_rs_patch<P: AsRef<Path>, Q: AsRef<Path>>(
     let mut sorted_labels_by_size = labels
         .iter()
         .filter_map(|(name, address, _)| {
-            if let Some(other) = labels.iter().find(|(other_name, _, _)| {
-                format!("{name}_end").to_lowercase() == other_name.to_lowercase()
-            }) {
-                Some((name, address, other.1.to_string()))
-            } else {
-                None
-            }
+            labels
+                .iter()
+                .find(|(other_name, _, _)| {
+                    format!("{name}_end").to_lowercase() == other_name.to_lowercase()
+                })
+                .map(|other| (name, address, other.1.to_string()))
         })
         .map(|(name, address, other_address)| {
             (

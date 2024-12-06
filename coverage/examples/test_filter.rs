@@ -83,7 +83,7 @@ unsafe fn main() -> Status {
 
     let mut next_address = 0;
     if last_ok > 0 {
-        println!("Last ok address: {:05x}", last_ok);
+        println!("Last ok address: {:04x}", last_ok);
         if let Err(e) = write_blacklisted(last_ok + 1) {
             info!("Failed to write blacklisted address: {:?}", e);
             return Status::ABORTED;
@@ -101,10 +101,10 @@ unsafe fn main() -> Status {
 
     println!("Blacklisted addresses:");
     for address in blacklisted.iter() {
-        println!(" - {:05x}", address);
+        println!(" - {:04x}", address);
     }
 
-    println!("Next address to test: {:05x}", next_address);
+    println!("Next address to test: {:04x}", next_address);
 
     if next_address >= 0x7c00 {
         info!("No more addresses to test");
@@ -129,8 +129,8 @@ unsafe fn main() -> Status {
             continue;
         }
 
-        if !harness.is_hookable(addresses) {
-            println!("Not hookable");
+        if let Err(err) = harness.is_hookable(addresses) {
+            println!("Not hookable: {err:?}");
             if let Err(e) = write_ok(chunk) {
                 println!("Failed to write ok: {:?}", e);
                 return Status::ABORTED;
@@ -159,7 +159,7 @@ unsafe fn main() -> Status {
             (),
         ) {
             println!("Failed to execute harness: {:?}", e);
-            return Status::ABORTED;
+            continue;
         }
 
         if let Err(e) = write_ok(chunk) {
@@ -244,7 +244,7 @@ fn write_ok(address: usize) -> uefi::Result<()> {
         .ok_or_else(|| uefi::Error::from(uefi::Status::UNSUPPORTED))?;
 
     regular_file
-        .write(format!("{:05x}\n", address).as_bytes())
+        .write(format!("{:04x}\n", address).as_bytes())
         .map_err(|_| uefi::Error::from(uefi::Status::WARN_WRITE_FAILURE))?;
 
     regular_file.flush()?;
@@ -292,7 +292,7 @@ fn write_blacklisted(new_address: usize) -> uefi::Result<()> {
         }
     }
 
-    data.push_str(format!("{:05x}\n", new_address).as_str());
+    data.push_str(format!("{:04x}\n", new_address).as_str());
 
     regular_file.set_position(0)?;
 

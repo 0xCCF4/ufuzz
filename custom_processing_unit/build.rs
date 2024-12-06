@@ -143,13 +143,14 @@ fn generate_ms_array_file(arrays: &Vec<Vec<u64>>) -> String {
     let mut result = "".to_string();
 
     for (i, (comment, content)) in descriptions.iter().zip(arrays).enumerate() {
+        #[allow(clippy::manual_range_patterns)]
         let data_type = match i {
             1 | 2 | 3 => "u32",
             0 | 4 => "u64",
             _ => "u64",
         };
 
-        result.push_str(*comment);
+        result.push_str(comment);
         result.push_str(
             format!(
                 "pub const MS_ARRAY_{i}: [{data_type}; {}] = [\n",
@@ -200,7 +201,6 @@ fn parse_rom_file<A: AsRef<Path>>(file: A) -> Vec<u64> {
                 None
             }
         })
-        .map(|v| v.into_iter())
-        .flatten()
+        .flat_map(|v| v.into_iter())
         .collect::<Vec<u64>>()
 }

@@ -115,6 +115,7 @@ fn generate_ucode_files<A: AsRef<Path>>(
     generate_exits(path.as_ref(), interface);
 }
 
+#[allow(clippy::vec_init_then_push)]
 fn generate_interface_definitions<A: AsRef<Path>>(
     path: A,
     pass1data: Option<Stage2Pass>,
