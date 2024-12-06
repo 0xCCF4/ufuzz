@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::Path;
 use std::process::Command;
+use itertools::Itertools;
 
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
@@ -29,7 +30,7 @@ fn generate_opcode_file<A: AsRef<Path>, B: AsRef<Path>>(opcodes: A, target_file:
             continue;
         }
 
-        let split = line.split(':').map(|v| v.trim()).collect::<Vec<&str>>();
+        let split = line.split(':').map(|v| v.trim()).collect_vec();
         assert!(
             split.len() == 2 || split.len() == 3,
             "{:?} is not a valid opcode line",
@@ -55,17 +56,37 @@ fn generate_opcode_file<A: AsRef<Path>, B: AsRef<Path>>(opcodes: A, target_file:
         definitions.push((mnemonic_duped, opcode, comment));
     }
 
+    let unknown_opcodes = (0..(1 << 13)-1).filter(|op| !definitions.iter().any(|(_, o, _)| o == op)).collect_vec();
+    for op in unknown_opcodes {
+        definitions.push((format!("UNKNOWN_{:03x}", op), op, Some("This operand mnemonic is not known")));
+    }
+
     result.push_str("use num_derive::FromPrimitive;\n");
 
     result.push_str("#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, FromPrimitive)]\n");
     result.push_str("#[allow(non_camel_case_types)]\n");
-    result.push_str("pub enum Opcodes {\n");
-    for (mm, op, comment) in definitions {
+    result.push_str("pub enum Opcode {\n");
+    for (mm, op, comment) in definitions.iter() {
         if let Some(comment) = comment {
             result.push_str(format!("/// {}\n", comment).as_str());
         }
         result.push_str(format!("{mm} = 0x{op:03x},\n").as_str());
     }
+    result.push_str("}\n");
+
+    result.push_str("impl Opcode {\n");
+    fn impl_prefix_func(prefix: &str, entries: &[(String, u16, Option<&str>)], result: &mut String) {
+        let match_text = entries.iter().filter(|(mm, _, _)| mm == prefix || mm.starts_with(format!("{prefix}_").as_str())).map(|(mm, _, _)| format!("Self::{}", mm)).collect_vec().join(" | ");
+        result.push_str(format!("#[allow(non_snake_case)]\npub const fn is_group_{prefix}(&self) -> bool {{ matches!(self, {match_text}) }}\n").as_str());
+    }
+    definitions.iter().map(|(mm, _, _)| {
+        let split = mm.split('_').collect_vec();
+        let mut result = Vec::new();
+        for end in 0..split.len() {
+            result.push(split.iter().take(end).cloned().collect_vec().join("_"));
+        }
+        result
+    }).flatten().filter(|prefix| !prefix.is_empty()).unique().for_each(|prefix| impl_prefix_func(&prefix, &definitions, &mut result));
     result.push_str("}\n");
 
     fs::write(&target_file, result).expect("Failed to write opcode file");

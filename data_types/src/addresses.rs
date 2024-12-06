@@ -143,6 +143,27 @@ impl UCInstructionAddress {
         self.0 % 2 == 0 && self.0 < 0x7c00 // todo check if <0x7c00 is necessary
     }
 
+    /// Returns the triad base address. Essentially stripping the last two bits.
+    pub const fn triad_base(&self) -> UCInstructionAddress {
+        UCInstructionAddress::from_const(self.0 & !3)
+    }
+
+    pub const fn is_even(&self) -> bool {
+        self.0 % 2 == 0
+    }
+
+    pub const fn is_odd(&self) -> bool {
+        self.0 % 2 == 1
+    }
+
+    pub const fn triad_offset(&self) -> u8 {
+        (self.0 & 3) as u8
+    }
+
+    pub const fn is_offset_by(&self, offset: u8) -> bool {
+        self.triad_offset() == offset
+    }
+
     pub const ZERO: UCInstructionAddress = UCInstructionAddress::from_const(0);
     pub const MIN: UCInstructionAddress = UCInstructionAddress::ZERO;
     pub const MSRAM_START: UCInstructionAddress = UCInstructionAddress::from_const(0x7c00);

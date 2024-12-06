@@ -1,7 +1,7 @@
-use crate::utils::even_odd_parity;
 use data_types::addresses::{Address, UCInstructionAddress};
 use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
+use crate::utils::even_odd_parity_u32;
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, FromPrimitive)]
 #[allow(non_camel_case_types)] // these are the names
@@ -38,8 +38,8 @@ pub enum SequenceWordSync {
 
 #[derive(Clone, Debug)]
 pub struct SequenceWordPart<T> {
-    apply_to_index: u8,
-    value: T,
+    pub apply_to_index: u8,
+    pub value: T,
 }
 
 /// A sequence word is a modifier applied to a triad of three microinstructions.
@@ -68,7 +68,7 @@ pub struct SequenceWordPart<T> {
 /// # Open questions
 /// - How does an `eflow` value like URET/UEND behaves when also a jump is scheduled at other indexes?
 ///
-/// Sources:
+/// # Sources
 ///  - https://github.com/chip-red-pill/uCodeDisasm/
 ///  - https://github.com/pietroborrello/CustomProcessingUnit
 ///  - https://libmicro.dev/structure.html#sequence-word
@@ -174,7 +174,7 @@ impl SequenceWord {
 
     pub fn assemble(&self) -> u32 {
         let seqw = self.assemble_no_crc();
-        seqw | even_odd_parity(seqw) << 28
+        seqw | even_odd_parity_u32(seqw) << 28
     }
 
     const MASK: u32 = 0x3fffffff;
@@ -190,7 +190,7 @@ impl SequenceWord {
     fn check_crc(seqw: u32) -> DisassembleResult<()> {
         let set_crc = (seqw >> 28) & 0b11;
         let sequence_word = seqw & Self::MASK;
-        let expected_crc = even_odd_parity(sequence_word);
+        let expected_crc = even_odd_parity_u32(sequence_word);
 
         if set_crc == expected_crc {
             Ok(())

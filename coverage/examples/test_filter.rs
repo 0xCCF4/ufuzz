@@ -21,7 +21,7 @@ use uefi::{print, println, CString16};
 #[entry]
 unsafe fn main() -> Status {
     uefi::helpers::init().unwrap();
-    info!("Hello world!");
+    println!("Hello world! v2");
 
     let mut cpu = match CustomProcessingUnit::new() {
         Ok(cpu) => cpu,
@@ -122,6 +122,15 @@ unsafe fn main() -> Status {
                 println!("Failed to write ok: {:?}", e);
                 return Status::ABORTED;
             }
+            if let Err(e) = write_ok(chunk) {
+                println!("Failed to write ok: {:?}", e);
+                return Status::ABORTED;
+            }
+            continue;
+        }
+
+        if !harness.is_hookable(addresses) {
+            println!("Not hookable");
             if let Err(e) = write_ok(chunk) {
                 println!("Failed to write ok: {:?}", e);
                 return Status::ABORTED;

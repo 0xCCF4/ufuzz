@@ -131,7 +131,7 @@ impl CustomProcessingUnit {
         drop(self)
     }
 
-    pub fn rom(&self) -> &'static RomDump {
+    pub const fn rom(&self) -> &'static RomDump<'static, 'static> {
         match self.current_glm_version {
             GLM_OLD => &dump::ROM_cpu_000506C9,
             GLM_NEW => &dump::ROM_cpu_000506CA,

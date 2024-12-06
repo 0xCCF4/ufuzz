@@ -2,12 +2,15 @@ use crate::coverage_collector;
 use crate::interface::safe::ComInterface;
 #[cfg(feature = "no_std")]
 use alloc::vec::Vec;
+use itertools::Itertools;
 use custom_processing_unit::{
     apply_patch, call_custom_ucode_function, disable_all_hooks, enable_hooks, lmfence,
     restore_hooks, CustomProcessingUnit,
 };
 use data_types::addresses::{Address, UCInstructionAddress};
-use ucode_compiler::utils::sequence_word::SequenceWord;
+use ucode_compiler::utils::instruction::Instruction;
+use ucode_compiler::utils::sequence_word::{DisassembleError, SequenceWord};
+use crate::interface_definition::{CoverageEntry, InstructionTableEntry};
 
 const COVERAGE_ENTRIES: usize = UCInstructionAddress::MAX.to_const();
 
@@ -16,11 +19,12 @@ pub enum CoverageError {
     TooManyHooks,
     SetupFailed,
     AddressNotHookable(UCInstructionAddress),
+    SequenceWordDissembleError(DisassembleError),
 }
 
 pub struct CoverageHarness<'a, 'b, 'c> {
     interface: &'a mut ComInterface<'b>,
-    coverage: [u8; COVERAGE_ENTRIES], // every forth entry, beginning at 3 is zero
+    coverage: [CoverageEntry; COVERAGE_ENTRIES], // every forth entry, beginning at 3 is zero
     previous_hook_settings: usize,
     custom_processing_unit: &'c CustomProcessingUnit,
 }
@@ -56,7 +60,24 @@ impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
             return Err(CoverageError::TooManyHooks);
         }
 
+        let mut instructions = Vec::with_capacity(hooks.len());
+        for hook in hooks {
+            if !self.is_hookable(*hook) {
+                return Err(CoverageError::AddressNotHookable(*hook));
+            }
+
+            let entry: InstructionTableEntry = [
+                self.custom_processing_unit.rom().get_instruction(hook.triad_base()+0).expect("Since is_hookable is true. Address is bound to be in ROM"),
+                self.custom_processing_unit.rom().get_instruction(hook.triad_base()+1).expect("Since is_hookable is true. Address is bound to be in ROM"),
+                self.custom_processing_unit.rom().get_instruction(hook.triad_base()+2).expect("Since is_hookable is true. Address is bound to be in ROM"),
+                self.custom_processing_unit.rom().get_sequence_word(hook.triad_base()).expect("Since is_hookable is true. Address is bound to be in ROM") as u64,
+            ];
+
+            instructions.push(self.modify_triad_for_hooking(*hook, entry)?.ok_or(CoverageError::AddressNotHookable(*hook))?);
+        }
+
         self.interface.write_jump_table_all(hooks);
+        self.interface.write_instruction_table_all(instructions);
 
         let result =
             call_custom_ucode_function(coverage_collector::LABEL_FUNC_SETUP, [hooks.len(), 0, 0]);
@@ -71,35 +92,10 @@ impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
     #[inline(always)]
     fn post_execution(&mut self, hooks: &[UCInstructionAddress]) {
         for (index, address) in hooks.iter().enumerate() {
-            let covered = self.interface.read_coverage_table(index) > 0;
-            if covered {
-                self.coverage[address.address()] += 1;
-            }
+            let covered = self.interface.read_coverage_table(index);
+            self.coverage[address.address()] += covered;
         }
     }
-
-    /*
-    pub fn execute_multiple_times<T, F: FnMut(usize, &mut T)>(
-        &mut self,
-        hooks: &[UCInstructionAddress],
-        mut func: F,
-        param: &mut T,
-        number_of_times: usize,
-    ) -> Result<(), &'static str> {
-        self.pre_execution(hooks)?;
-        enable_hooks();
-
-        lmfence();
-        for i in 0..number_of_times {
-            core::hint::black_box(&mut func)(i, param);
-            lmfence();
-        }
-
-        disable_all_hooks();
-        self.post_execution(hooks);
-
-        Ok(())
-    }*/
 
     pub fn execute<T, R, F: FnOnce(T) -> R>(
         &mut self,
@@ -124,7 +120,7 @@ impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
         self.coverage[address.as_ref().address()] > 0
     }
 
-    pub fn get_coverage(&self) -> &[u8; COVERAGE_ENTRIES] {
+    pub fn get_coverage(&self) -> &[CoverageEntry; COVERAGE_ENTRIES] {
         &self.coverage
     }
 
@@ -137,15 +133,52 @@ impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
             return false;
         }
 
-        true // todo
+        let instruction = match self.custom_processing_unit.rom().get_instruction(address) {
+            Some(instruction) => Instruction::from(instruction),
+            None => return false,
+        };
+
+        let opcode = instruction.opcode();
+
+        if opcode.is_group_TESTUSTATE() || opcode.is_group_SUBR() {
+            return false;
+        }
+
+        true
     }
 
-    fn compute_modified_sequence_word(
+    fn modify_triad_for_hooking(
         &self,
         hooked_address: UCInstructionAddress,
-        sequence_word: SequenceWord,
-    ) -> Result<SequenceWord, CoverageError> {
-        todo!()
+        triad: InstructionTableEntry,
+    ) -> Result<Option<InstructionTableEntry>, CoverageError> {
+        if !self.is_hookable(hooked_address) {
+            return Err(CoverageError::AddressNotHookable(hooked_address));
+        }
+
+        let mut sequence_word = SequenceWord::disassemble_no_crc_check(triad[3] as u32).map_err(CoverageError::SequenceWordDissembleError)?;
+        let instructions = triad.into_iter().map(Instruction::disassemble).map(|i| i.assemble()).collect_vec();
+
+        match sequence_word.goto().clone() {
+            None => {
+                sequence_word.set_goto(hooked_address.triad_offset(), hooked_address + 1);
+            },
+            Some(goto) => {
+                if goto.apply_to_index == hooked_address.triad_offset() {
+                    // since we are jumping anyway -> no modification needed
+                } else {
+                    // jump is later or previously in triad -> modify it
+                    sequence_word.set_goto(hooked_address.triad_offset(), hooked_address + 1);
+                }
+            }
+        }
+
+        Ok(Some([
+            instructions[0],
+            instructions[1],
+            instructions[2],
+            sequence_word.assemble() as u64,
+        ]))
     }
 }
 

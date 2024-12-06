@@ -1335,6 +1335,7 @@ dependencies = [
  "custom_processing_unit",
  "data_types",
  "error-chain",
+ "itertools",
  "num-derive",
  "num-traits",
  "regex",
