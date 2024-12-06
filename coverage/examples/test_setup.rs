@@ -105,6 +105,7 @@ unsafe fn main() -> Status {
         interface: &mut ComInterface,
         addresses: &[UCInstructionAddress],
         instructions: &[InstructionTableEntry],
+        printing: bool,
     ) {
         assert_eq!(addresses.len(), instructions.len());
         interface.write_jump_table_all(addresses);
@@ -115,7 +116,9 @@ unsafe fn main() -> Status {
             [addresses.len(), 0, 0],
         );
 
-        println!("Setup: {:x?}", result);
+        if printing {
+            println!("Setup: {:x?}", result);
+        }
 
         if result.rax != 0x664200006642 {
             println!("Failed to setup");
@@ -149,7 +152,7 @@ unsafe fn main() -> Status {
         [0x61, 0x62, 0x63, 0x64],
     ];
 
-    setup_hooks(&mut interface, &addr, &instructions);
+    setup_hooks(&mut interface, &addr, &instructions, true);
 
     println!(" ---- SETUP ---- ");
     print_status();
@@ -164,6 +167,32 @@ unsafe fn main() -> Status {
             println!("Found instruction at {}", i);
         }
     } */
+
+    println!(" ---- SPEEDTEST ---- ");
+
+    let before = match uefi::runtime::get_time() {
+        Ok(time) => time,
+        Err(e) => {
+            println!("Failed to get time: {:?}", e);
+            return Status::ABORTED;
+        }
+    };
+    let count = 1e6 as usize;
+    for _ in 0..count {
+        core::hint::black_box(setup_hooks)(&mut interface, &addr, &instructions, false);
+    }
+    let after = match uefi::runtime::get_time() {
+        Ok(time) => time,
+        Err(e) => {
+            println!("Failed to get time: {:?}", e);
+            return Status::ABORTED;
+        }
+    };
+
+    let difference = (after.minute() - before.minute()) as usize * 60e9 as usize + (after.second() - before.second()) as usize * 1e9 as usize + (after.nanosecond() - before.nanosecond()) as usize;
+
+    println!("For {} iterations: {}ns", count, difference);
+    println!(" {}ns per iteration", difference as f64 / count as f64);
 
     println!("Goodbye!");
 

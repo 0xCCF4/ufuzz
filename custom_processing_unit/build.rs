@@ -32,7 +32,7 @@ fn create_cpu_files() {
 
     let mut module_file_contents = String::new();
     module_file_contents.push_str(AUTOGEN);
-    module_file_contents.push_str("\n");
+    module_file_contents.push_str("\npub use crate::RomDump;\n");
 
     for cpu_arch in model_folder.read_dir().expect("models directory does not exist") {
         let cpu_arch = cpu_arch.expect("Failed to read directory entry").path();
@@ -52,6 +52,8 @@ fn create_cpu_files() {
             run_rustfmt(&file_path);
 
             module_file_contents.push_str(&format!("#[allow(non_snake_case)]\npub mod {};\n", cpu_model_name));
+
+            module_file_contents.push_str(format!("#[allow(non_snake_case, non_upper_case_globals)] pub const ROM_{cpu_model_name}: RomDump<'static, 'static> = RomDump::new(&{cpu_model_name}::ROM_INSTRUCTION, &{cpu_model_name}::ROM_SEQUENCE);\n").as_str());
         }
     }
 
@@ -104,7 +106,14 @@ fn read_arrays<A: AsRef<Path>>(parent_folder: A) -> Vec<Vec<u64>> {
     for i in 0..5 {
         let file = parent_folder.as_ref().join(format!("ms_array{}.txt", i));
         println!("cargo:rerun-if-changed={}", file.to_string_lossy());
-        let array = parse_rom_file(file);
+        let mut array = parse_rom_file(file);
+
+        if i == 0 { // instructions ROM
+            array.truncate(0x7c00)
+        } else if i == 1 { // sequence words ROM
+            array.truncate(0x7c00 / 4)
+        }
+
         result.push(array);
     }
 

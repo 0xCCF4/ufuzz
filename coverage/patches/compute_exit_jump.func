@@ -2,9 +2,7 @@
 # ARG1: {address} jump address
 # ARG2: {buf} temporary value
 # ARG3: {tmp} temporary value
-# computes SEQW { NOP; SYNCFULL; GOTO {address} }
-
-# todo SEQW { GOTO {address}; NOP; NOP }
+# computes SEQW { GOTO {address}; NOP; NOP }
 
 {result} := ZEROEXT_DSZ32(0x0) # output
 {buf} := ZEROEXT_DSZ32({address})
