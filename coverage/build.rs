@@ -4,8 +4,8 @@ use crate::build::ucode_scripts;
 #[path = "src/interface_definition.rs"]
 mod interface_definition;
 mod build {
-    pub mod ucode_scripts;
     pub mod msrom;
+    pub mod ucode_scripts;
 }
 
 fn main() {
@@ -20,6 +20,3 @@ fn main() {
         panic!("Failed to compile ucode scripts: {:?}", err);
     }
 }
-
-
-

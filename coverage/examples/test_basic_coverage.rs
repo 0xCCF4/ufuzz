@@ -22,7 +22,7 @@ unsafe fn main() -> Status {
     uefi::helpers::init().unwrap();
     info!("Hello world!");
 
-    let cpu = match CustomProcessingUnit::new() {
+    let mut cpu = match CustomProcessingUnit::new() {
         Ok(cpu) => cpu,
         Err(e) => {
             info!("Failed to initiate program {:?}", e);
@@ -67,7 +67,7 @@ unsafe fn main() -> Status {
 
     interface.reset_coverage();
 
-    let mut harness = CoverageHarness::new(&mut interface);
+    let mut harness = CoverageHarness::new(&mut interface, &cpu);
     harness.init();
 
     let mut count = 0;
@@ -131,6 +131,8 @@ unsafe fn main() -> Status {
         println!("Failed to write result file: {:?}", err);
         return Status::ABORTED;
     };
+
+    drop(harness);
 
     if let Err(err) = cpu.zero_hooks() {
         println!("Failed to zero hooks: {:?}", err);

@@ -11,7 +11,6 @@ use data_types::addresses::{Address, UCInstructionAddress};
 mod helpers;
 pub use helpers::*;
 pub mod dump;
-pub mod opcodes;
 pub mod patches;
 
 #[derive(Debug)]
@@ -67,14 +66,14 @@ impl CustomProcessingUnit {
         }
     }
 
-    pub fn init(&self) -> Result<()> {
+    pub fn init(&mut self) -> Result<()> {
         activate_udebug_insts();
         self.zero_hooks()?;
         enable_hooks();
         Ok(())
     }
 
-    pub fn apply_existing_patches(&self) {
+    pub fn apply_existing_patches(&mut self) {
         if self.current_glm_version == GLM_OLD {
             // Move the patch at U7c5c to U7dfc, since it seems important for the CPU
             const EXISTING_PATCH: [UcodePatchEntry; 1] = [
@@ -85,7 +84,7 @@ impl CustomProcessingUnit {
         }
     }
 
-    pub fn apply_zero_hook_func(&self) -> Result<UCInstructionAddress> {
+    pub fn apply_zero_hook_func(&mut self) -> Result<UCInstructionAddress> {
         if self.current_glm_version == GLM_OLD {
             self.apply_existing_patches();
 
@@ -110,7 +109,7 @@ impl CustomProcessingUnit {
     }
 
     /// Zeros all hook registers.
-    pub fn zero_hooks_func(&self, zero_hooks_func: UCInstructionAddress) -> Result<()> {
+    pub fn zero_hooks_func(&mut self, zero_hooks_func: UCInstructionAddress) -> Result<()> {
         let result = call_custom_ucode_function(zero_hooks_func, [0; 3]);
 
         if result.rax != 0x0000133700001337 && cfg!(not(feature = "emulation")) {
@@ -123,8 +122,9 @@ impl CustomProcessingUnit {
         Ok(())
     }
 
-    pub fn zero_hooks(&self) -> Result<()> {
-        self.zero_hooks_func(self.apply_zero_hook_func()?)
+    pub fn zero_hooks(&mut self) -> Result<()> {
+        let zero_func = self.apply_zero_hook_func()?;
+        self.zero_hooks_func(zero_func)
     }
 
     pub fn cleanup(self) {
@@ -153,11 +153,11 @@ impl Drop for CustomProcessingUnit {
 
 pub struct RomDump<'a, 'b> {
     instructions: &'a [u64; 0x7c00],
-    sequences: &'b [u64; 0x7c00 / 4],
+    sequences: &'b [u32; 0x7c00 / 4],
 }
 
 impl<'a, 'b> RomDump<'a, 'b> {
-    pub const fn new(instructions: &'a [u64; 0x7c00], sequences: &'b [u64; 0x7c00 / 4]) -> Self {
+    pub const fn new(instructions: &'a [u64; 0x7c00], sequences: &'b [u32; 0x7c00 / 4]) -> Self {
         RomDump {
             instructions,
             sequences,
@@ -168,7 +168,7 @@ impl<'a, 'b> RomDump<'a, 'b> {
         self.instructions
     }
 
-    pub fn sequence_words(&self) -> &'b [u64; 0x7c00 / 4] {
+    pub fn sequence_words(&self) -> &'b [u32; 0x7c00 / 4] {
         self.sequences
     }
 
@@ -176,7 +176,7 @@ impl<'a, 'b> RomDump<'a, 'b> {
         self.instructions.get(address.address()).copied()
     }
 
-    pub fn get_sequence_word(&self, address: UCInstructionAddress) -> Option<u64> {
+    pub fn get_sequence_word(&self, address: UCInstructionAddress) -> Option<u32> {
         self.sequences.get(address.address() / 4).copied()
     }
 }

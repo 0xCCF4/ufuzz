@@ -5,7 +5,8 @@
 
 use custom_processing_unit::{apply_patch, call_custom_ucode_function, CustomProcessingUnit};
 use log::info;
-use ucode_compiler::utils::SequenceWord;
+use ucode_compiler::utils::sequence_word;
+use ucode_compiler::utils::sequence_word::SequenceWord;
 use uefi::{entry, print, println, Status};
 
 mod patch {
@@ -24,7 +25,7 @@ mod patch {
 unsafe fn main() -> Status {
     uefi::helpers::init().unwrap();
 
-    let cpu = match CustomProcessingUnit::new() {
+    let mut cpu = match CustomProcessingUnit::new() {
         Ok(cpu) => cpu,
         Err(e) => {
             info!("Failed to initiate program {:?}", e);
@@ -50,9 +51,7 @@ unsafe fn main() -> Status {
             print!("\r[{:04x}] ", i);
         }
 
-        let seqw = SequenceWord::new()
-            .set_goto(0, i)
-            .assemble();
+        let seqw = SequenceWord::new().set_goto(0, i).assemble();
         let calculation = call_custom_ucode_function(patch::LABEL_FUNC_TEST, [i, 0, 0]).rax;
 
         if diff == 0 {

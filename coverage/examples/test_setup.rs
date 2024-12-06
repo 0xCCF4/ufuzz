@@ -22,7 +22,7 @@ unsafe fn main() -> Status {
     uefi::helpers::init().unwrap();
     info!("Hello world!");
 
-    let cpu = match CustomProcessingUnit::new() {
+    let mut cpu = match CustomProcessingUnit::new() {
         Ok(cpu) => cpu,
         Err(e) => {
             info!("Failed to initiate program {:?}", e);
@@ -189,7 +189,9 @@ unsafe fn main() -> Status {
         }
     };
 
-    let difference = (after.minute() - before.minute()) as usize * 60e9 as usize + (after.second() - before.second()) as usize * 1e9 as usize + (after.nanosecond() - before.nanosecond()) as usize;
+    let difference = (after.minute() - before.minute()) as usize * 60e9 as usize
+        + (after.second() - before.second()) as usize * 1e9 as usize
+        + (after.nanosecond() - before.nanosecond()) as usize;
 
     println!("For {} iterations: {}ns", count, difference);
     println!(" {}ns per iteration", difference as f64 / count as f64);

@@ -13,3 +13,4 @@ data_types = { path = "../data_types" }
 
 [build-dependencies]
 ucode_compiler = { path = "../ucode_compiler", features = ["uasm"] }
+

@@ -57,7 +57,7 @@ mod patch {
 unsafe fn main() -> Status {
     uefi::helpers::init().unwrap();
 
-    let cpu = match CustomProcessingUnit::new() {
+    let mut cpu = match CustomProcessingUnit::new() {
         Ok(cpu) => cpu,
         Err(e) => {
             info!("Failed to initiate program {:?}", e);

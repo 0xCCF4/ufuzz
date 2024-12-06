@@ -24,7 +24,7 @@ unsafe fn main() -> Status {
     uefi::helpers::init().unwrap();
     info!("Hello world!");
 
-    let cpu = match CustomProcessingUnit::new() {
+    let mut cpu = match CustomProcessingUnit::new() {
         Ok(cpu) => cpu,
         Err(e) => {
             info!("Failed to initiate program {:?}", e);
@@ -103,7 +103,7 @@ unsafe fn main() -> Status {
         println!();
     }
 
-    let mut harness = CoverageHarness::new(&mut interface);
+    let mut harness = CoverageHarness::new(&mut interface, &cpu);
     harness.init();
     harness.reset_coverage();
 

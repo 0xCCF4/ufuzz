@@ -1,7 +1,9 @@
+use crate::interface_definition;
+use crate::interface_definition::{
+    ComInterfaceDescription, CoverageEntry, InstructionTableEntry, JumpTableEntry,
+};
 use std::path::Path;
 use ucode_compiler::uasm::{CompilerOptions, AUTOGEN};
-use crate::interface_definition;
-use crate::interface_definition::{ComInterfaceDescription, CoverageEntry, InstructionTableEntry, JumpTableEntry};
 
 pub fn build_ucode_scripts() -> ucode_compiler::uasm::Result<()> {
     if !std::fs::exists("src/patches").expect("fs perm denied") {
@@ -272,7 +274,7 @@ STADSTGBUF_DSZ64_ASZ16_SC1([adr_stg_r10], , r10) !m2 # save original value of r1
 NOP
 "
             )
-                .as_str(),
+            .as_str(),
         )
     }
 
@@ -298,7 +300,7 @@ NOP
 NOP SEQW GOTO <exit_trap>
 "
             )
-                .as_str(),
+            .as_str(),
         )
     }
 
@@ -314,7 +316,7 @@ NOP
 NOP SEQW GOTO <exit_trap>
 "
             )
-                .as_str(),
+            .as_str(),
         )
     }
 

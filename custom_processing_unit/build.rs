@@ -1,5 +1,5 @@
+use std::fs;
 use std::path::{Path, PathBuf};
-use std::{fs};
 use ucode_compiler::uasm::{run_rustfmt, CompilerOptions, AUTOGEN};
 
 fn main() {
@@ -18,7 +18,6 @@ fn main() {
     }
 
     create_cpu_files();
-    generate_opcode_file("models/opcodes.txt", "src/opcodes.rs");
 }
 
 fn create_cpu_files() {
@@ -34,11 +33,18 @@ fn create_cpu_files() {
     module_file_contents.push_str(AUTOGEN);
     module_file_contents.push_str("\npub use crate::RomDump;\n");
 
-    for cpu_arch in model_folder.read_dir().expect("models directory does not exist") {
+    for cpu_arch in model_folder
+        .read_dir()
+        .expect("models directory does not exist")
+    {
         let cpu_arch = cpu_arch.expect("Failed to read directory entry").path();
 
         if cpu_arch.is_dir() {
-            let cpu_model = cpu_arch.file_name().expect("Failed to get file name").to_str().expect("Failed to convert to string");
+            let cpu_model = cpu_arch
+                .file_name()
+                .expect("Failed to get file name")
+                .to_str()
+                .expect("Failed to convert to string");
             let cpu_model_name = format!("cpu_{}", cpu_model);
 
             let arrays = read_arrays(&cpu_arch);
@@ -51,7 +57,10 @@ fn create_cpu_files() {
             fs::write(&file_path, file_content).expect("Failed to write file");
             run_rustfmt(&file_path);
 
-            module_file_contents.push_str(&format!("#[allow(non_snake_case)]\npub mod {};\n", cpu_model_name));
+            module_file_contents.push_str(&format!(
+                "#[allow(non_snake_case)]\npub mod {};\n",
+                cpu_model_name
+            ));
 
             module_file_contents.push_str(format!("#[allow(non_snake_case, non_upper_case_globals)] pub const ROM_{cpu_model_name}: RomDump<'static, 'static> = RomDump::new(&{cpu_model_name}::ROM_INSTRUCTION, &{cpu_model_name}::ROM_SEQUENCE);\n").as_str());
         }
@@ -108,9 +117,11 @@ fn read_arrays<A: AsRef<Path>>(parent_folder: A) -> Vec<Vec<u64>> {
         println!("cargo:rerun-if-changed={}", file.to_string_lossy());
         let mut array = parse_rom_file(file);
 
-        if i == 0 { // instructions ROM
+        if i == 0 {
+            // instructions ROM
             array.truncate(0x7c00)
-        } else if i == 1 { // sequence words ROM
+        } else if i == 1 {
+            // sequence words ROM
             array.truncate(0x7c00 / 4)
         }
 
@@ -132,13 +143,19 @@ fn generate_ms_array_file(arrays: &Vec<Vec<u64>>) -> String {
     let mut result = "".to_string();
 
     for (i, (comment, content)) in descriptions.iter().zip(arrays).enumerate() {
+        let data_type = match i {
+            1 | 2 | 3 => "u32",
+            0 | 4 => "u64",
+            _ => "u64",
+        };
+
         result.push_str(*comment);
         result.push_str(
             format!(
-                "pub const MS_ARRAY_{i}: [u64; {}] = [\n",
+                "pub const MS_ARRAY_{i}: [{data_type}; {}] = [\n",
                 content.len()
             )
-                .as_str(),
+            .as_str(),
         );
         for value in content {
             result.push_str(format!("    0x{:016x},\n", value).as_str());
@@ -186,41 +203,4 @@ fn parse_rom_file<A: AsRef<Path>>(file: A) -> Vec<u64> {
         .map(|v| v.into_iter())
         .flatten()
         .collect::<Vec<u64>>()
-}
-
-fn generate_opcode_file<A: AsRef<Path>, B: AsRef<Path>>(opcodes: A, target_file: B) {
-    let opcode_file = fs::read_to_string(&opcodes).expect("Failed to read opcodes file");
-    println!("cargo:rerun-if-changed={}", opcodes.as_ref().to_string_lossy());
-
-    let mut result = String::new();
-    result.push_str(AUTOGEN);
-    result.push_str("\n");
-
-    let mut already_found_mnemonics = Vec::new();
-
-    for line in opcode_file.lines() {
-        if line.trim().is_empty() {
-            continue;
-        }
-
-        let split = line.split(':').map(|v|v.trim()).collect::<Vec<&str>>();
-        assert_eq!(split.len(), 2, "{:?} is not a valid opcode line", split);
-
-        let (opcode, mnemonic) = (split[0], split[1]);
-        let opcode = u16::from_str_radix(opcode, 16).expect("Failed to parse opcode");
-
-        let mnemonic_duped = if already_found_mnemonics.contains(&mnemonic) {
-            let count = already_found_mnemonics.iter().filter(|&&m| m == mnemonic).count();
-            format!("{}_{}", mnemonic, count+1)
-        } else {
-            mnemonic.to_string()
-        };
-
-        already_found_mnemonics.push(mnemonic);
-
-        result.push_str(&format!("pub const {}: u16 = 0x{:03x};\n", mnemonic_duped, opcode));
-    }
-
-    fs::write(&target_file, result).expect("Failed to write opcode file");
-    run_rustfmt(target_file);
 }
