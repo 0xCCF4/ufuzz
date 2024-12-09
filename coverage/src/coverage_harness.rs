@@ -174,6 +174,10 @@ impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
     ) -> Result<InstructionTableEntry, NotHookableReason> {
         self.is_hookable(hooked_address)?;
 
+        if hooked_address.triad_offset() != 0 {
+            return Err(NotHookableReason::TodoIndexNotZero);
+        }
+
         let mut sequence_word = SequenceWord::disassemble_no_crc_check(triad[3] as u32)
             .map_err(NotHookableReason::ModificationFailedSequenceWord)?;
         let instructions = triad
@@ -184,7 +188,7 @@ impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
 
         match sequence_word.goto().clone() {
             None => {
-                sequence_word.set_goto(hooked_address.triad_offset(), hooked_address + 1);
+                sequence_word.set_goto(hooked_address.triad_offset(), hooked_address.next_address());
             }
             Some(goto) => {
                 if let Some(control) = sequence_word.control() {
@@ -192,10 +196,10 @@ impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
                         // both control and goto not allowed at same offset, see uasm.py
                         return Err(NotHookableReason::ControlOpPresent); // TODO
                     }
-                    return Err(NotHookableReason::Todo_ControlOp); // TODO
+                    return Err(NotHookableReason::TodoControlOp); // TODO
                 }
                 if sequence_word.sync().is_some() {
-                    return Err(NotHookableReason::Todo_SyncOp); // TODO
+                    return Err(NotHookableReason::TodoSyncOp); // TODO
                 }
 
                 //return Ok(None); // TODO
@@ -205,7 +209,7 @@ impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
                     // since we are jumping anyway -> no modification needed
                 } else {
                     // jump is later or previously in triad -> modify it
-                    sequence_word.set_goto(hooked_address.triad_offset(), hooked_address + 1);
+                    sequence_word.set_goto(hooked_address.triad_offset(), hooked_address.next_address());
                 }
             }
         }
@@ -242,6 +246,7 @@ pub enum NotHookableReason {
     ConditionalJump,
     ModificationFailedSequenceWord(DisassembleError),
     ControlOpPresent,
-    Todo_ControlOp,
-    Todo_SyncOp,
+    TodoControlOp,
+    TodoSyncOp,
+    TodoIndexNotZero,
 }

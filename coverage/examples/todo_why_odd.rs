@@ -81,15 +81,16 @@ unsafe fn main() -> Status {
 
     print!("Coverage: ");
     let x = harness.execute(&addresses, |_| {
-        //call_custom_ucode_function(UCInstructionAddress::from_const(0x429), [0,0,0])
-        rdrand()
+        // todo why is coverage reported?
+        call_custom_ucode_function(UCInstructionAddress::from_const(0x429), [0,0,0])
+        // rdrand()
     }, ());
     println!("{:x} : {:x?}", harness.get_coverage()[0x428], x);
 
     print!("Coverage: ");
     let x = harness.execute(&addresses, |_| {
-        (rdrand(), rdrand())
-        //(call_custom_ucode_function(UCInstructionAddress::from_const(0x429), [0,0,0]), call_custom_ucode_function(UCInstructionAddress::from_const(0x429), [0,0,0]))
+        //(rdrand(), rdrand())
+        (call_custom_ucode_function(UCInstructionAddress::from_const(0x429), [0,0,0]), call_custom_ucode_function(UCInstructionAddress::from_const(0x429), [0,0,0]))
     }, ());
     println!("{:x} : {:x?}", harness.get_coverage()[0x428], x);
 
@@ -138,6 +139,7 @@ fn print_status() {
     }
 }
 
+#[allow(dead_code)]
 fn rdrand() -> (bool, FunctionResult) {
     let mut result = FunctionResult::default();
     let flags: u8;

@@ -31,7 +31,7 @@ def main(cpuid):
 
         if uaddr in labels:
             print(f'{labels[uaddr]}:')
-        print(f'U{uaddr:04x}: {disasm_seqw_before}{disasm_uop} {disasm_seqw_after}')
+        print(f'U{uaddr:04x}: {uop:012x} {disasm_seqw_before}{disasm_uop} {disasm_seqw_after}')
 
 if __name__ == "__main__":
     main()

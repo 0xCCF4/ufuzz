@@ -18,9 +18,11 @@
 MOVETOCREG_DSZ64({tmp}, 0x6a1) !m2  # selector
 MOVETOCREG_DSZ64({addr}, 0x6a0) !m2 # addr
 
-{zero} := ZEROEXT_DSZ32(0x00000000)
+{tmp} := SHR_DSZ64({value}, 0x00000020)
 
 MOVETOCREG_DSZ64({value}, 0x6a4) !m2 # value
-MOVETOCREG_DSZ64({zero}, 0x6a5) !m2 # value high part
+MOVETOCREG_DSZ64({tmp}, 0x6a5) !m2 # value high part
+
+{zero} := ZEROEXT_DSZ32(0x00000000)
 
 MOVETOCREG_DSZ64({zero}, 0x6a1) !m2 # zero address

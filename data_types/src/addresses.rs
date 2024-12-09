@@ -131,10 +131,9 @@ impl UCInstructionAddress {
         UCInstructionAddress::from_const(addr + base * 4 + offset_in_triplet)
     }
 
-    /// When writing patch data, can be used in an iterative fashion.
-    /// Returns the next valid writing address
-    /// [7c00, 7c01, 7c02, 7c04, 7c05, ...] skipping each forth address
-    pub fn next_patch_address(&self) -> Self {
+    /// Returns the next valid address
+    /// [7c00, 7c01, 7c02, 7c04, 7c05, ...] skipping each forth address, where %4==3
+    pub fn next_address(&self) -> Self {
         let addr = self.0 + 1;
         UCInstructionAddress::from_const(if (addr & 3) == 3 { addr + 1 } else { addr })
     }

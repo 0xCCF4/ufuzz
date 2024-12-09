@@ -112,7 +112,7 @@ fn generate_ucode_files<A: AsRef<Path>>(
 ) {
     generate_interface_definitions(path.as_ref(), pass1data, interface);
     generate_entries(path.as_ref(), interface);
-    generate_exits(path.as_ref(), interface);
+    generate_exits(path.as_ref(), interface, pass1data);
 }
 
 #[allow(clippy::vec_init_then_push)]
@@ -282,7 +282,7 @@ NOP
     std::fs::write(file, content).expect("write failed");
 }
 
-fn generate_exits<A: AsRef<Path>>(path: A, interface: &ComInterfaceDescription) {
+fn generate_exits<A: AsRef<Path>>(path: A, interface: &ComInterfaceDescription, data: Option<Stage2Pass>) {
     let file = path.as_ref().join("exits.up");
     let mut content = "".to_string();
     content.push_str("# ");
@@ -292,13 +292,14 @@ fn generate_exits<A: AsRef<Path>>(path: A, interface: &ComInterfaceDescription) 
     content.push_str("NOPB # Align to 4\n\n");
 
     for i in 0..interface.max_number_of_hooks as usize {
+        let exit_handler = data.unwrap_or_default().hook_exit_replacement_address + i * 4;
         content.push_str(
             format!(
                 "
 <hook_exit_{i:02}>
 r10 := LDSTGBUF_DSZ64_ASZ16_SC1([adr_stg_r10]) !m2
 NOP
-NOP SEQW GOTO <exit_trap>
+NOP SEQW GOTO 0x{exit_handler:04x}
 "
             )
             .as_str(),

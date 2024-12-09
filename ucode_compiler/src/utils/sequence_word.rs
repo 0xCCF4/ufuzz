@@ -49,7 +49,7 @@ pub struct SequenceWordPart<T> {
 /// A sequence word is a modifier applied to a triad of three microinstructions.
 /// The format is as follows:
 /// ```plain
-///  30 28    25 24 23               8   6       2   0  Index
+///  30 28    25 24 23                8   6       2   0 Index
 /// -+---+-----+--|--+----------------+---+-------+---|
 ///  |CRC|sync | up2 |      uaddr     |up1| eflow |up0|
 /// -+---+-----+--|--+----------------+---+-------+---|
@@ -377,15 +377,21 @@ mod test {
 
     #[test]
     fn test_seq_manual() -> Result<(), DisassembleError> {
-        let input = 0x31856900;
+        let rom = custom_processing_unit::dump::ROM_cpu_000506CA;
+        let hooked_address = UCInstructionAddress::from_const(0x428);
 
-        let word = SequenceWord::disassemble(input)?;
+        let input = rom.get_sequence_word(hooked_address).expect("Failed to get seqw");
+        println!("Original Bits: {:x}", input);
 
-        let output = word.assemble();
+        let mut word = SequenceWord::disassemble_no_crc_check(input)?;
+        println!("Original: {}", word);
 
-        assert_eq!(input, output);
+        word.set_goto(hooked_address.triad_offset(), hooked_address.next_address());
 
-        panic!("{}", word);
+        println!("{}", word);
+
+        assert_eq!(input, 0x0199c980);
+        assert_eq!(word.assemble(), 0x31842900);
 
         Ok(())
     }

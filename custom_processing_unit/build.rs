@@ -122,6 +122,7 @@ fn read_arrays<A: AsRef<Path>>(parent_folder: A) -> Vec<Vec<u64>> {
             array.truncate(0x7c00)
         } else if i == 1 {
             // sequence words ROM
+            array = array.into_iter().enumerate().filter(|(i, _)| i % 4 == 0).map(|(_, v)| v).collect::<Vec<u64>>();
             array.truncate(0x7c00 / 4)
         }
 

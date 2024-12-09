@@ -7,16 +7,13 @@
 
 # increases the coverage counter and returns the jump back address
 
-{offset} := AND_DSZ32([offset_mask], {offset_input})
+{offset} := AND_DSZ32([index_mask], {offset_input})
+{offset} := SHL_DSZ32({offset}, [convert_index_to_coverage_table_offset])
 
 {addr} := ADD_DSZ32({offset}, [address_coverage_table_base]) # address
 {tmp} := LDPPHYS_DSZ16_ASZ32_SC1({addr})
 {tmp} := ADD_DSZ16({tmp}, 0x0001)
 STADPPHYS_DSZ16_ASZ32_SC1({addr},, {tmp})
 
-# {addr} := ADD_DSZ32({addr}, [offset_cov2time_table])
-# {tmp}:= MOVEFROMCREG_DSZ64( , 0x2d7) !m1,m2
-# STADPPHYS_DSZ16_ASZ32_SC1({addr},, {tmp})
-
-{addr} := ADD_DSZ32({addr}, [offset_cov2jump_table])
-{result} := LDPPHYS_DSZ16_ASZ32_SC1({addr})
+rax := ZEROEXT_DSZ32(0x6642)
+NOP SEQW LFNCEWAIT, UEND0

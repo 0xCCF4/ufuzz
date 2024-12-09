@@ -13,7 +13,7 @@ impl Instruction {
         }
     }
 
-    fn opcode_raw(&self) -> u16 {
+    const fn opcode_raw(&self) -> u16 {
         ((self.instruction >> 32) & 0xFFF) as u16
     }
 

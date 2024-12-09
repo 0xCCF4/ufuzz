@@ -7,16 +7,17 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::arch::asm;
-use coverage::coverage_harness::CoverageHarness;
+use core::fmt::Debug;
+use coverage::coverage_harness::{CoverageHarness};
 use coverage::interface::safe::ComInterface;
 use coverage::{coverage_collector, interface_definition};
 use custom_processing_unit::{apply_patch, lmfence, CustomProcessingUnit, FunctionResult};
-use data_types::addresses::UCInstructionAddress;
+use data_types::addresses::{UCInstructionAddress};
 use itertools::Itertools;
 use log::info;
 use uefi::prelude::*;
-use uefi::proto::media::file::{File, FileAttribute, FileMode};
 use uefi::{print, println, CString16};
+use uefi::proto::media::file::{File, FileAttribute, FileMode};
 
 #[entry]
 unsafe fn main() -> Status {
@@ -159,6 +160,10 @@ unsafe fn main() -> Status {
             (),
         ) {
             println!("Failed to execute harness: {:?}", e);
+            if let Err(err) = write_skipped(chunk, e) {
+                println!("Failed to write skipped: {:?}", err);
+                return Status::ABORTED;
+            }
             continue;
         }
 
@@ -168,6 +173,10 @@ unsafe fn main() -> Status {
         }
         if let Err(e) = write_ok(chunk) {
             println!("Failed to write ok: {:?}", e);
+            return Status::ABORTED;
+        }
+        if let Err(e) = write_actually_works(chunk) {
+            println!("Failed to write actually works: {:?}", e);
             return Status::ABORTED;
         }
 
@@ -191,7 +200,7 @@ unsafe fn main() -> Status {
 }
 
 fn file_name(name: &str) -> uefi::Result<CString16> {
-    const PREFIX: &str = "test_filter_";
+    const PREFIX: &str = "";
 
     CString16::try_from(format!("{}{}", PREFIX, name).as_str())
         .map_err(|_| uefi::Error::from(uefi::Status::UNSUPPORTED))
@@ -200,7 +209,12 @@ fn file_name(name: &str) -> uefi::Result<CString16> {
 fn read_ok() -> uefi::Result<usize> {
     let mut proto = uefi::boot::get_image_file_system(uefi::boot::image_handle())?;
     let mut root_dir = proto.open_volume()?;
-    let file = root_dir.open(
+    let mut dir = root_dir.open(
+        file_name("test_filer")?.as_ref(),
+        FileMode::CreateReadWrite,
+        FileAttribute::DIRECTORY
+    )?;
+    let file = dir.open(
         file_name("ok.txt")?.as_ref(),
         FileMode::CreateReadWrite,
         FileAttribute::empty(),
@@ -233,7 +247,12 @@ fn read_ok() -> uefi::Result<usize> {
 fn write_ok(address: usize) -> uefi::Result<()> {
     let mut proto = uefi::boot::get_image_file_system(uefi::boot::image_handle())?;
     let mut root_dir = proto.open_volume()?;
-    let file = root_dir.open(
+    let mut dir = root_dir.open(
+        file_name("test_filer")?.as_ref(),
+        FileMode::CreateReadWrite,
+        FileAttribute::DIRECTORY
+    )?;
+    let file = dir.open(
         file_name("ok.txt")?.as_ref(),
         FileMode::CreateReadWrite,
         FileAttribute::empty(),
@@ -267,7 +286,12 @@ fn write_blacklisted(new_address: usize) -> uefi::Result<()> {
 
     let mut proto = uefi::boot::get_image_file_system(uefi::boot::image_handle())?;
     let mut root_dir = proto.open_volume()?;
-    let file = root_dir.open(
+    let mut dir = root_dir.open(
+        file_name("test_filer")?.as_ref(),
+        FileMode::CreateReadWrite,
+        FileAttribute::DIRECTORY
+    )?;
+    let file = dir.open(
         file_name("blacklist.txt")?.as_ref(),
         FileMode::CreateReadWrite,
         FileAttribute::empty(),
@@ -309,10 +333,123 @@ fn write_blacklisted(new_address: usize) -> uefi::Result<()> {
     Ok(())
 }
 
+fn write_actually_works(new_address: usize) -> uefi::Result<()> {
+    if new_address >= 0x7c00 {
+        return Ok(());
+    }
+
+    let mut proto = uefi::boot::get_image_file_system(uefi::boot::image_handle())?;
+    let mut root_dir = proto.open_volume()?;
+    let mut dir = root_dir.open(
+        file_name("test_filer")?.as_ref(),
+        FileMode::CreateReadWrite,
+        FileAttribute::DIRECTORY
+    )?;
+    let file = dir.open(
+        file_name("worked.txt")?.as_ref(),
+        FileMode::CreateReadWrite,
+        FileAttribute::empty(),
+    )?;
+
+    let mut regular_file = file
+        .into_regular_file()
+        .ok_or_else(|| uefi::Error::from(uefi::Status::UNSUPPORTED))?;
+
+    let mut buffer = [0u8; 128];
+    let mut data = String::new();
+
+    loop {
+        let read = regular_file.read(&mut buffer)?;
+
+        if read == 0 {
+            break;
+        }
+
+        for i in 0..read {
+            data.push(buffer[i] as char);
+        }
+    }
+
+    data.push_str(format!("{:04x}\n", new_address).as_str());
+
+    regular_file.set_position(0)?;
+
+    regular_file
+        .write(data.as_bytes())
+        .map_err(|_| uefi::Error::from(uefi::Status::WARN_WRITE_FAILURE))?;
+
+    regular_file.flush()?;
+    regular_file.close();
+
+    root_dir.flush()?;
+    root_dir.close();
+
+    Ok(())
+}
+
+fn write_skipped<T: Debug>(new_address: usize, reason: T) -> uefi::Result<()> {
+    if new_address >= 0x7c00 {
+        return Ok(());
+    }
+
+    let mut proto = uefi::boot::get_image_file_system(uefi::boot::image_handle())?;
+    let mut root_dir = proto.open_volume()?;
+    let mut dir = root_dir.open(
+        file_name("test_filer")?.as_ref(),
+        FileMode::CreateReadWrite,
+        FileAttribute::DIRECTORY
+    )?;
+    let file = dir.open(
+        file_name("skipped.txt")?.as_ref(),
+        FileMode::CreateReadWrite,
+        FileAttribute::empty(),
+    )?;
+
+    let mut regular_file = file
+        .into_regular_file()
+        .ok_or_else(|| uefi::Error::from(uefi::Status::UNSUPPORTED))?;
+
+    let mut buffer = [0u8; 128];
+    let mut data = String::new();
+
+    loop {
+        let read = regular_file.read(&mut buffer)?;
+
+        if read == 0 {
+            break;
+        }
+
+        for i in 0..read {
+            data.push(buffer[i] as char);
+        }
+    }
+
+    data.push_str(format!("{:04x} {:?}\n", new_address, reason).as_str());
+
+    regular_file.set_position(0)?;
+
+    regular_file
+        .write(data.as_bytes())
+        .map_err(|_| uefi::Error::from(uefi::Status::WARN_WRITE_FAILURE))?;
+
+    regular_file.flush()?;
+    regular_file.close();
+
+    root_dir.flush()?;
+    root_dir.close();
+
+    Ok(())
+}
+
 fn read_blacklisted() -> uefi::Result<Vec<usize>> {
     let mut proto = uefi::boot::get_image_file_system(uefi::boot::image_handle())?;
     let mut root_dir = proto.open_volume()?;
-    let file = root_dir.open(
+    let mut dir = root_dir.open(
+        file_name("test_filer")?.as_ref(),
+        FileMode::CreateReadWrite,
+        FileAttribute::DIRECTORY
+    )?;
+    let file = dir.open(
         file_name("blacklist.txt")?.as_ref(),
         FileMode::CreateReadWrite,
         FileAttribute::empty(),
