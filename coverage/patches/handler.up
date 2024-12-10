@@ -8,7 +8,7 @@ func record_coverage([in_hook_offset], r11, r12, r13)
 
 
 # disables hook
-r11 := ZEROEXT_DSZ64(0x0)
+#r11 := ZEROEXT_DSZ64(0x0)
 #func lib/pause_frontend(r12, r11)
 #func lib/ldat_write([in_hook_offset], r11, r11, 0x3) # zeros hook entry at offset [in_hook_offset]
 #func lib/resume_frontend(r12)

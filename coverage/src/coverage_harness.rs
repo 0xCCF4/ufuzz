@@ -3,10 +3,7 @@ use crate::interface::safe::ComInterface;
 use crate::interface_definition::{CoverageEntry, InstructionTableEntry};
 #[cfg(feature = "no_std")]
 use alloc::vec::Vec;
-use custom_processing_unit::{
-    apply_patch, call_custom_ucode_function, disable_all_hooks, enable_hooks, lmfence,
-    restore_hooks, CustomProcessingUnit,
-};
+use custom_processing_unit::{apply_patch, call_custom_ucode_function, disable_all_hooks, enable_hooks, lmfence, restore_hooks, CustomProcessingUnit, FunctionResult};
 use data_types::addresses::{Address, UCInstructionAddress};
 use itertools::Itertools;
 use ucode_compiler::utils::instruction::Instruction;
@@ -14,10 +11,10 @@ use ucode_compiler::utils::sequence_word::{DisassembleError, SequenceWord};
 
 const COVERAGE_ENTRIES: usize = UCInstructionAddress::MAX.to_const();
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CoverageError {
     TooManyHooks,
-    SetupFailed,
+    SetupFailed(FunctionResult),
     AddressNotHookable(UCInstructionAddress, NotHookableReason),
     SequenceWordDissembleError(DisassembleError),
 }
@@ -99,7 +96,7 @@ impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
             call_custom_ucode_function(coverage_collector::LABEL_FUNC_SETUP, [hooks.len(), 0, 0]);
 
         if result.rax != 0x664200006642 {
-            return Err(CoverageError::SetupFailed);
+            return Err(CoverageError::SetupFailed(result));
         }
 
         Ok(())
@@ -164,6 +161,10 @@ impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
             return Err(NotHookableReason::ConditionalJump);
         }
 
+        if opcode.is_conditional_jump() {
+            return Err(NotHookableReason::TodoCondJump);
+        }
+
         Ok(())
     }
 
@@ -185,6 +186,13 @@ impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
             .map(Instruction::disassemble)
             .map(|i| i.assemble())
             .collect_vec();
+
+        if sequence_word.control().is_some() {
+            return Err(NotHookableReason::ControlOpPresent);
+        }
+        if sequence_word.sync().is_some() {
+            return Err(NotHookableReason::TodoSyncOp);
+        }
 
         match sequence_word.goto().clone() {
             None => {
@@ -213,6 +221,8 @@ impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
                 }
             }
         }
+
+        sequence_word.no_goto().no_sync().no_control().set_goto(1, 0x42a);
 
         Ok([
             instructions[0],
@@ -249,4 +259,5 @@ pub enum NotHookableReason {
     TodoControlOp,
     TodoSyncOp,
     TodoIndexNotZero,
+    TodoCondJump,
 }

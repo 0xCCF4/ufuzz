@@ -1,7 +1,17 @@
 #![no_main]
 #![no_std]
 
-use custom_processing_unit::{apply_hook_patch_func, apply_patch, call_custom_ucode_function, enable_hooks, hook, CustomProcessingUnit};
+//! Experiment for testing of hooking odd addresses.
+//!
+//! Observations: A hook for an even address is applied. When jumping to the next
+//! odd address, the hook redirects the execution, still.
+//!
+//! Implications: Hooks apply to the hooked address and the next one.
+//!
+//! Open questions: Is there a way to tell if the hook was called by the even
+//! or odd address?
+
+use custom_processing_unit::{apply_hook_patch_func, apply_patch, call_custom_ucode_function, disable_all_hooks, enable_hooks, hook, CustomProcessingUnit};
 use data_types::addresses::{MSRAMHookIndex, UCInstructionAddress};
 use log::info;
 use uefi::{entry, println, Status};
@@ -13,32 +23,51 @@ mod patch {
     patch!(
         .org 0x7c00
 
-        <entry>
+        <entry0>
         rax := ZEROEXT_DSZ32(0x5555)
         rcx := ZEROEXT_DSZ32(0xfefe)
-        unk_256() !m1 SEQW LFNCEWAIT, UEND0
+        NOP SEQW GOTO 0x42a
 
-        <failsafe>
+        <entry1>
+        rax := ZEROEXT_DSZ32(0x5555)
+        rcx := ZEROEXT_DSZ32(0xfefe)
+        NOP SEQW GOTO 0x9c2
+
+        <exit>
         rax := ZEROEXT_DSZ32(0x2222)
         unk_256() !m1 SEQW LFNCEWAIT, UEND0
         NOP
 
-        <failsafe_2>
-        rax := ZEROEXT_DSZ32(0x1111)
-        unk_256() !m1 SEQW LFNCEWAIT, UEND0
+        <experiment0>
+        rdx := ZEROEXT_DSZ32(0x1234)
         NOP
+        NOP SEQW GOTO 0x429
 
-        <experiment>
-        rax := ZEROEXT_DSZ32(0x3333)
-        rbx := ZEROEXT_DSZ32(0x1) SEQW GOTO 0x429
+        <experiment1>
+        rdx := ZEROEXT_DSZ32(0x1234)
         NOP
+        NOP SEQW GOTO 0x9c1
 
         NOP
     );
 
-    // U0428: tmp4:= ZEROEXT_DSZ32(0x0000002b)
-    // U0429: tmp2:= ZEROEXT_DSZ32(0x40004e00)
-    // U042a: tmp0:= ZEROEXT_DSZ32(0x00000439) SEQW GOTO U19c9
+    // Experiment 1:
+    // HOOK <------------  U0428: tmp4:= ZEROEXT_DSZ32(0x0000002b)
+    //  |       CALL --->  U0429: tmp2:= ZEROEXT_DSZ32(0x40004e00)
+    //  |             /->  U042a: tmp0:= ZEROEXT_DSZ32(0x00000439) SEQW GOTO U19c9
+    //  |             |
+    //  \-> rcx := fefe    HOOKED:
+    //                     U19ca: rax := 0x2222
+    //                     U19cb: RETURN
+
+    // Experiment 2:
+    // HOOK <------------  U09c0: tmp0:= ZEROEXT_DSZ32(0x00000001)
+    //  |       CALL --->  U09c1: tmp2:= ZEROEXT_DSZ32N(IMM_MACRO_02) !m0,m1
+    //  |             /->  U09c2: tmp1:= SUB_DSZN(0x00000001, rcx) !m1
+    //  |             |
+    //  \-> rcx := fefe    HOOKED:
+    //                     U09c4: rax := 0x2222
+    //                     U09c5: RETURN
 }
 
 #[entry]
@@ -63,15 +92,15 @@ unsafe fn main() -> Status {
         return Status::ABORTED;
     }
 
-    apply_patch(&patch::PATCH);
+    disable_all_hooks();
 
-    enable_hooks();
+    apply_patch(&patch::PATCH);
 
     if let Err(err) = hook(
         apply_hook_patch_func(),
         MSRAMHookIndex::ZERO+2,
-        UCInstructionAddress::from_const(0x19ca),
-        patch::LABEL_FAILSAFE,
+        0x19ca,
+        patch::LABEL_EXIT,
         true,
     ) {
         info!("Failed to hook {:?}", err);
@@ -80,8 +109,30 @@ unsafe fn main() -> Status {
     if let Err(err) = hook(
         apply_hook_patch_func(),
         MSRAMHookIndex::ZERO+3,
-        UCInstructionAddress::from_const(0x42c),
-        patch::LABEL_FAILSAFE_2,
+        0x9c4,
+        patch::LABEL_EXIT,
+        true,
+    ) {
+        info!("Failed to hook {:?}", err);
+        return Status::ABORTED;
+    }
+
+    if let Err(err) = hook(
+        apply_hook_patch_func(),
+        MSRAMHookIndex::ZERO+0,
+        0x428,
+        patch::LABEL_ENTRY0,
+        true,
+    ) {
+        info!("Failed to hook {:?}", err);
+        return Status::ABORTED;
+    }
+
+    if let Err(err) = hook(
+        apply_hook_patch_func(),
+        MSRAMHookIndex::ZERO+1,
+        0x9c0,
+        patch::LABEL_ENTRY1,
         true,
     ) {
         info!("Failed to hook {:?}", err);
@@ -89,57 +140,23 @@ unsafe fn main() -> Status {
     }
 
     println!("Starting experiments");
+    enable_hooks();
+    let result = core::hint::black_box(call_custom_ucode_function)(patch::LABEL_EXPERIMENT0, [0, 0, 0]);
+    disable_all_hooks();
+    println!("{:x?}", result);
+    assert_eq!(result.rax, 0x2222);
+    assert_eq!(result.rcx, 0xfefe);
+    assert_eq!(result.rdx, 0x1234);
 
-    // sanity check
-    // just call the function
-    assert_eq!(0x5555, experiment(0, patch::LABEL_ENTRY.address()));
-    assert_eq!(0x2222, experiment(0, patch::LABEL_FAILSAFE.address()));
-    assert_eq!(0x1111, experiment(0, patch::LABEL_FAILSAFE_2.address()));
-
-    // some more sanity checks
-    // hook something, then run into the hook
-    assert_eq!(0x2222, experiment(0x000, 0x428));
-    assert_eq!(0x5555, experiment(0x428, 0x428));
-    assert_eq!(0x5555, experiment(0x42a, 0x428));
-    assert_eq!(0x5555, experiment(0x42a, 0x429));
-    assert_eq!(0x5555, experiment(0x42a, 0x42a));
-    assert_eq!(0x1111, experiment(0x42a, 0x42b));
-
-    // now hook and run the odd address
-    if let Err(err) = hook(
-        apply_hook_patch_func(),
-        MSRAMHookIndex::ZERO,
-        UCInstructionAddress::from_const(0x428),
-        patch::LABEL_ENTRY,
-        true,
-    ) {
-        info!("Failed to hook {:?}", err);
-        return Status::ABORTED;
-    }
-    println!("{:x}", core::hint::black_box(call_custom_ucode_function)(UCInstructionAddress::from_const(0x429), [0, 0, 0]).rax);
-
-
+    enable_hooks();
+    let result = core::hint::black_box(call_custom_ucode_function)(patch::LABEL_EXPERIMENT1, [0, 0, 0]);
+    disable_all_hooks();
+    println!("{:x?}", result);
+    assert_eq!(result.rax, 0x2222);
+    assert_eq!(result.rcx, 0xfefe);
+    assert_eq!(result.rdx, 0x1234);
     println!("Success");
 
     Status::SUCCESS
 }
 
-fn experiment(hook_address: usize, call_address: usize) -> usize {
-    let hook_address = UCInstructionAddress::from_const(hook_address);
-    let call_address = UCInstructionAddress::from_const(call_address);
-
-    if let Err(err) = hook(
-        apply_hook_patch_func(),
-        MSRAMHookIndex::ZERO,
-        hook_address,
-        patch::LABEL_ENTRY,
-        true,
-    ) {
-        info!("Failed to hook {:?}", err);
-        return 0;
-    }
-
-    let x = call_custom_ucode_function(call_address, [0, 0, 0]);
-
-    x.rax
-}

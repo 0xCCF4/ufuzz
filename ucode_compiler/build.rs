@@ -107,6 +107,12 @@ fn generate_opcode_file<A: AsRef<Path>, B: AsRef<Path>>(opcodes: A, target_file:
         .filter(|prefix| !prefix.is_empty())
         .unique()
         .for_each(|prefix| impl_prefix_func(&prefix, &definitions, &mut result));
+
+    // is conditional jump
+    let conditional_jumps = definitions.iter().filter(|(mm, _, _)| mm.contains("_NOTTAKEN") || mm.contains("_TAKEN"));
+    result.push_str(format!("pub const fn is_conditional_jump(&self) -> bool {{ matches!(self, {}) }}\n", conditional_jumps.map(|(mm, _, _)| format!("Self::{mm}")).join("|")).as_str());
+
+
     result.push_str("}\n");
 
     fs::write(&target_file, result).expect("Failed to write opcode file");

@@ -7,8 +7,8 @@ use core::arch::asm;
 use coverage::coverage_harness::CoverageHarness;
 use coverage::interface::safe::ComInterface;
 use coverage::{coverage_collector, interface_definition};
-use custom_processing_unit::{call_custom_ucode_function, lmfence, ms_patch_instruction_read, ms_seqw_read, CustomProcessingUnit, FunctionResult};
-use data_types::addresses::{UCInstructionAddress};
+use custom_processing_unit::{call_custom_ucode_function, lmfence, ms_patch_instruction_read, ms_seqw_read, stgbuf_write, CustomProcessingUnit, FunctionResult, StagingBufferAddress};
+use data_types::addresses::{Address, UCInstructionAddress};
 use log::info;
 use uefi::prelude::*;
 use uefi::{print, println};
@@ -77,21 +77,20 @@ unsafe fn main() -> Status {
 
     print_status();
 
-    println!("Coverage: {}", harness.get_coverage()[0x428]);
+    println!("Coverage: {}", harness.get_coverage()[addresses[0].address()]);
 
     print!("Coverage: ");
     let x = harness.execute(&addresses, |_| {
-        //call_custom_ucode_function(UCInstructionAddress::from_const(0x429), [0,0,0])
         rdrand()
     }, ());
-    println!("{:x} : {:x?}", harness.get_coverage()[0x428], x);
+    println!("{:x} : {:x?}", harness.get_coverage()[addresses[0].address()], x);
 
     print!("Coverage: ");
     let x = harness.execute(&addresses, |_| {
         (rdrand(), rdrand())
         //(call_custom_ucode_function(UCInstructionAddress::from_const(0x429), [0,0,0]), call_custom_ucode_function(UCInstructionAddress::from_const(0x429), [0,0,0]))
     }, ());
-    println!("{:x} : {:x?}", harness.get_coverage()[0x428], x);
+    println!("{:x} : {:x?}", harness.get_coverage()[addresses[0].address()], x);
 
     drop(harness);
 
@@ -102,6 +101,9 @@ unsafe fn main() -> Status {
     println!("Goodbye!");
 
     cpu.cleanup();
+    drop(interface);
+
+    println!("Exit!");
 
     Status::SUCCESS
 }

@@ -528,14 +528,14 @@ pub fn calculate_hook_value(
     Ok(patch_value)
 }
 
-pub fn hook(
+pub fn hook<A: Into<UCInstructionAddress>, B: Into<UCInstructionAddress>>(
     apply_hook_func: UCInstructionAddress,
     hook_idx: MSRAMHookIndex,
-    to_hook_ucode_addr: UCInstructionAddress,
-    redirect_to_addr: UCInstructionAddress,
+    to_hook_ucode_addr: A,
+    redirect_to_addr: B,
     enabled: bool,
 ) -> crate::Result<()> {
-    let patch_value = calculate_hook_value(to_hook_ucode_addr, redirect_to_addr, enabled)?;
+    let patch_value = calculate_hook_value(to_hook_ucode_addr.into(), redirect_to_addr.into(), enabled)?;
 
     let result = call_custom_ucode_function(apply_hook_func, [patch_value, hook_idx.address(), 0]);
 

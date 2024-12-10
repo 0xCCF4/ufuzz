@@ -8,7 +8,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::arch::asm;
 use core::fmt::Debug;
-use coverage::coverage_harness::{CoverageHarness};
+use coverage::coverage_harness::{CoverageError, CoverageHarness};
 use coverage::interface::safe::ComInterface;
 use coverage::{coverage_collector, interface_definition};
 use custom_processing_unit::{apply_patch, lmfence, CustomProcessingUnit, FunctionResult};
@@ -18,6 +18,7 @@ use log::info;
 use uefi::prelude::*;
 use uefi::{print, println, CString16};
 use uefi::proto::media::file::{File, FileAttribute, FileMode};
+use uefi::runtime::ResetType;
 
 #[entry]
 unsafe fn main() -> Status {
@@ -160,11 +161,14 @@ unsafe fn main() -> Status {
             (),
         ) {
             println!("Failed to execute harness: {:?}", e);
-            if let Err(err) = write_skipped(chunk, e) {
+            if let Err(err) = write_skipped(chunk, &e) {
                 println!("Failed to write skipped: {:?}", err);
                 return Status::ABORTED;
             }
-            continue;
+            match e {
+                CoverageError::SetupFailed(_) => uefi::runtime::reset(ResetType::COLD, Status::SUCCESS, None),
+                _ => continue
+            }
         }
 
         if let Err(e) = write_ok(chunk) {
@@ -210,7 +214,7 @@ fn read_ok() -> uefi::Result<usize> {
     let mut proto = uefi::boot::get_image_file_system(uefi::boot::image_handle())?;
     let mut root_dir = proto.open_volume()?;
     let mut dir = root_dir.open(
-        file_name("test_filer")?.as_ref(),
+        file_name("test_filter")?.as_ref(),
         FileMode::CreateReadWrite,
         FileAttribute::DIRECTORY
     )?;
@@ -248,7 +252,7 @@ fn write_ok(address: usize) -> uefi::Result<()> {
     let mut proto = uefi::boot::get_image_file_system(uefi::boot::image_handle())?;
     let mut root_dir = proto.open_volume()?;
     let mut dir = root_dir.open(
-        file_name("test_filer")?.as_ref(),
+        file_name("test_filter")?.as_ref(),
         FileMode::CreateReadWrite,
         FileAttribute::DIRECTORY
     )?;
@@ -287,7 +291,7 @@ fn write_blacklisted(new_address: usize) -> uefi::Result<()> {
     let mut proto = uefi::boot::get_image_file_system(uefi::boot::image_handle())?;
     let mut root_dir = proto.open_volume()?;
     let mut dir = root_dir.open(
-        file_name("test_filer")?.as_ref(),
+        file_name("test_filter")?.as_ref(),
         FileMode::CreateReadWrite,
         FileAttribute::DIRECTORY
     )?;
@@ -341,7 +345,7 @@ fn write_actually_works(new_address: usize) -> uefi::Result<()> {
     let mut proto = uefi::boot::get_image_file_system(uefi::boot::image_handle())?;
     let mut root_dir = proto.open_volume()?;
     let mut dir = root_dir.open(
-        file_name("test_filer")?.as_ref(),
+        file_name("test_filter")?.as_ref(),
         FileMode::CreateReadWrite,
         FileAttribute::DIRECTORY
     )?;
@@ -388,14 +392,10 @@ fn write_actually_works(new_address: usize) -> uefi::Result<()> {
 }
 
 fn write_skipped<T: Debug>(new_address: usize, reason: T) -> uefi::Result<()> {
-    if new_address >= 0x7c00 {
-        return Ok(());
-    }
-
     let mut proto = uefi::boot::get_image_file_system(uefi::boot::image_handle())?;
     let mut root_dir = proto.open_volume()?;
     let mut dir = root_dir.open(
-        file_name("test_filer")?.as_ref(),
+        file_name("test_filter")?.as_ref(),
         FileMode::CreateReadWrite,
         FileAttribute::DIRECTORY
     )?;
@@ -424,7 +424,7 @@ fn write_skipped<T: Debug>(new_address: usize, reason: T) -> uefi::Result<()> {
         }
     }
 
-    data.push_str(format!("{:04x} {:?}\n", new_address, reason).as_str());
+    data.push_str(format!("{:04x} {:x?}\n", new_address, reason).as_str());
 
     regular_file.set_position(0)?;
 
@@ -445,7 +445,7 @@ fn read_blacklisted() -> uefi::Result<Vec<usize>> {
     let mut proto = uefi::boot::get_image_file_system(uefi::boot::image_handle())?;
     let mut root_dir = proto.open_volume()?;
     let mut dir = root_dir.open(
-        file_name("test_filer")?.as_ref(),
+        file_name("test_filter")?.as_ref(),
         FileMode::CreateReadWrite,
         FileAttribute::DIRECTORY
     )?;
