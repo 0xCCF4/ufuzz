@@ -189,7 +189,7 @@ fn write_coverage(covered_addresses: Vec<UCInstructionAddress>) -> uefi::Result<
 
 #[rustfmt::skip]
 fn filter_blacklisted_instruction(address: usize) -> bool {
-    let blacklist = include!("../src/blacklist.txt");
+    let blacklist = include!("../src/blacklist.gen");
     !blacklist.contains(&address)
     /*
 

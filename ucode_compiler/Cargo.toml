@@ -12,7 +12,7 @@ num-traits = { version = "0.2.19", default-features = false }
 
 [dev-dependencies]
 regex = { version = "1.11.0"}
-custom_processing_unit = { path = "../custom_processing_unit" }
+ucode_dump = { path = "../ucode_dump" }
 
 [features]
 default = []

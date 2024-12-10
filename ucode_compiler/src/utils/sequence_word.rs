@@ -357,7 +357,7 @@ mod test {
 
     #[test]
     fn test_disasm_asm_seqw() {
-        for seqw in custom_processing_unit::dump::cpu_000506CA::ROM_SEQUENCE.iter() {
+        for seqw in ucode_dump::dump::cpu_000506CA::ROM_SEQUENCE.iter() {
             if *seqw == 0 {
                 continue;
             }

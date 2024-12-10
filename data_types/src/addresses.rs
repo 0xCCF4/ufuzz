@@ -138,6 +138,19 @@ impl UCInstructionAddress {
         UCInstructionAddress::from_const(if (addr & 3) == 3 { addr + 1 } else { addr })
     }
 
+    /// Returns the next even address
+    pub fn next_even_address(&self) -> Self {
+        if self.is_even() {
+            self.add(2)
+        } else {
+            self.next_address()
+        }
+    }
+
+    pub fn align_even(&self) -> Self {
+        Self::from_const(self.0 & !1)
+    }
+
     pub fn hookable(&self) -> bool {
         self.0 % 2 == 0 && self.0 < 0x7c00 // todo check if <0x7c00 is necessary
     }

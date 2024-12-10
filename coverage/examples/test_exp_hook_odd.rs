@@ -12,10 +12,9 @@
 //! or odd address?
 
 use custom_processing_unit::{apply_hook_patch_func, apply_patch, call_custom_ucode_function, disable_all_hooks, enable_hooks, hook, CustomProcessingUnit};
-use data_types::addresses::{MSRAMHookIndex, UCInstructionAddress};
+use data_types::addresses::{MSRAMHookIndex};
 use log::info;
 use uefi::{entry, println, Status};
-use data_types::addresses::Address;
 
 mod patch {
     use ucode_compiler_derive::patch;

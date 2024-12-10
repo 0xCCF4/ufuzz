@@ -175,10 +175,6 @@ impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
     ) -> Result<InstructionTableEntry, NotHookableReason> {
         self.is_hookable(hooked_address)?;
 
-        if hooked_address.triad_offset() != 0 {
-            return Err(NotHookableReason::TodoIndexNotZero);
-        }
-
         let mut sequence_word = SequenceWord::disassemble_no_crc_check(triad[3] as u32)
             .map_err(NotHookableReason::ModificationFailedSequenceWord)?;
         let instructions = triad
@@ -193,36 +189,11 @@ impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
         if sequence_word.sync().is_some() {
             return Err(NotHookableReason::TodoSyncOp);
         }
-
-        match sequence_word.goto().clone() {
-            None => {
-                sequence_word.set_goto(hooked_address.triad_offset(), hooked_address.next_address());
-            }
-            Some(goto) => {
-                if let Some(control) = sequence_word.control() {
-                    if control.apply_to_index == hooked_address.triad_offset() {
-                        // both control and goto not allowed at same offset, see uasm.py
-                        return Err(NotHookableReason::ControlOpPresent); // TODO
-                    }
-                    return Err(NotHookableReason::TodoControlOp); // TODO
-                }
-                if sequence_word.sync().is_some() {
-                    return Err(NotHookableReason::TodoSyncOp); // TODO
-                }
-
-                //return Ok(None); // TODO
-
-
-                if goto.apply_to_index == hooked_address.triad_offset() {
-                    // since we are jumping anyway -> no modification needed
-                } else {
-                    // jump is later or previously in triad -> modify it
-                    sequence_word.set_goto(hooked_address.triad_offset(), hooked_address.next_address());
-                }
-            }
+        if sequence_word.goto().is_some() {
+            return Err(NotHookableReason::TodoJump);
         }
 
-        sequence_word.no_goto().no_sync().no_control().set_goto(1, 0x42a);
+        sequence_word.set_goto((hooked_address.triad_offset()+2).min(2), hooked_address.next_even_address());
 
         Ok([
             instructions[0],
@@ -260,4 +231,5 @@ pub enum NotHookableReason {
     TodoSyncOp,
     TodoIndexNotZero,
     TodoCondJump,
+    TodoJump,
 }

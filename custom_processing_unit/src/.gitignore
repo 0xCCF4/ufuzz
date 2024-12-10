@@ -1,5 +1,3 @@
 patches.rs
 patches/
-dump/
-dump.rs
 opcodes.rs

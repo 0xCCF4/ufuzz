@@ -1,0 +1,41 @@
+# IN: tmp0 start index
+# IN: tmp1 end index
+
+tmp0 := AND_DSZ64(tmp0, 0x000000000000ffff)
+tmp1 := AND_DSZ64(tmp1, 0x000000000000ffff)
+
+rcx := ZEROEXT_DSZ64(tmp0)
+rdx := ZEROEXT_DSZ64(tmp1)
+
+<dstg_loop>
+func lib/jump_if_equal(tmp0, tmp1, tmp4, 64, <dstg_loop_end>)
+
+tmp5 := AND_DSZ64(tmp0, 0x0fff)
+func lib/jump_if_equal(tmp5, 0x0ff9, tmp4, 64, <dstg_loop_skip>)
+func lib/jump_if_equal(tmp5, 0x0ffa, tmp4, 64, <dstg_loop_skip>)
+func lib/jump_if_equal(tmp5, 0x0ffb, tmp4, 64, <dstg_loop_skip>)
+func lib/jump_if_equal(tmp5, 0x0ffc, tmp4, 64, <dstg_loop_skip>)
+func lib/jump_if_equal(tmp5, 0x0ffd, tmp4, 64, <dstg_loop_skip>)
+func lib/jump_if_equal(tmp5, 0x0ffe, tmp4, 64, <dstg_loop_skip>)
+func lib/jump_if_equal(tmp5, 0x0fff, tmp4, 64, <dstg_loop_skip>)
+
+tmp2 := SHL_DSZ64(tmp0, 0x03)
+tmp1 := LDSTGBUF_DSZ64_ASZ16_SC1(tmp2) !m2
+
+tmp2 := ADD_DSZ64(tmp2, 0x2000)
+STADPPHYS_DSZ64_ASZ32_SC1(tmp2,, tmp1)
+
+tmp0 := ADD_DSZ64(tmp0, 0x01)
+rbx := ZEROEXT_DSZ64(tmp0) SEQW GOTO <dstg_loop>
+
+<dstg_loop_skip>
+tmp2 := ADD_DSZ64(tmp2, 0x2000)
+tmp1 := ZEROEXT_DSZ64(0x00)
+STADPPHYS_DSZ64_ASZ32_SC1(tmp2,, tmp1)
+tmp0 := ADD_DSZ64(tmp0, 0x01)
+rbx := ZEROEXT_DSZ64(tmp0) SEQW GOTO <dstg_loop>
+
+<dstg_loop_end>
+
+tmp0 := ZEROEXT_DSZ64(0xeeee)
+rax := ZEROEXT_DSZ64(0xaaaa)

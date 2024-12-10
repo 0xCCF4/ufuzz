@@ -150,6 +150,7 @@ dependencies = [
  "regex",
  "ucode_compiler",
  "ucode_compiler_derive",
+ "ucode_dump",
  "uefi",
 ]
 
@@ -191,6 +192,7 @@ dependencies = [
  "data_types",
  "log",
  "ucode_compiler",
+ "ucode_dump",
 ]
 
 [[package]]
@@ -1332,13 +1334,13 @@ checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 name = "ucode_compiler"
 version = "0.1.0"
 dependencies = [
- "custom_processing_unit",
  "data_types",
  "error-chain",
  "itertools",
  "num-derive",
  "num-traits",
  "regex",
+ "ucode_dump",
 ]
 
 [[package]]
@@ -1348,6 +1350,13 @@ dependencies = [
  "tempfile",
  "ucode_compiler",
  "unindent",
+]
+
+[[package]]
+name = "ucode_dump"
+version = "0.1.0"
+dependencies = [
+ "data_types",
 ]
 
 [[package]]

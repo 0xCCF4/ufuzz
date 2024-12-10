@@ -6,19 +6,27 @@ extern crate alloc;
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
-use core::arch::asm;
-use core::fmt::Debug;
-use coverage::coverage_harness::{CoverageError, CoverageHarness};
-use coverage::interface::safe::ComInterface;
-use coverage::{coverage_collector, interface_definition};
-use custom_processing_unit::{apply_patch, lmfence, CustomProcessingUnit, FunctionResult};
-use data_types::addresses::{UCInstructionAddress};
+use custom_processing_unit::{apply_patch, call_custom_ucode_function, CustomProcessingUnit};
 use itertools::Itertools;
 use log::info;
 use uefi::prelude::*;
 use uefi::{print, println, CString16};
 use uefi::proto::media::file::{File, FileAttribute, FileMode};
-use uefi::runtime::ResetType;
+
+mod patch {
+    use ucode_compiler_derive::patch;
+
+    patch!(
+        .org 0x7c00
+
+        <entry>
+        rax := LDSTGBUF_DSZ64_ASZ16_SC1(tmp0) !m2
+        rbx := ZEROEXT_DSZ64(0x4822)
+        unk_256() !m1 SEQW LFNCEWAIT, UEND0
+
+        NOP
+    );
+}
 
 #[entry]
 unsafe fn main() -> Status {
@@ -42,38 +50,7 @@ unsafe fn main() -> Status {
         return Status::ABORTED;
     }
 
-    let mut interface = match ComInterface::new(&interface_definition::COM_INTERFACE_DESCRIPTION) {
-        Ok(interface) => interface,
-        Err(e) => {
-            info!("Failed to initiate program {:?}", e);
-            return Status::ABORTED;
-        }
-    };
-    let hooks = {
-        let max_hooks = interface.description().max_number_of_hooks;
-
-        let device_max_hooks = match cpu.current_glm_version {
-            custom_processing_unit::GLM_OLD => 31,
-            custom_processing_unit::GLM_NEW => 32,
-            _ => 0,
-        };
-
-        max_hooks.min(device_max_hooks)
-    };
-
-    if hooks == 0 {
-        info!("No hooks available");
-        return Status::ABORTED;
-    }
-
-    interface.reset_coverage();
-
-    apply_patch(&coverage_collector::PATCH);
-
-    interface.reset_coverage();
-
-    let mut harness = CoverageHarness::new(&mut interface, &cpu);
-    harness.init();
+    apply_patch(&patch::PATCH);
 
     let last_ok = match read_ok() {
         Ok(last_ok) => last_ok,
@@ -101,44 +78,21 @@ unsafe fn main() -> Status {
         }
     };
 
-    println!("Blacklisted addresses: {}", blacklisted.len());
-    //for address in blacklisted.iter() {
-    //    println!(" - {:04x}", address);
-    //}
+    println!("Blacklisted addresses:");
+    for address in blacklisted.iter() {
+        println!(" - {:04x}", address);
+    }
 
     println!("Next address to test: {:04x}", next_address);
 
-    if next_address >= 0x7c00 {
+    if next_address >= 0x10000 {
         info!("No more addresses to test");
         return Status::SUCCESS;
     }
 
-    for chunk in (next_address..0x7c00).into_iter() {
-        let addresses = UCInstructionAddress::from_const(chunk);
-
-        if (chunk % 2) > 0 || (chunk % 4) >= 3 {
-            // skip
-            if let Err(e) = write_ok(chunk) {
-                println!("Failed to write ok: {:?}", e);
-                return Status::ABORTED;
-            }
-            if let Err(e) = write_ok(chunk) {
-                println!("Failed to write ok: {:?}", e);
-                return Status::ABORTED;
-            }
-            continue;
-        }
-
-        print!("\r[{}] ", &addresses);
-
-        if let Err(err) = harness.is_hookable(addresses) {
-            //println!("Not hookable: {err:?}");
-            if let Err(e) = write_ok(chunk) {
-                println!("Failed to write ok: {:?}", e);
-                return Status::ABORTED;
-            }
-            continue;
-        }
+    for chunk in (next_address..0x10000).into_iter() {
+        let _ = uefi::boot::set_watchdog_timer(20, 0x10000, None);
+        print!("\r                                \r[{:04x}] ", chunk);
 
         if blacklisted.iter().contains(&chunk) {
             println!("Blacklisted");
@@ -153,23 +107,12 @@ unsafe fn main() -> Status {
             continue;
         }
 
-        if let Err(e) = harness.execute(
-            &[addresses],
-            |_| {
-                rdrand();
-            },
-            (),
-        ) {
-            //println!("Failed to execute harness: {:?}", e);
-            if let Err(err) = write_skipped(chunk, &e) {
-                println!("Failed to write skipped: {:?}", err);
-                return Status::ABORTED;
-            }
-            match e {
-                CoverageError::SetupFailed(_) => uefi::runtime::reset(ResetType::COLD, Status::SUCCESS, None),
-                _ => continue
-            }
+        let result = call_custom_ucode_function(patch::LABEL_ENTRY, [chunk, 0, 0]);
+        if result.rbx != 0x4822 {
+            println!("Failed: {:x?}", result);
+            return Status::ABORTED;
         }
+        print!("{:016x?}", result.rax);
 
         if let Err(e) = write_ok(chunk) {
             println!("Failed to write ok: {:?}", e);
@@ -179,22 +122,9 @@ unsafe fn main() -> Status {
             println!("Failed to write ok: {:?}", e);
             return Status::ABORTED;
         }
-        if let Err(e) = write_actually_works(chunk) {
-            println!("Failed to write actually works: {:?}", e);
-            return Status::ABORTED;
-        }
-
-        if harness.covered(addresses) {
-            println!("Covered");
-        }
     }
 
-    drop(harness);
-
-    if let Err(err) = cpu.zero_hooks() {
-        println!("Failed to zero hooks: {:?}", err);
-    }
-
+    let _ = uefi::boot::set_watchdog_timer(60, 0x10000, None);
     println!("Goodbye!");
 
     // cleanup in reverse order
@@ -214,7 +144,7 @@ fn read_ok() -> uefi::Result<usize> {
     let mut proto = uefi::boot::get_image_file_system(uefi::boot::image_handle())?;
     let mut root_dir = proto.open_volume()?;
     let mut dir = root_dir.open(
-        file_name("test_filter")?.as_ref(),
+        file_name("test_staging_buffer")?.as_ref(),
         FileMode::CreateReadWrite,
         FileAttribute::DIRECTORY
     )?;
@@ -252,7 +182,7 @@ fn write_ok(address: usize) -> uefi::Result<()> {
     let mut proto = uefi::boot::get_image_file_system(uefi::boot::image_handle())?;
     let mut root_dir = proto.open_volume()?;
     let mut dir = root_dir.open(
-        file_name("test_filter")?.as_ref(),
+        file_name("test_staging_buffer")?.as_ref(),
         FileMode::CreateReadWrite,
         FileAttribute::DIRECTORY
     )?;
@@ -291,7 +221,7 @@ fn write_blacklisted(new_address: usize) -> uefi::Result<()> {
     let mut proto = uefi::boot::get_image_file_system(uefi::boot::image_handle())?;
     let mut root_dir = proto.open_volume()?;
     let mut dir = root_dir.open(
-        file_name("test_filter")?.as_ref(),
+        file_name("test_staging_buffer")?.as_ref(),
         FileMode::CreateReadWrite,
         FileAttribute::DIRECTORY
     )?;
@@ -321,110 +251,6 @@ fn write_blacklisted(new_address: usize) -> uefi::Result<()> {
     }
 
     data.push_str(format!("{:04x}\n", new_address).as_str());
-
-    regular_file.set_position(0)?;
-
-    regular_file
-        .write(data.as_bytes())
-        .map_err(|_| uefi::Error::from(uefi::Status::WARN_WRITE_FAILURE))?;
-
-    regular_file.flush()?;
-    regular_file.close();
-
-    root_dir.flush()?;
-    root_dir.close();
-
-    Ok(())
-}
-
-fn write_actually_works(new_address: usize) -> uefi::Result<()> {
-    if new_address >= 0x7c00 {
-        return Ok(());
-    }
-
-    let mut proto = uefi::boot::get_image_file_system(uefi::boot::image_handle())?;
-    let mut root_dir = proto.open_volume()?;
-    let mut dir = root_dir.open(
-        file_name("test_filter")?.as_ref(),
-        FileMode::CreateReadWrite,
-        FileAttribute::DIRECTORY
-    )?;
-    let file = dir.open(
-        file_name("worked.txt")?.as_ref(),
-        FileMode::CreateReadWrite,
-        FileAttribute::empty(),
-    )?;
-
-    let mut regular_file = file
-        .into_regular_file()
-        .ok_or_else(|| uefi::Error::from(uefi::Status::UNSUPPORTED))?;
-
-    let mut buffer = [0u8; 128];
-    let mut data = String::new();
-
-    loop {
-        let read = regular_file.read(&mut buffer)?;
-
-        if read == 0 {
-            break;
-        }
-
-        for i in 0..read {
-            data.push(buffer[i] as char);
-        }
-    }
-
-    data.push_str(format!("{:04x}\n", new_address).as_str());
-
-    regular_file.set_position(0)?;
-
-    regular_file
-        .write(data.as_bytes())
-        .map_err(|_| uefi::Error::from(uefi::Status::WARN_WRITE_FAILURE))?;
-
-    regular_file.flush()?;
-    regular_file.close();
-
-    root_dir.flush()?;
-    root_dir.close();
-
-    Ok(())
-}
-
-fn write_skipped<T: Debug>(new_address: usize, reason: T) -> uefi::Result<()> {
-    let mut proto = uefi::boot::get_image_file_system(uefi::boot::image_handle())?;
-    let mut root_dir = proto.open_volume()?;
-    let mut dir = root_dir.open(
-        file_name("test_filter")?.as_ref(),
-        FileMode::CreateReadWrite,
-        FileAttribute::DIRECTORY
-    )?;
-    let file = dir.open(
-        file_name("skipped.txt")?.as_ref(),
-        FileMode::CreateReadWrite,
-        FileAttribute::empty(),
-    )?;
-
-    let mut regular_file = file
-        .into_regular_file()
-        .ok_or_else(|| uefi::Error::from(uefi::Status::UNSUPPORTED))?;
-
-    let mut buffer = [0u8; 128];
-    let mut data = String::new();
-
-    loop {
-        let read = regular_file.read(&mut buffer)?;
-
-        if read == 0 {
-            break;
-        }
-
-        for i in 0..read {
-            data.push(buffer[i] as char);
-        }
-    }
-
-    data.push_str(format!("{:04x} {:x?}\n", new_address, reason).as_str());
 
     regular_file.set_position(0)?;
 
@@ -445,7 +271,7 @@ fn read_blacklisted() -> uefi::Result<Vec<usize>> {
     let mut proto = uefi::boot::get_image_file_system(uefi::boot::image_handle())?;
     let mut root_dir = proto.open_volume()?;
     let mut dir = root_dir.open(
-        file_name("test_filter")?.as_ref(),
+        file_name("test_staging_buffer")?.as_ref(),
         FileMode::CreateReadWrite,
         FileAttribute::DIRECTORY
     )?;
@@ -474,8 +300,6 @@ fn read_blacklisted() -> uefi::Result<Vec<usize>> {
         }
     }
 
-    let additional_blacklist = include!("../src/blacklist.gen");
-
     Ok(data
         .lines()
         .map(|line| {
@@ -483,29 +307,5 @@ fn read_blacklisted() -> uefi::Result<Vec<usize>> {
                 .map_err(|_| uefi::Error::from(uefi::Status::UNSUPPORTED))
         })
         .filter_map(|v| v.ok())
-        .chain(additional_blacklist.into_iter())
-        .sorted()
         .collect())
-}
-
-fn rdrand() -> (bool, FunctionResult) {
-    let mut result = FunctionResult::default();
-    let flags: u8;
-    lmfence();
-    unsafe {
-        asm! {
-        "xchg {rbx_tmp}, rbx",
-        "rdrand rax",
-        "setc {flags}",
-        "xchg {rbx_tmp}, rbx",
-        inout("rax") 0usize => result.rax,
-        rbx_tmp = inout(reg) 0usize => result.rbx,
-        inout("rcx") 0usize => result.rcx,
-        inout("rdx") 0usize => result.rdx,
-        flags = out(reg_byte) flags,
-        options(nostack),
-        }
-    }
-    lmfence();
-    (flags > 0, result)
 }

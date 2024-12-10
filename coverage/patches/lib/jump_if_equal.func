@@ -6,7 +6,5 @@
 
 # if (index == max) goto label
 
-# A using function must put a index++ and unconditional jump to the label afterwards
-
 {tmp} := SUB_DSZ{data_size}({max}, {index})
 UJMPCC_DIRECT_NOTTAKEN_CONDZ({tmp}, {label})

@@ -10,6 +10,7 @@ emulation = []
 [dependencies]
 log = "0.4.22"
 data_types = { path = "../data_types" }
+ucode_dump = { path = "../ucode_dump" }
 
 [build-dependencies]
 ucode_compiler = { path = "../ucode_compiler", features = ["uasm"] }

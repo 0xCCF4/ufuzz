@@ -7,7 +7,7 @@ use core::arch::asm;
 use coverage::coverage_harness::CoverageHarness;
 use coverage::interface::safe::ComInterface;
 use coverage::{coverage_collector, interface_definition};
-use custom_processing_unit::{call_custom_ucode_function, lmfence, ms_patch_instruction_read, ms_seqw_read, stgbuf_write, CustomProcessingUnit, FunctionResult, StagingBufferAddress};
+use custom_processing_unit::{call_custom_ucode_function, lmfence, ms_patch_instruction_read, ms_seqw_read, CustomProcessingUnit, FunctionResult};
 use data_types::addresses::{Address, UCInstructionAddress};
 use log::info;
 use uefi::prelude::*;

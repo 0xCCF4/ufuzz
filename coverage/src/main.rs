@@ -121,7 +121,7 @@ unsafe fn main() -> Status {
 
 #[rustfmt::skip]
 fn filter_blacklisted_instruction(address: usize) -> bool {
-    let blacklist = include!("blacklist.txt");
+    let blacklist = include!("blacklist.gen");
     !blacklist.contains(&address)
     /*
 

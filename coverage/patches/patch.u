@@ -57,6 +57,11 @@ func setup(tmp0, tmp10, tmp11, tmp12, tmp13, tmp14, tmp15, tmp9)
 
 rax := ZEROEXT_DSZ32(0x6642)
 rax := CONCAT_DSZ32(rax, 0x6642)
+
+NOP SEQW SYNCMARK
+NOPB
+NOP SEQW SYNCFULL
+
 NOPB
 # NOP SEQW LFNCEWAIT, UEND0
 unk_256() !m1 SEQW LFNCEWAIT, UEND0

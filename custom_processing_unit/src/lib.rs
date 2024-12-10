@@ -6,11 +6,12 @@ use data_types::UcodePatchEntry;
 extern crate alloc;
 #[cfg(feature = "no_std")]
 use alloc::{format, string::String};
-use data_types::addresses::{Address, UCInstructionAddress};
+use data_types::addresses::{UCInstructionAddress};
 
 mod helpers;
 pub use helpers::*;
-pub mod dump;
+use ucode_dump::{dump, RomDump};
+
 pub mod patches;
 
 #[derive(Debug)]
@@ -148,35 +149,5 @@ impl Drop for CustomProcessingUnit {
                 log::error!("Failed to zero hooks: {}", e);
             }
         }
-    }
-}
-
-pub struct RomDump<'a, 'b> {
-    instructions: &'a [u64; 0x7c00],
-    sequences: &'b [u32; 0x7c00 / 4],
-}
-
-impl<'a, 'b> RomDump<'a, 'b> {
-    pub const fn new(instructions: &'a [u64; 0x7c00], sequences: &'b [u32; 0x7c00 / 4]) -> Self {
-        RomDump {
-            instructions,
-            sequences,
-        }
-    }
-
-    pub fn instructions(&self) -> &'a [u64; 0x7c00] {
-        self.instructions
-    }
-
-    pub fn sequence_words(&self) -> &'b [u32; 0x7c00 / 4] {
-        self.sequences
-    }
-
-    pub fn get_instruction(&self, address: UCInstructionAddress) -> Option<u64> {
-        self.instructions.get(address.address()).copied()
-    }
-
-    pub fn get_sequence_word(&self, address: UCInstructionAddress) -> Option<u32> {
-        self.sequences.get(address.address() / 4).copied()
     }
 }
