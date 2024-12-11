@@ -5,6 +5,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
 use std::{env, fs};
+use std::ffi::OsStr;
 
 error_chain! {
     errors {
@@ -304,14 +305,16 @@ pub fn build_script_compile_folder<P: AsRef<Path>, Q: AsRef<Path>, C: AsRef<Comp
         );
     }
 
-    println!(
-        "cargo::rerun-if-changed={}",
-        patch_source_folder.as_ref().to_string_lossy()
-    );
-    println!(
-        "cargo::rerun-if-changed={}/*",
-        patch_source_folder.as_ref().to_string_lossy()
-    );
+    if !patch_source_folder.is_temporary() {
+        println!(
+            "cargo::rerun-if-changed={}",
+            patch_source_folder.as_ref().to_string_lossy()
+        );
+        println!(
+            "cargo::rerun-if-changed={}/*",
+            patch_source_folder.as_ref().to_string_lossy()
+        );
+    }
 
     let ucode_compiler = if let Ok(path) = env::var("UASM") {
         PathBuf::from(path).join("uasm.py")
@@ -368,7 +371,9 @@ pub fn build_script_compile_folder<P: AsRef<Path>, Q: AsRef<Path>, C: AsRef<Comp
             .unwrap_or("")
             == "u"
         {
-            println!("cargo::rerun-if-changed={}", patch.to_string_lossy());
+            if !patch.is_temporary() {
+                println!("cargo::rerun-if-changed={}", patch.to_string_lossy());
+            }
             println!("Compiling: {:?}", patch);
 
             let target_file = target_rust_folder
@@ -609,7 +614,9 @@ impl Replacer for IncludeReplacer {
     fn replace_append(&mut self, caps: &Captures<'_>, dst: &mut String) {
         let name = caps.get(2).expect("include path not given").as_str();
         let path = self.cwd.join(name);
-        println!("cargo:rerun-if-changed={}", path.to_string_lossy());
+        if !path.is_temporary() {
+            println!("cargo:rerun-if-changed={}", path.to_string_lossy());
+        }
         let content = std::fs::read_to_string(&path);
 
         match content {
@@ -656,7 +663,9 @@ impl Replacer for FuncIncludeReplacer {
             .collect::<Vec<&str>>();
 
         let path = self.cwd.join(name).with_extension("func");
-        println!("cargo:rerun-if-changed={}", path.to_string_lossy());
+        if !path.is_temporary() {
+            println!("cargo:rerun-if-changed={}", path.to_string_lossy());
+        }
         let content = std::fs::read_to_string(&path);
 
         match content {
@@ -812,7 +821,9 @@ pub fn preprocess_scripts<A: AsRef<Path>, B: AsRef<Path>, C: AsRef<Path>>(
             })?
             .path();
 
-        println!("cargo:rerun-if-changed={}", file.to_string_lossy());
+        if !file.is_temporary() {
+            println!("cargo:rerun-if-changed={}", file.to_string_lossy());
+        }
 
         if file
             .extension()
@@ -899,4 +910,19 @@ pub fn preprocess_scripts<A: AsRef<Path>, B: AsRef<Path>, C: AsRef<Path>>(
     }
 
     Ok(())
+}
+
+trait IsTemporaryPathExt {
+    fn is_temporary(&self) -> bool;
+}
+
+impl<T: AsRef<Path>> IsTemporaryPathExt for T {
+    fn is_temporary(&self) -> bool {
+        let first = self.as_ref().iter().take(2).collect::<Vec<&OsStr>>();
+        if first.len() < 2 {
+            return false;
+        }
+
+        first[0] == "/" && first[1] == "tmp"
+    }
 }

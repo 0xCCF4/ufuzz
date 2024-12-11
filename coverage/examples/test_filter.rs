@@ -4,7 +4,7 @@
 extern crate alloc;
 
 use alloc::format;
-use alloc::string::String;
+use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::arch::asm;
 use core::fmt::Debug;
@@ -102,94 +102,130 @@ unsafe fn main() -> Status {
     };
 
     println!("Blacklisted addresses: {}", blacklisted.len());
-    //for address in blacklisted.iter() {
-    //    println!(" - {:04x}", address);
-    //}
 
     println!("Next address to test: {:04x}", next_address);
 
     if next_address >= 0x7c00 {
-        info!("No more addresses to test");
-        return Status::SUCCESS;
-    }
+        println!("No more addresses to test");
+    } else {
+        for chunk in (next_address..0x7c00).into_iter() {
+            let addresses = UCInstructionAddress::from_const(chunk);
 
-    for chunk in (next_address..0x7c00).into_iter() {
-        let addresses = UCInstructionAddress::from_const(chunk);
+            if (chunk % 2) > 0 || (chunk % 4) >= 3 {
+                // skip
+                if let Err(e) = write_ok(chunk) {
+                    println!("Failed to write ok: {:?}", e);
+                    return Status::ABORTED;
+                }
+                continue;
+            }
 
-        if (chunk % 2) > 0 || (chunk % 4) >= 3 {
-            // skip
+            print!("\r[{}] ", &addresses);
+
+            if let Err(_err) = harness.is_hookable(addresses) {
+                //println!("Not hookable: {err:?}");
+                if let Err(e) = write_ok(chunk) {
+                    println!("Failed to write ok: {:?}", e);
+                    return Status::ABORTED;
+                }
+                continue;
+            }
+
+            if blacklisted.iter().contains(&chunk) {
+                //println!("Blacklisted");
+                if let Err(e) = write_ok(chunk) {
+                    println!("Failed to write ok: {:?}", e);
+                    return Status::ABORTED;
+                }
+                continue;
+            }
+
+            if let Err(e) = harness.execute(
+                &[addresses],
+                |_| {
+                    rdrand();
+                },
+                (),
+            ) {
+                //println!("Failed to execute harness: {:?}", e);
+                match e {
+                    CoverageError::SetupFailed(_) => {
+                        if let Err(err) = write_skipped(chunk, &e) {
+                            println!("Failed to write skipped: {:?}", err);
+                            return Status::ABORTED;
+                        }
+                        uefi::runtime::reset(ResetType::COLD, Status::SUCCESS, None)
+                    },
+                    _ => continue
+                }
+            }
+
             if let Err(e) = write_ok(chunk) {
                 println!("Failed to write ok: {:?}", e);
                 return Status::ABORTED;
             }
-            if let Err(e) = write_ok(chunk) {
-                println!("Failed to write ok: {:?}", e);
+            if let Err(e) = write_actually_works(chunk) {
+                println!("Failed to write actually works: {:?}", e);
                 return Status::ABORTED;
             }
-            continue;
-        }
 
-        print!("\r[{}] ", &addresses);
-
-        if let Err(err) = harness.is_hookable(addresses) {
-            //println!("Not hookable: {err:?}");
-            if let Err(e) = write_ok(chunk) {
-                println!("Failed to write ok: {:?}", e);
-                return Status::ABORTED;
+            if harness.covered(addresses) {
+                println!("Covered");
+                if let Err(e) = write_covered(chunk) {
+                    println!("Failed to write covered: {:?}", e);
+                    return Status::ABORTED;
+                }
             }
-            continue;
-        }
-
-        if blacklisted.iter().contains(&chunk) {
-            println!("Blacklisted");
-            if let Err(e) = write_ok(chunk) {
-                println!("Failed to write ok: {:?}", e);
-                return Status::ABORTED;
-            }
-            if let Err(e) = write_ok(chunk) {
-                println!("Failed to write ok: {:?}", e);
-                return Status::ABORTED;
-            }
-            continue;
-        }
-
-        if let Err(e) = harness.execute(
-            &[addresses],
-            |_| {
-                rdrand();
-            },
-            (),
-        ) {
-            //println!("Failed to execute harness: {:?}", e);
-            if let Err(err) = write_skipped(chunk, &e) {
-                println!("Failed to write skipped: {:?}", err);
-                return Status::ABORTED;
-            }
-            match e {
-                CoverageError::SetupFailed(_) => uefi::runtime::reset(ResetType::COLD, Status::SUCCESS, None),
-                _ => continue
-            }
-        }
-
-        if let Err(e) = write_ok(chunk) {
-            println!("Failed to write ok: {:?}", e);
-            return Status::ABORTED;
-        }
-        if let Err(e) = write_ok(chunk) {
-            println!("Failed to write ok: {:?}", e);
-            return Status::ABORTED;
-        }
-        if let Err(e) = write_actually_works(chunk) {
-            println!("Failed to write actually works: {:?}", e);
-            return Status::ABORTED;
-        }
-
-        if harness.covered(addresses) {
-            println!("Covered");
         }
     }
 
     drop(harness);
+
+    let actually_worked = match read_actually_works() {
+        Ok(actually_worked) => actually_worked,
+        Err(e) => {
+            println!("Failed to read actually worked addresses: {:?}", e);
+            return Status::ABORTED;
+        }
+    };
+    let skipped = match read_skipped() {
+        Ok(skipped) => skipped,
+        Err(e) => {
+            println!("Failed to read skipped addresses: {:?}", e);
+            return Status::ABORTED;
+        }
+    };
+    let blacklisted = match read_blacklisted() {
+        Ok(blacklisted) => blacklisted,
+        Err(e) => {
+            println!("Failed to read blacklisted addresses: {:?}", e);
+            return Status::ABORTED;
+        }
+    };
+    let blacklisted_raw = match read_blacklisted_raw() {
+        Ok(blacklisted_raw) => blacklisted_raw,
+        Err(e) => {
+            println!("Failed to read blacklisted raw addresses: {:?}", e);
+            return Status::ABORTED;
+        }
+    };
+
+    let skipped = 0x7c00 - actually_worked.len() - blacklisted_raw.len();
+
+    let mut summary = String::new();
+    summary.push_str(format!("Summary\n----------------------------------\n").as_str());
+    summary.push_str(format!("Total:           {:5}\n", 0x7c00).as_str());
+    summary.push_str(format!("Excluded:        {:5} {:2.2}%\n", blacklisted.len(), (blacklisted.len() as f64 / 0x7c00 as f64) * 100.0).as_str());
+    summary.push_str(format!("Skipped:         {:5} {:2.2}%\n", skipped, (skipped as f64 / 0x7c00 as f64) * 100.0).as_str());
+    summary.push_str(format!("Actually tested: {:5} {:2.2}%\n", actually_worked.len()+blacklisted_raw.len(), ((actually_worked.len()+blacklisted_raw.len()) as f64 / 0x7c00 as f64) * 100.0).as_str());
+    summary.push_str(format!(" - Worked:       {:5} {:2.2}%\n", actually_worked.len(), (actually_worked.len() as f64 / 0x7c00 as f64) * 100.0).as_str());
+    summary.push_str(format!(" - Blacklisted:  {:5} {:2.2}%\n", blacklisted_raw.len(), (blacklisted_raw.len() as f64 / 0x7c00 as f64) * 100.0).as_str());
+    summary.push_str("\n\n\n\n");
+
+    println!("{}", summary);
+    if let Err(err) = append_string_to_file(summary.as_str(), "summary.txt") {
+        println!("Failed to write summary: {:?}", err);
+    }
 
     if let Err(err) = cpu.zero_hooks() {
         println!("Failed to zero hooks: {:?}", err);
@@ -283,11 +319,7 @@ fn write_ok(address: usize) -> uefi::Result<()> {
     Ok(())
 }
 
-fn write_blacklisted(new_address: usize) -> uefi::Result<()> {
-    if new_address >= 0x7c00 {
-        return Ok(());
-    }
-
+fn append_string_to_file(text: &str, name: &str) -> uefi::Result<()> {
     let mut proto = uefi::boot::get_image_file_system(uefi::boot::image_handle())?;
     let mut root_dir = proto.open_volume()?;
     let mut dir = root_dir.open(
@@ -296,7 +328,7 @@ fn write_blacklisted(new_address: usize) -> uefi::Result<()> {
         FileAttribute::DIRECTORY
     )?;
     let file = dir.open(
-        file_name("blacklist.txt")?.as_ref(),
+        file_name(name)?.as_ref(),
         FileMode::CreateReadWrite,
         FileAttribute::empty(),
     )?;
@@ -320,7 +352,7 @@ fn write_blacklisted(new_address: usize) -> uefi::Result<()> {
         }
     }
 
-    data.push_str(format!("{:04x}\n", new_address).as_str());
+    data.push_str(text);
 
     regular_file.set_position(0)?;
 
@@ -335,113 +367,29 @@ fn write_blacklisted(new_address: usize) -> uefi::Result<()> {
     root_dir.close();
 
     Ok(())
+}
+
+fn append_address_to_file(new_address: usize, name: &str, reason: &str) -> uefi::Result<()> {
+    append_string_to_file(format!("{:04x} {}\n", new_address, reason).as_str(), name)
+}
+
+fn write_blacklisted(new_address: usize) -> uefi::Result<()> {
+    append_address_to_file(new_address, "blacklist.txt", "")
 }
 
 fn write_actually_works(new_address: usize) -> uefi::Result<()> {
-    if new_address >= 0x7c00 {
-        return Ok(());
-    }
-
-    let mut proto = uefi::boot::get_image_file_system(uefi::boot::image_handle())?;
-    let mut root_dir = proto.open_volume()?;
-    let mut dir = root_dir.open(
-        file_name("test_filter")?.as_ref(),
-        FileMode::CreateReadWrite,
-        FileAttribute::DIRECTORY
-    )?;
-    let file = dir.open(
-        file_name("worked.txt")?.as_ref(),
-        FileMode::CreateReadWrite,
-        FileAttribute::empty(),
-    )?;
-
-    let mut regular_file = file
-        .into_regular_file()
-        .ok_or_else(|| uefi::Error::from(uefi::Status::UNSUPPORTED))?;
-
-    let mut buffer = [0u8; 128];
-    let mut data = String::new();
-
-    loop {
-        let read = regular_file.read(&mut buffer)?;
-
-        if read == 0 {
-            break;
-        }
-
-        for i in 0..read {
-            data.push(buffer[i] as char);
-        }
-    }
-
-    data.push_str(format!("{:04x}\n", new_address).as_str());
-
-    regular_file.set_position(0)?;
-
-    regular_file
-        .write(data.as_bytes())
-        .map_err(|_| uefi::Error::from(uefi::Status::WARN_WRITE_FAILURE))?;
-
-    regular_file.flush()?;
-    regular_file.close();
-
-    root_dir.flush()?;
-    root_dir.close();
-
-    Ok(())
+    append_address_to_file(new_address, "actually_works.txt", "")
 }
 
 fn write_skipped<T: Debug>(new_address: usize, reason: T) -> uefi::Result<()> {
-    let mut proto = uefi::boot::get_image_file_system(uefi::boot::image_handle())?;
-    let mut root_dir = proto.open_volume()?;
-    let mut dir = root_dir.open(
-        file_name("test_filter")?.as_ref(),
-        FileMode::CreateReadWrite,
-        FileAttribute::DIRECTORY
-    )?;
-    let file = dir.open(
-        file_name("skipped.txt")?.as_ref(),
-        FileMode::CreateReadWrite,
-        FileAttribute::empty(),
-    )?;
-
-    let mut regular_file = file
-        .into_regular_file()
-        .ok_or_else(|| uefi::Error::from(uefi::Status::UNSUPPORTED))?;
-
-    let mut buffer = [0u8; 128];
-    let mut data = String::new();
-
-    loop {
-        let read = regular_file.read(&mut buffer)?;
-
-        if read == 0 {
-            break;
-        }
-
-        for i in 0..read {
-            data.push(buffer[i] as char);
-        }
-    }
-
-    data.push_str(format!("{:04x} {:x?}\n", new_address, reason).as_str());
-
-    regular_file.set_position(0)?;
-
-    regular_file
-        .write(data.as_bytes())
-        .map_err(|_| uefi::Error::from(uefi::Status::WARN_WRITE_FAILURE))?;
-
-    regular_file.flush()?;
-    regular_file.close();
-
-    root_dir.flush()?;
-    root_dir.close();
-
-    Ok(())
+    append_address_to_file(new_address, "skipped.txt", &format!("{:?}", reason))
 }
 
-fn read_blacklisted() -> uefi::Result<Vec<usize>> {
+fn write_covered(new_address: usize) -> uefi::Result<()> {
+    append_address_to_file(new_address, "covered.txt", "")
+}
+
+fn read_file(name: &str) -> uefi::Result<Vec<(usize, String)>> {
     let mut proto = uefi::boot::get_image_file_system(uefi::boot::image_handle())?;
     let mut root_dir = proto.open_volume()?;
     let mut dir = root_dir.open(
@@ -450,7 +398,7 @@ fn read_blacklisted() -> uefi::Result<Vec<usize>> {
         FileAttribute::DIRECTORY
     )?;
     let file = dir.open(
-        file_name("blacklist.txt")?.as_ref(),
+        file_name(name)?.as_ref(),
         FileMode::CreateReadWrite,
         FileAttribute::empty(),
     )?;
@@ -473,19 +421,57 @@ fn read_blacklisted() -> uefi::Result<Vec<usize>> {
             data.push(buffer[i] as char);
         }
     }
-
-    let additional_blacklist = include!("../src/blacklist.gen");
 
     Ok(data
         .lines()
-        .map(|line| {
-            usize::from_str_radix(line, 16)
-                .map_err(|_| uefi::Error::from(uefi::Status::UNSUPPORTED))
+        .filter(|line| {
+            !(line.starts_with("//") || line.starts_with("#") || line.is_empty())
         })
-        .filter_map(|v| v.ok())
+        .filter_map(|line| {
+            let (address, reason) = line.split_once(" ").unwrap_or((line, ""));
+            usize::from_str_radix(address, 16)
+                .map_err(|_| uefi::Error::from(uefi::Status::UNSUPPORTED)).ok().map(|address| (address, reason.to_string()))
+        })
+        .collect())
+}
+
+fn read_blacklisted() -> uefi::Result<Vec<usize>> {
+    let additional_blacklist = include!("../src/blacklist.gen");
+
+    Ok(read_file("blacklist.txt")?
+        .into_iter()
+        .map(|(address, _)| address)
         .chain(additional_blacklist.into_iter())
         .sorted()
-        .collect())
+        .collect_vec())
+}
+
+fn read_blacklisted_raw() -> uefi::Result<Vec<usize>> {
+    Ok(read_file("blacklist.txt")?
+        .into_iter()
+        .map(|(address, _)| address)
+        .sorted()
+        .collect_vec())
+}
+
+fn read_covered() -> uefi::Result<Vec<usize>> {
+    Ok(read_file("covered.txt")?
+        .into_iter()
+        .map(|(address, _)| address)
+        .sorted()
+        .collect_vec())
+}
+
+fn read_skipped() -> uefi::Result<Vec<(usize, String)>> {
+    read_file("skipped.txt")
+}
+
+fn read_actually_works() -> uefi::Result<Vec<usize>> {
+    Ok(read_file("actually_works.txt")?
+        .into_iter()
+        .map(|(address, _)| address)
+        .sorted()
+        .collect_vec())
 }
 
 fn rdrand() -> (bool, FunctionResult) {

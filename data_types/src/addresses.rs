@@ -172,6 +172,10 @@ impl UCInstructionAddress {
         (self.0 & 3) as u8
     }
 
+    pub const fn with_triad_offset(&self, offset: u8) -> Self {
+        UCInstructionAddress::from_const((self.0 & !3) | offset as usize)
+    }
+
     pub const fn is_offset_by(&self, offset: u8) -> bool {
         self.triad_offset() == offset
     }

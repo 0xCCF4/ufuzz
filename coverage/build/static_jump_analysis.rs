@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use itertools::Itertools;
 use ucode_compiler::utils::sequence_word::SequenceWord;
-use ucode_dump::dump::{ROMS, ROMS_DISASM};
+use ucode_dump::dump::{ROMS_DISASM};
 use ucode_dump::{dump, RomDump};
 use data_types::addresses::{Address, UCInstructionAddress};
 
@@ -19,12 +19,16 @@ fn analyse_jumps(rom: &RomDump<'static, 'static>) {
         let sequence_word = SequenceWord::disassemble_no_crc_check(*sequence_word).expect("Failed to disassemble sequence word");
 
         if let Some(goto) = sequence_word.goto() {
-            jump_towards.entry(goto.value).or_default().push(UCInstructionAddress::from_const(i * 4));
+            jump_towards.entry(goto.value).or_default().push(UCInstructionAddress::from_const(i * 4).with_triad_offset(goto.apply_to_index));
         }
     }
 
-    // hacky, but need to get the job done
-    let regex_find_address = regex::Regex::new("GOTO U([0-9a-fA-F]{4})").unwrap();
+    println!("Total sequence word jump targets: {}", jump_towards.len());
+    println!("Total odd sequence word jump targets: {}", jump_towards.iter().filter(|x| x.0.is_odd()).count());
+
+
+    // hacky, but need to get the job done fast
+    let regex_find_address = regex::Regex::new("U([0-9a-fA-F]{4})").unwrap();
     let regex_find_goto = regex::Regex::new("GOTO U([0-9a-fA-F]{4})").unwrap();
     let dissassembly = ROMS_DISASM.iter().find(|x| x.model() == rom.model()).unwrap().dissassembly();
     for line in dissassembly.lines() {
@@ -34,27 +38,18 @@ fn analyse_jumps(rom: &RomDump<'static, 'static>) {
 
             for capture in regex_find_address.captures_iter(&content_no_goto) {
                 let goto_address = usize::from_str_radix(&capture.get(1).unwrap().as_str(), 16).unwrap();
-                jump_towards.entry(UCInstructionAddress::from_const(goto_address)).or_default().push(UCInstructionAddress::from(address));
+                jump_towards.entry(UCInstructionAddress::from_const(goto_address)).or_default().push(UCInstructionAddress::from_const(address));
             }
         }
     }
 
-    for x in jump_towards.iter() {
-        println!("{} -> {:?}", x.0, x.1);
-    }
+    println!("Total jumps: {}", jump_towards.len());
 
     let odd_targets = jump_towards.iter().filter(|x| x.0.is_odd()).collect_vec();
 
     println!("Total: {}", jump_towards.len());
     println!("Event targets: {}", jump_towards.iter().filter(|x| x.0.is_even()).count());
     println!("Odd targets: {}", odd_targets.len());
-
-    println!("Double odd jumps:");
-    for x in &odd_targets {
-        if x.1.iter().any(|x| x.is_odd()) {
-            println!("{} -> {:?}", x.0, x.1);
-        }
-    }
 
     let mut blacklist = String::new();
 

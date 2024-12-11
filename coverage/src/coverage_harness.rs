@@ -161,10 +161,6 @@ impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
             return Err(NotHookableReason::ConditionalJump);
         }
 
-        if opcode.is_conditional_jump() {
-            return Err(NotHookableReason::TodoCondJump);
-        }
-
         Ok(())
     }
 
@@ -186,14 +182,22 @@ impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
         if sequence_word.control().is_some() {
             return Err(NotHookableReason::ControlOpPresent);
         }
-        if sequence_word.sync().is_some() {
-            return Err(NotHookableReason::TodoSyncOp);
-        }
         if sequence_word.goto().is_some() {
             return Err(NotHookableReason::TodoJump);
         }
 
-        sequence_word.set_goto((hooked_address.triad_offset()+2).min(2), hooked_address.next_even_address());
+        match sequence_word.goto() {
+            Some(goto) => {
+                if goto.apply_to_index >= hooked_address.triad_offset() {
+                    // do nothing, since jump will be automatically taken
+                } else {
+                    sequence_word.set_goto((hooked_address.triad_offset()+2).min(2), hooked_address.next_even_address());
+                }
+            }
+            None => {
+                sequence_word.set_goto((hooked_address.triad_offset()+2).min(2), hooked_address.next_even_address());
+            }
+        }
 
         Ok([
             instructions[0],
