@@ -733,7 +733,7 @@ impl Replacer for RepeatReplacer {
                 dst.push_str("#------------- REPEAT\n");
                 for i in 0..amount {
                     dst.push_str(format!("# REP: {i}\n").as_str());
-                    dst.push_str(content.trim());
+                    dst.push_str(content.trim().replace("\\n", "\n").as_str());
                     dst.push('\n');
                 }
                 dst.push_str("#------------- END REPEAT\n");

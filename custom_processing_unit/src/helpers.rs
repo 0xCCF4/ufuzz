@@ -598,3 +598,15 @@ pub fn restore_hooks(previous_value: usize) -> usize {
 pub fn read_hook_status() -> usize {
     crbus_read(0x692)
 }
+
+fn read_ucode_clock() -> u64 {
+    crbus_read(0x22d7) as u64
+}
+
+pub fn unwrap_ucode_clock(value: u64) -> u64 {
+    (value & 0xffffffffffffff) * 0x39 + (value >> 0x37)
+}
+
+pub fn read_unwrap_ucode_clock() -> u64 {
+    unwrap_ucode_clock(read_ucode_clock())
+}

@@ -1,8 +1,6 @@
 #[allow(clippy::missing_safety_doc)] // todo: remove this and write safety docs
 pub mod raw {
-    use crate::interface_definition::{
-        ComInterfaceDescription, CoverageEntry, InstructionTableEntry, JumpTableEntry,
-    };
+    use crate::interface_definition::{ClockTableEntry, ClockTableSettingsEntry, ComInterfaceDescription, CoverageEntry, InstructionTableEntry, JumpTableEntry};
     use core::ptr::NonNull;
     use data_types::addresses::{Address, UCInstructionAddress};
 
@@ -131,6 +129,74 @@ pub mod raw {
                 self.write_instruction_table(index, value.into());
             }
         }
+
+        unsafe fn clock_table(&self) -> NonNull<ClockTableEntry> {
+            self.base
+                .add(self.description.offset_clock_table)
+                .cast()
+        }
+
+        unsafe fn clock_table_settings(&self) -> NonNull<ClockTableSettingsEntry> {
+            self.base
+                .add(self.description.offset_clock_table_settings)
+                .cast()
+        }
+
+        pub unsafe fn write_clock_table(&mut self, index: usize, value: ClockTableEntry) {
+            if index >= self.description.max_number_of_hooks.into() {
+                return;
+            }
+
+            self.clock_table().add(index).write_volatile(value);
+        }
+
+        pub unsafe fn write_clock_table_settings(&mut self, index: usize, value: ClockTableSettingsEntry) {
+            if index >= self.description.max_number_of_hooks.into() {
+                return;
+            }
+
+            self.clock_table_settings().add(index).write_volatile(value);
+        }
+
+        pub unsafe fn write_clock_table_all<T: IntoIterator<Item = ClockTableEntry>>(&mut self, values: T) {
+            for (index, value) in values.into_iter().enumerate() {
+                self.write_clock_table(index, value);
+            }
+        }
+
+        pub unsafe fn write_clock_table_settings_all<T: IntoIterator<Item = ClockTableSettingsEntry>>(&mut self, values: T) {
+            for (index, value) in values.into_iter().enumerate() {
+                self.write_clock_table_settings(index, value);
+            }
+        }
+
+        pub unsafe fn read_clock_table(&self, index: usize) -> ClockTableEntry {
+            if index >= self.description.max_number_of_hooks.into() {
+                return 0;
+            }
+
+            self.clock_table().add(index).read_volatile()
+        }
+
+        pub unsafe fn read_clock_table_settings(&self, index: usize) -> ClockTableSettingsEntry {
+            if index >= self.description.max_number_of_hooks.into() {
+                return 0;
+            }
+
+            self.clock_table_settings().add(index).read_volatile()
+        }
+
+        pub unsafe fn zero_clock_table(&mut self) {
+            for i in 0..self.description.max_number_of_hooks as usize {
+                self.write_clock_table(i, 0);
+            }
+        }
+
+        pub unsafe fn zero_clock_table_settings(&mut self) {
+            for i in 0..self.description.max_number_of_hooks as usize {
+                self.write_clock_table_settings(i, 0);
+            }
+        }
     }
 }
 
@@ -220,6 +286,38 @@ pub mod safe {
             values: T,
         ) {
             unsafe { self.base.write_instruction_table_all(values) }
+        }
+
+        pub fn write_clock_table(&mut self, index: usize, value: u64) {
+            unsafe { self.base.write_clock_table(index, value) }
+        }
+
+        pub fn write_clock_table_settings(&mut self, index: usize, value: u16) {
+            unsafe { self.base.write_clock_table_settings(index, value) }
+        }
+
+        pub fn write_clock_table_all<T: IntoIterator<Item = u64>>(&mut self, values: T) {
+            unsafe { self.base.write_clock_table_all(values) }
+        }
+
+        pub fn write_clock_table_settings_all<T: IntoIterator<Item = u16>>(&mut self, values: T) {
+            unsafe { self.base.write_clock_table_settings_all(values) }
+        }
+
+        pub fn read_clock_table(&self, index: usize) -> u64 {
+            unsafe { self.base.read_clock_table(index) }
+        }
+
+        pub fn read_clock_table_settings(&self, index: usize) -> u16 {
+            unsafe { self.base.read_clock_table_settings(index) }
+        }
+
+        pub fn zero_clock_table(&mut self) {
+            unsafe { self.base.zero_clock_table() }
+        }
+
+        pub fn zero_clock_table_settings(&mut self) {
+            unsafe { self.base.zero_clock_table_settings() }
         }
     }
 }

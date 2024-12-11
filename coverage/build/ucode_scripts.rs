@@ -1,7 +1,5 @@
 use crate::interface_definition;
-use crate::interface_definition::{
-    ComInterfaceDescription, CoverageEntry, InstructionTableEntry, JumpTableEntry,
-};
+use crate::interface_definition::{ClockTableEntry, ClockTableSettingsEntry, ComInterfaceDescription, CoverageEntry, InstructionTableEntry, JumpTableEntry};
 use std::path::Path;
 use ucode_compiler::uasm::{CompilerOptions, AUTOGEN};
 
@@ -156,6 +154,16 @@ fn generate_interface_definitions<A: AsRef<Path>>(
         "base address of the instruction table",
     ));
     definitions.push((
+        "address_clock_table_base",
+        interface.base as usize + interface.offset_clock_table,
+        "base address of the clock table",
+    ));
+    definitions.push((
+        "address_clock_settings_table_base",
+        interface.base as usize + interface.offset_clock_table_settings,
+        "base address of the clock settings table",
+    ));
+    definitions.push((
         "table_length",
         interface.max_number_of_hooks as usize,
         "number of entries in the tables",
@@ -176,6 +184,16 @@ fn generate_interface_definitions<A: AsRef<Path>>(
         "size of the instruction table in bytes",
     ));
     definitions.push((
+        "table_size_clock",
+        interface.max_number_of_hooks as usize * size_of::<ClockTableEntry>(),
+        "size of the clock table in bytes",
+    ));
+    definitions.push((
+        "table_size_clock_settings",
+        interface.max_number_of_hooks as usize * size_of::<ClockTableSettingsEntry>(),
+        "size of the clock settings table in bytes",
+    ));
+    definitions.push((
         "size_jump_table_entry",
         size_of::<JumpTableEntry>(),
         "size of a jump table entry in bytes",
@@ -190,9 +208,21 @@ fn generate_interface_definitions<A: AsRef<Path>>(
         size_of::<InstructionTableEntry>(),
         "size of a instruction table entry in bytes",
     ));
+    definitions.push((
+        "size_clock_table_entry",
+        size_of::<ClockTableEntry>(),
+        "size of a clock table entry in bytes",
+    ));
+    definitions.push((
+        "size_clock_table_settings_entry",
+        size_of::<ClockTableSettingsEntry>(),
+        "size of a clock settings table entry in bytes",
+    ));
     assert!(size_of::<JumpTableEntry>().is_power_of_two());
     assert!(size_of::<CoverageEntry>().is_power_of_two());
     assert!(size_of::<InstructionTableEntry>().is_power_of_two());
+    assert!(size_of::<ClockTableEntry>().is_power_of_two());
+    assert!(size_of::<ClockTableSettingsEntry>().is_power_of_two());
     definitions.push((
         "convert_index_to_jump_table_offset",
         size_of::<JumpTableEntry>().ilog2() as usize,
@@ -207,6 +237,16 @@ fn generate_interface_definitions<A: AsRef<Path>>(
         "convert_index_to_instruction_table_offset",
         size_of::<InstructionTableEntry>().ilog2() as usize,
         "shift by this amount to get the offset in the instruction table",
+    ));
+    definitions.push((
+        "convert_index_to_clock_table_offset",
+        size_of::<ClockTableEntry>().ilog2() as usize,
+        "shift by this amount to get the offset in the clock table",
+    ));
+    definitions.push((
+        "convert_index_to_clock_settings_table_offset",
+        size_of::<ClockTableSettingsEntry>().ilog2() as usize,
+        "shift by this amount to get the offset in the clock settings table",
     ));
     //assert!(interface.offset_timing_table > interface.offset_coverage_result_table);
     //assert!(interface.offset_jump_back_table > interface.offset_timing_table);

@@ -1,0 +1,42 @@
+# ARG0 : {offset_input} table offset, copied not modified
+# ARG1 : {0} current coverage value
+# ARG2 : {1}
+# ARG3 : {2}
+
+# check if clock table settings entry == previous coverage
+
+{1} := AND_DSZ32([index_mask], {offset_input})
+{1} := SHL_DSZ32({1}, [convert_index_to_clock_settings_table_offset])
+{2} := ZEROEXT_DSZ32([address_clock_settings_table_base])
+
+{1} := LDPPHYS_DSZ16_ASZ32_SC1({1}, {2})
+
+{0} := SUB_DSZ16({0}, 0x01) # previous coverage value
+
+# branch predict to be false
+{0} := SUB_DSZ16({0}, {1})
+{1} := ZEROEXT_DSZ32(0x00)
+
+repeat 16 : {1} := OR_DSZ16({1}, {0}) \n {0} := SHR_DSZ16({0}, 0x01)
+
+{1} := AND_DSZ32({1}, 0x01)
+{1} := XOR_DSZ32({1}, 0x01)
+{1} := SHL_DSZ32({1}, 0x02)
+{1} := ADD_DSZ32({1}, <rc_time_jump_not_zero>)
+
+UJMP(, {1})
+
+NOPB
+<rc_time_jump_not_zero>
+NOP SEQW GOTO <rc_dont_record_timestamp>
+NOPB
+<rc_time_jump_zero>
+
+{1} := AND_DSZ32([index_mask], {offset_input})
+{1} := SHL_DSZ32({1}, [convert_index_to_clock_table_offset])
+{2} := ZEROEXT_DSZ32([address_clock_table_base])
+
+{0} := MOVEFROMCREG_DSZ64( , 0x2d7) !m1,m2 # clock value
+STADPPHYS_DSZ64_ASZ32_SC1({2}, {1}, {0})
+
+<rc_dont_record_timestamp>

@@ -2,9 +2,9 @@
 # ARG1: {val2}
 # ARG2: {tmp} - temporary value
 # ARG3: {data_size} - data size of the comparison
-# ARG4: {label} - label to jump to if val1 == val2
+# ARG4: {label} - label to jump to if val1 != val2
 
-# if (val1 == val2) goto label
+# if (val1 != val2) goto label
 
 {tmp} := SUB_DSZ{data_size}({val2}, {val1})
-UJMPCC_DIRECT_NOTTAKEN_CONDZ({tmp}, {label})
+UJMPCC_DIRECT_NOTTAKEN_CONDNZ({tmp}, {label})

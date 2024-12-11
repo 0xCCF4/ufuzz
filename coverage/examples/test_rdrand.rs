@@ -4,6 +4,8 @@
 extern crate alloc;
 
 use core::arch::asm;
+use core::fmt::Debug;
+use itertools::Itertools;
 use coverage::coverage_harness::CoverageHarness;
 use coverage::interface::safe::ComInterface;
 use coverage::{coverage_collector, interface_definition};
@@ -68,7 +70,6 @@ unsafe fn main() -> Status {
 
     let addresses = [
         UCInstructionAddress::from_const(0x428),
-        //UCInstructionAddress::from_const(0x42a),
     ];
 
     if let Err(err) = harness.setup(&addresses) {
@@ -79,18 +80,25 @@ unsafe fn main() -> Status {
 
     println!("Coverage: {}", harness.get_coverage()[addresses[0].address()]);
 
-    print!("Coverage: ");
-    let x = harness.execute(&addresses, |_| {
+    execute(&mut harness, &addresses, || {
         rdrand()
-    }, ());
-    println!("{:x} : {:x?}", harness.get_coverage()[addresses[0].address()], x);
+    });
 
-    print!("Coverage: ");
-    let x = harness.execute(&addresses, |_| {
+    execute(&mut harness, &addresses, || {
+        rdrand()
+    });
+
+    execute(&mut harness, &addresses, || {
+        for _ in 0..100 {
+            lmfence();
+        }
+        rdrand()
+    });
+
+    execute(&mut harness, &addresses, || {
         (rdrand(), rdrand())
         //(call_custom_ucode_function(UCInstructionAddress::from_const(0x429), [0,0,0]), call_custom_ucode_function(UCInstructionAddress::from_const(0x429), [0,0,0]))
-    }, ());
-    println!("{:x} : {:x?}", harness.get_coverage()[addresses[0].address()], x);
+    });
 
     drop(harness);
 
@@ -106,6 +114,23 @@ unsafe fn main() -> Status {
     println!("Exit!");
 
     Status::SUCCESS
+}
+
+fn execute<R: Debug, F: FnOnce() -> R>(coverage_harness: &mut CoverageHarness, addresses: &[UCInstructionAddress], func: F) {
+    print!("Coverage: ");
+    let x = coverage_harness.execute(&addresses, |_| func(), ());
+    match x {
+        Err(err ) => println!("Error: {:?}", err),
+        Ok(x) => {
+            print!("{} ", addresses.iter().map(|address| {
+                coverage_harness.get_coverage()[address.address()]
+            }).join(","));
+            println!("\n{:x?}", x.result);
+            for entry in x.hooks {
+                println!(" - {:?}", entry);
+            }
+        }
+    }
 }
 
 fn print_status() {

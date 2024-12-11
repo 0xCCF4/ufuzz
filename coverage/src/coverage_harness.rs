@@ -1,9 +1,10 @@
 use crate::coverage_collector;
 use crate::interface::safe::ComInterface;
-use crate::interface_definition::{CoverageEntry, InstructionTableEntry};
+use crate::interface_definition::{ClockTableSettingsEntry, CoverageEntry, InstructionTableEntry};
 #[cfg(feature = "no_std")]
 use alloc::vec::Vec;
-use custom_processing_unit::{apply_patch, call_custom_ucode_function, disable_all_hooks, enable_hooks, lmfence, restore_hooks, CustomProcessingUnit, FunctionResult};
+use core::fmt::Debug;
+use custom_processing_unit::{apply_patch, call_custom_ucode_function, disable_all_hooks, enable_hooks, lmfence, read_unwrap_ucode_clock, restore_hooks, unwrap_ucode_clock, CustomProcessingUnit, FunctionResult};
 use data_types::addresses::{Address, UCInstructionAddress};
 use itertools::Itertools;
 use ucode_compiler::utils::instruction::Instruction;
@@ -50,15 +51,13 @@ impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
     }
 
     #[inline(always)]
-    fn pre_execution(&mut self, hooks: &[UCInstructionAddress]) -> Result<(), CoverageError> {
-        self.interface.reset_coverage();
-
+    fn pre_execution(&mut self, hooks: &[(UCInstructionAddress, ClockTableSettingsEntry)]) -> Result<(), CoverageError> {
         if hooks.len() > self.interface.description().max_number_of_hooks as usize {
             return Err(CoverageError::TooManyHooks);
         }
 
         let mut instructions = Vec::with_capacity(hooks.len());
-        for hook in hooks {
+        for (hook, _) in hooks {
             if let Err(err) = self.is_hookable(*hook) {
                 return Err(CoverageError::AddressNotHookable(*hook, err));
             }
@@ -89,8 +88,11 @@ impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
             );
         }
 
-        self.interface.write_jump_table_all(hooks);
+        self.interface.write_jump_table_all(hooks.iter().map(|(v, _)| *v));
+        self.interface.write_clock_table_settings_all(hooks.iter().map(|(_, v)| *v));
         self.interface.write_instruction_table_all(instructions);
+        self.interface.zero_clock_table();
+        self.interface.reset_coverage();
 
         let result =
             call_custom_ucode_function(coverage_collector::LABEL_FUNC_SETUP, [hooks.len(), 0, 0]);
@@ -103,14 +105,30 @@ impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
     }
 
     #[inline(always)]
-    fn post_execution(&mut self, hooks: &[UCInstructionAddress]) {
-        for (index, address) in hooks.iter().enumerate() {
+    fn post_execution(&mut self, hooks: &[(UCInstructionAddress, ClockTableSettingsEntry)], start_time: u64) -> Vec<ExecutionResultEntry> {
+        let mut result = Vec::with_capacity(hooks.len());
+        for (index, (address, _)) in hooks.iter().enumerate() {
             let covered = self.interface.read_coverage_table(index);
             self.coverage[address.address()] += covered;
+
+            result.push(if covered > 0 {
+                ExecutionResultEntry::Covered {
+                    count: covered,
+                    timing: unwrap_ucode_clock(self.interface.read_clock_table(index)).wrapping_sub(start_time),
+                }
+            } else {
+                ExecutionResultEntry::NotCovered
+            });
         }
+        result
     }
 
     pub fn setup(&mut self, hooks: &[UCInstructionAddress]) -> Result<(), CoverageError> {
+        let hooks = hooks.iter().map(|v| (*v, 0)).collect_vec();
+        self.pre_execution(&hooks)
+    }
+
+    pub fn setup_with_timing_measurement(&mut self, hooks: &[(UCInstructionAddress, ClockTableSettingsEntry)]) -> Result<(), CoverageError> {
         self.pre_execution(hooks)
     }
 
@@ -119,8 +137,20 @@ impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
         hooks: &[UCInstructionAddress],
         func: F,
         param: T,
-    ) -> Result<R, CoverageError> {
+    ) -> Result<ExecutionResult<R>, CoverageError> {
+        let hooks = hooks.iter().map(|v| (*v, 0)).collect_vec();
+
+        self.execute_with_timing_measurement(hooks.as_ref(), func, param)
+    }
+
+    pub fn execute_with_timing_measurement<T, R, F: FnOnce(T) -> R>(
+        &mut self,
+        hooks: &[(UCInstructionAddress, ClockTableSettingsEntry)],
+        func: F,
+        param: T,
+    ) -> Result<ExecutionResult<R>, CoverageError> {
         self.pre_execution(hooks)?;
+        let start_time = read_unwrap_ucode_clock();
         enable_hooks();
 
         lmfence();
@@ -128,9 +158,12 @@ impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
         lmfence();
 
         disable_all_hooks();
-        self.post_execution(hooks);
+        let timing = self.post_execution(hooks, start_time);
 
-        Ok(result)
+        Ok(ExecutionResult {
+            result,
+            hooks: timing,
+        })
     }
 
     pub fn covered<A: AsRef<UCInstructionAddress>>(&self, address: A) -> bool {
@@ -182,9 +215,6 @@ impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
         if sequence_word.control().is_some() {
             return Err(NotHookableReason::ControlOpPresent);
         }
-        if sequence_word.goto().is_some() {
-            return Err(NotHookableReason::TodoJump);
-        }
 
         match sequence_word.goto() {
             Some(goto) => {
@@ -213,7 +243,7 @@ impl<'a, 'b, 'c> Drop for CoverageHarness<'a, 'b, 'c> {
         let mut v = Vec::with_capacity(self.interface.description().max_number_of_hooks as usize);
 
         for _ in 0..self.interface.description().max_number_of_hooks {
-            v.push(UCInstructionAddress::ZERO);
+            v.push((UCInstructionAddress::ZERO, 0));
         }
 
         // zero hooks
@@ -236,4 +266,36 @@ pub enum NotHookableReason {
     TodoIndexNotZero,
     TodoCondJump,
     TodoJump,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExecutionResultEntry {
+    NotCovered,
+    Covered {
+        count: CoverageEntry,
+        timing: u64,
+    },
+}
+
+pub struct ExecutionResult<R> {
+    pub result: R,
+    pub hooks: Vec<ExecutionResultEntry>
+}
+
+impl<R: Clone> Clone for ExecutionResult<R> {
+    fn clone(&self) -> Self {
+        ExecutionResult {
+            result: self.result.clone(),
+            hooks: self.hooks.clone(),
+        }
+    }
+}
+
+impl<R: Debug> Debug for ExecutionResult<R> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("ExecutionResult")
+            .field("result", &self.result)
+            .field("hooks", &self.hooks)
+            .finish()
+    }
 }

@@ -188,13 +188,6 @@ unsafe fn main() -> Status {
             return Status::ABORTED;
         }
     };
-    let skipped = match read_skipped() {
-        Ok(skipped) => skipped,
-        Err(e) => {
-            println!("Failed to read skipped addresses: {:?}", e);
-            return Status::ABORTED;
-        }
-    };
     let blacklisted = match read_blacklisted() {
         Ok(blacklisted) => blacklisted,
         Err(e) => {
@@ -454,6 +447,7 @@ fn read_blacklisted_raw() -> uefi::Result<Vec<usize>> {
         .collect_vec())
 }
 
+#[allow(dead_code)]
 fn read_covered() -> uefi::Result<Vec<usize>> {
     Ok(read_file("covered.txt")?
         .into_iter()
@@ -462,6 +456,7 @@ fn read_covered() -> uefi::Result<Vec<usize>> {
         .collect_vec())
 }
 
+#[allow(dead_code)]
 fn read_skipped() -> uefi::Result<Vec<(usize, String)>> {
     read_file("skipped.txt")
 }
