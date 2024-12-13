@@ -10,7 +10,7 @@ use coverage::coverage_harness::CoverageHarness;
 use coverage::interface::safe::ComInterface;
 use coverage::{coverage_collector, interface_definition};
 use custom_processing_unit::{call_custom_ucode_function, lmfence, ms_patch_instruction_read, ms_seqw_read, CustomProcessingUnit, FunctionResult};
-use data_types::addresses::{Address, UCInstructionAddress};
+use data_types::addresses::{UCInstructionAddress};
 use log::info;
 use uefi::prelude::*;
 use uefi::{print, println};
@@ -64,7 +64,6 @@ unsafe fn main() -> Status {
     interface.reset_coverage();
 
     let mut harness = CoverageHarness::new(&mut interface, &cpu);
-    harness.init();
 
     print_status();
 
@@ -77,8 +76,6 @@ unsafe fn main() -> Status {
     }
 
     print_status();
-
-    println!("Coverage: {}", harness.get_coverage()[addresses[0].address()]);
 
     execute(&mut harness, &addresses, || {
         rdrand()
@@ -122,8 +119,8 @@ fn execute<R: Debug, F: FnOnce() -> R>(coverage_harness: &mut CoverageHarness, a
     match x {
         Err(err ) => println!("Error: {:?}", err),
         Ok(x) => {
-            print!("{} ", addresses.iter().map(|address| {
-                coverage_harness.get_coverage()[address.address()]
+            print!("{} ", x.hooks.iter().map(|entry| {
+                entry.coverage()
             }).join(","));
             println!("\n{:x?}", x.result);
             for entry in x.hooks {

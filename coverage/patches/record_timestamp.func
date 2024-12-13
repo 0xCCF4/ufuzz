@@ -29,7 +29,8 @@ UJMP(, {1})
 NOPB
 <rc_time_jump_not_zero>
 NOP SEQW GOTO <rc_dont_record_timestamp>
-NOPB
+NOP
+NOP
 <rc_time_jump_zero>
 
 {1} := AND_DSZ32([index_mask], {offset_input})

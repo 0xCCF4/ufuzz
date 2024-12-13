@@ -80,17 +80,6 @@ unsafe fn main() -> Status {
         println!();
     }
 
-    fn read_coverage(coverage_harness: &CoverageHarness) {
-        print!("Covered: ");
-        for (address, entry) in coverage_harness.get_coverage().iter().enumerate() {
-            let address = UCInstructionAddress::from_const(address);
-            if *entry > 0 {
-                print!("{}, ", address);
-            }
-        }
-        println!();
-    }
-
     fn read_seqws() {
         print!("SEQW:     ");
         for i in 0..8 {
@@ -104,8 +93,6 @@ unsafe fn main() -> Status {
     }
 
     let mut harness = CoverageHarness::new(&mut interface, &cpu);
-    harness.init();
-    harness.reset_coverage();
 
     let loaded_image_proto: ScopedProtocol<LoadedImage> =
         match uefi::boot::open_protocol_exclusive(uefi::boot::image_handle()) {
@@ -162,7 +149,7 @@ unsafe fn main() -> Status {
     println!("Hooking: {:?}", addresses);
 
     println!(" ---- Execute {number_of_executions} times ----");
-    if let Err(err) = harness.execute(
+    match harness.execute(
         &addresses,
         |n| {
             read_hooks();
@@ -178,10 +165,16 @@ unsafe fn main() -> Status {
         },
         number_of_executions,
     ) {
-        println!("Failed to execute experiment: {:?}", err);
+        Err(err) => println!("Failed to execute experiment: {:?}", err),
+        Ok(x) => {
+            print!("{} ", x.hooks.iter().map(|entry| entry.coverage()).join(","));
+            println!("\n{:x?}", x.result);
+            for entry in x.hooks {
+                println!(" - {:?}", entry);
+            }
+        }
     }
     read_hooks();
-    read_coverage(&harness);
     read_seqws();
 
     println!("Goodbye!");

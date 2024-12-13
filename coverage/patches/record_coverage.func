@@ -11,4 +11,4 @@
 {2} := ADD_DSZ32({0}, [address_coverage_table_base]) # address
 {0} := LDPPHYS_DSZ16_ASZ32_SC1({2})
 {0} := ADD_DSZ16({0}, 0x0001)
-
+STADPPHYS_DSZ16_ASZ32_SC1({2},, {0})

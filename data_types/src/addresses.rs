@@ -93,7 +93,7 @@ impl From<&LinearAddress> for LinearAddress {
 // Ucode instruction RAM starts at 0x7c00 counting up by 1
 // Ucode ROM starts at 0x000
 // Internally the same as Linear Address but semantically different
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct UCInstructionAddress(usize);
 impl Address for UCInstructionAddress {
     fn address(&self) -> usize {
@@ -248,6 +248,15 @@ impl From<&UCInstructionAddress> for UCInstructionAddress {
 impl AsRef<UCInstructionAddress> for UCInstructionAddress {
     fn as_ref(&self) -> &UCInstructionAddress {
         self
+    }
+}
+
+impl PartialEq<usize> for UCInstructionAddress {
+    fn eq(&self, other: &usize) -> bool {
+        self.0 == *other
+    }
+    fn ne(&self, other: &usize) -> bool {
+        self.0 != *other
     }
 }
 

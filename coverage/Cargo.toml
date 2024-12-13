@@ -10,6 +10,7 @@ custom_processing_unit = { path = "../custom_processing_unit", features = ["no_s
 data_types = { path = "../data_types", features = ["nostd"] }
 ucode_compiler = { path = "../ucode_compiler", default-features = false, features = ["no_std"] }
 itertools = { version = "0.13.0", default-features = false, features = ["use_alloc"] }
+ucode_dump = { path = "../ucode_dump" }
 
 [features]
 default = ["main"]

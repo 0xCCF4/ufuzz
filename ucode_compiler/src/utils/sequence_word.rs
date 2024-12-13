@@ -7,7 +7,7 @@ use num_traits::FromPrimitive;
 use alloc::vec::Vec;
 use alloc::format;
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, FromPrimitive)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, FromPrimitive)]
 #[allow(non_camel_case_types)] // these are the names
 pub enum SequenceWordControl {
     URET0 = 0x2,
@@ -27,6 +27,38 @@ pub enum SequenceWordControl {
     UEND1 = 0xD,
     UEND2 = 0xE,
     UEND3 = 0xF,
+}
+
+impl SequenceWordControl {
+    pub fn is_uend(&self) -> bool {
+        matches!(
+            self,
+            SequenceWordControl::UEND0
+                | SequenceWordControl::UEND1
+                | SequenceWordControl::UEND2
+                | SequenceWordControl::UEND3
+        )
+    }
+
+    pub fn is_uret(&self) -> bool {
+        matches!(
+            self,
+            SequenceWordControl::URET0
+                | SequenceWordControl::URET1
+        )
+    }
+
+    pub fn is_terminator(&self) -> bool {
+        self.is_uend() || self.is_uret()
+    }
+
+    pub fn is_saveupip(&self) -> bool {
+        matches!(
+            self,
+            SequenceWordControl::SAVEUPIP0
+                | SequenceWordControl::SAVEUPIP1 | SequenceWordControl::ROVR_SAVEUPIP0 | SequenceWordControl::ROVR_SAVEUPIP1
+        )
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, FromPrimitive)]
@@ -142,7 +174,11 @@ impl SequenceWord {
         &self.goto
     }
 
-    pub fn assemble_no_crc(&self) -> u32 {
+    pub fn assemble_no_crc(&self) -> AssembleResult<u32> {
+        if !self.is_valid() {
+            return Err(AssembleError::InvalidCombination);
+        }
+
         let (tetrad_uidx, tetrad_address) = self
             .goto
             .clone()
@@ -166,17 +202,17 @@ impl SequenceWord {
             .map(|value| (value.apply_to_index.into(), value.value as u32))
             .unwrap_or((0x0u32, 0x0u32));
 
-        (sync_ctrl << 25)
+        Ok((sync_ctrl << 25)
             | (sync_uidx << 23)
             | ((tetrad_address & 0x7fff) << 8)
             | (tetrad_uidx << 6)
             | (uop_ctrl << 2)
-            | uop_uidx
+            | uop_uidx)
     }
 
-    pub fn assemble(&self) -> u32 {
-        let seqw = self.assemble_no_crc();
-        seqw | even_odd_parity_u32(seqw) << 28
+    pub fn assemble(&self) -> AssembleResult<u32> {
+        let seqw = self.assemble_no_crc()?;
+        Ok(seqw | even_odd_parity_u32(seqw) << 28)
     }
 
     const MASK: u32 = 0x3fffffff;
@@ -264,6 +300,17 @@ impl SequenceWord {
             goto,
         })
     }
+
+    pub fn is_valid(&self) -> bool {
+        if let Some(control) = self.control() {
+            if let Some(goto) = self.goto() {
+                if (control.value.is_uret() || control.value.is_uend()) && control.apply_to_index == goto.apply_to_index {
+                    return false;
+                }
+            }
+        }
+        true
+    }
 }
 
 impl Display for SequenceWord {
@@ -280,7 +327,7 @@ impl Display for SequenceWord {
         }
 
         write!(f, "SEQW [")?;
-        write!(f, "{}", text.map(|v| v.join(" ")).join(", "))?;
+        write!(f, "{}", text.map(|v| v.join(" ")).join(","))?;
         write!(f, "]")
     }
 }
@@ -296,6 +343,11 @@ pub enum DisassembleError {
     InvalidControlValue(u32),
     InvalidControlIndex(u32),
     InvalidSyncValue(u32),
+}
+pub type AssembleResult<T> = Result<T, AssembleError>;
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum AssembleError {
+    InvalidCombination,
 }
 
 #[cfg(test)]
@@ -338,12 +390,12 @@ mod test {
 
     #[test]
     fn test_sequencewords() {
-        check(["", "", ""], SequenceWord::new().assemble());
+        check(["", "", ""], SequenceWord::new().assemble().unwrap());
         check(
             ["", "SEQW GOTO U7c00", ""],
             SequenceWord::new()
                 .set_goto(1, UCInstructionAddress::MSRAM_START)
-                .assemble(),
+                .assemble().unwrap(),
         );
         check(
             ["LFNCEMARK->", "SEQW UEND0", "SEQW GOTO U7c00"],
@@ -351,7 +403,7 @@ mod test {
                 .set_goto(2, UCInstructionAddress::MSRAM_START)
                 .set_sync(0, SequenceWordSync::LFNCEMARK)
                 .set_control(1, SequenceWordControl::UEND0)
-                .assemble(),
+                .assemble().unwrap(),
         );
     }
 
@@ -366,7 +418,7 @@ mod test {
                 Ok(disasm) => disasm,
                 Err(err) => panic!("Failed to disassemble: {:x} @ {:?}", seqw, err),
             };
-            let asm = disasm.assemble_no_crc();
+            let asm = disasm.assemble_no_crc().unwrap();
             assert_eq!(
                 *seqw, asm,
                 "DISASM -> ASM mismatch: {:x} -> {:x}",

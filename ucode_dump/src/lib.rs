@@ -1,6 +1,7 @@
 #![no_std]
 
 use data_types::addresses::{Address, UCInstructionAddress};
+use data_types::patch::Triad;
 
 pub mod dump;
 
@@ -59,5 +60,18 @@ impl<'a, 'b> RomDump<'a, 'b> {
 
     pub fn model(&self) -> u32 {
         self.model
+    }
+
+    pub fn triad(&self, address: UCInstructionAddress) -> Option<Triad> {
+        let base = address.triad_base();
+        let triad = Triad {
+             instructions: [
+                 self.get_instruction(base)?,
+                    self.get_instruction(base + 1)?,
+                    self.get_instruction(base + 2)?,
+             ],
+            sequence_word: self.get_sequence_word(base)?,
+        };
+        Some(triad)
     }
 }

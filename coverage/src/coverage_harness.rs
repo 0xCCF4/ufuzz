@@ -1,16 +1,17 @@
+mod modification_engine;
+
 use crate::coverage_collector;
 use crate::interface::safe::ComInterface;
 use crate::interface_definition::{ClockTableSettingsEntry, CoverageEntry, InstructionTableEntry};
 #[cfg(feature = "no_std")]
 use alloc::vec::Vec;
 use core::fmt::Debug;
-use custom_processing_unit::{apply_patch, call_custom_ucode_function, disable_all_hooks, enable_hooks, lmfence, read_unwrap_ucode_clock, restore_hooks, unwrap_ucode_clock, CustomProcessingUnit, FunctionResult};
-use data_types::addresses::{Address, UCInstructionAddress};
+use custom_processing_unit::{apply_patch, call_custom_ucode_function, disable_all_hooks, enable_hooks, lmfence, read_unwrap_ucode_clock, unwrap_ucode_clock, CustomProcessingUnit, FunctionResult, HookGuard};
+use data_types::addresses::{UCInstructionAddress};
 use itertools::Itertools;
-use ucode_compiler::utils::instruction::Instruction;
-use ucode_compiler::utils::sequence_word::{DisassembleError, SequenceWord};
-
-const COVERAGE_ENTRIES: usize = UCInstructionAddress::MAX.to_const();
+use ucode_compiler::utils::sequence_word::{DisassembleError};
+use crate::coverage_harness::modification_engine::NotHookableReason;
+// const COVERAGE_ENTRIES: usize = UCInstructionAddress::MAX.to_const();
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CoverageError {
@@ -22,8 +23,8 @@ pub enum CoverageError {
 
 pub struct CoverageHarness<'a, 'b, 'c> {
     interface: &'a mut ComInterface<'b>,
-    coverage: [CoverageEntry; COVERAGE_ENTRIES], // every forth entry, beginning at 3 is zero
-    previous_hook_settings: usize,
+    // coverage: [CoverageEntry; COVERAGE_ENTRIES], // every forth entry, beginning at 3 is zero
+    previous_hook_settings: Option<HookGuard>,
     custom_processing_unit: &'c CustomProcessingUnit,
 }
 
@@ -32,22 +33,17 @@ impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
         interface: &'a mut ComInterface<'b>,
         cpu: &'c CustomProcessingUnit,
     ) -> CoverageHarness<'a, 'b, 'c> {
+        apply_patch(&coverage_collector::PATCH);
+        interface.zero_jump_table();
+        interface.zero_clock_table();
+        interface.zero_clock_table_settings();
+
         CoverageHarness {
             interface,
-            coverage: [0; COVERAGE_ENTRIES],
-            previous_hook_settings: 0,
+            // coverage: [0; COVERAGE_ENTRIES],
+            previous_hook_settings: Some(HookGuard::disable_all()),
             custom_processing_unit: cpu,
         }
-    }
-
-    pub fn init(&mut self) {
-        apply_patch(&coverage_collector::PATCH);
-        self.interface.zero_jump_table();
-        self.previous_hook_settings = disable_all_hooks();
-    }
-
-    pub fn reset_coverage(&mut self) {
-        self.coverage = [0; COVERAGE_ENTRIES];
     }
 
     #[inline(always)]
@@ -62,28 +58,8 @@ impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
                 return Err(CoverageError::AddressNotHookable(*hook, err));
             }
 
-            let entry: InstructionTableEntry = [
-                self.custom_processing_unit
-                    .rom()
-                    .get_instruction(hook.triad_base() + 0)
-                    .expect("Since is_hookable is true. Address is bound to be in ROM"),
-                self.custom_processing_unit
-                    .rom()
-                    .get_instruction(hook.triad_base() + 1)
-                    .expect("Since is_hookable is true. Address is bound to be in ROM"),
-                self.custom_processing_unit
-                    .rom()
-                    .get_instruction(hook.triad_base() + 2)
-                    .expect("Since is_hookable is true. Address is bound to be in ROM"),
-                self.custom_processing_unit
-                    .rom()
-                    .get_sequence_word(hook.triad_base())
-                    .expect("Since is_hookable is true. Address is bound to be in ROM")
-                    as u64,
-            ];
-
             instructions.push(
-                self.modify_triad_for_hooking(*hook, entry)
+                self.modify_triad_for_hooking(*hook)
                     .map_err(|err| CoverageError::AddressNotHookable(*hook, err))?,
             );
         }
@@ -107,9 +83,9 @@ impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
     #[inline(always)]
     fn post_execution(&mut self, hooks: &[(UCInstructionAddress, ClockTableSettingsEntry)], start_time: u64) -> Vec<ExecutionResultEntry> {
         let mut result = Vec::with_capacity(hooks.len());
-        for (index, (address, _)) in hooks.iter().enumerate() {
+        for (index, (_address, _)) in hooks.iter().enumerate() {
             let covered = self.interface.read_coverage_table(index);
-            self.coverage[address.address()] += covered;
+            // self.coverage[address.address()] += covered;
 
             result.push(if covered > 0 {
                 ExecutionResultEntry::Covered {
@@ -166,74 +142,28 @@ impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
         })
     }
 
-    pub fn covered<A: AsRef<UCInstructionAddress>>(&self, address: A) -> bool {
+    /* pub fn covered<A: AsRef<UCInstructionAddress>>(&self, address: A) -> bool {
         self.coverage[address.as_ref().address()] > 0
-    }
+    } */
 
-    pub fn get_coverage(&self) -> &[CoverageEntry; COVERAGE_ENTRIES] {
+    /* pub fn get_coverage(&self) -> &[CoverageEntry; COVERAGE_ENTRIES] {
         &self.coverage
-    }
+    } */
 
     pub fn is_hookable(&self, address: UCInstructionAddress) -> Result<(), NotHookableReason> {
-        if address >= UCInstructionAddress::MSRAM_START {
-            return Err(NotHookableReason::AddressNotInRom);
-        }
-
-        if address.address() % 4 != 0 && address.address() % 4 != 2 {
-            return Err(NotHookableReason::AddressNotAligned);
-        }
-
-        let instruction = match self.custom_processing_unit.rom().get_instruction(address) {
-            Some(instruction) => Instruction::from(instruction),
-            None => return Err(NotHookableReason::AddressNotInDump),
-        };
-
-        let opcode = instruction.opcode();
-
-        if opcode.is_group_TESTUSTATE() || opcode.is_group_SUBR() {
-            return Err(NotHookableReason::ConditionalJump);
-        }
-
-        Ok(())
+        modification_engine::is_hookable(address, self.custom_processing_unit.rom())
     }
 
     fn modify_triad_for_hooking(
         &self,
         hooked_address: UCInstructionAddress,
-        triad: InstructionTableEntry,
     ) -> Result<InstructionTableEntry, NotHookableReason> {
-        self.is_hookable(hooked_address)?;
-
-        let mut sequence_word = SequenceWord::disassemble_no_crc_check(triad[3] as u32)
-            .map_err(NotHookableReason::ModificationFailedSequenceWord)?;
-        let instructions = triad
-            .into_iter()
-            .map(Instruction::disassemble)
-            .map(|i| i.assemble())
-            .collect_vec();
-
-        if sequence_word.control().is_some() {
-            return Err(NotHookableReason::ControlOpPresent);
-        }
-
-        match sequence_word.goto() {
-            Some(goto) => {
-                if goto.apply_to_index >= hooked_address.triad_offset() {
-                    // do nothing, since jump will be automatically taken
-                } else {
-                    sequence_word.set_goto((hooked_address.triad_offset()+2).min(2), hooked_address.next_even_address());
-                }
-            }
-            None => {
-                sequence_word.set_goto((hooked_address.triad_offset()+2).min(2), hooked_address.next_even_address());
-            }
-        }
-
+        let result = modification_engine::modify_triad_for_hooking(hooked_address, self.custom_processing_unit.rom())?;
         Ok([
-            instructions[0],
-            instructions[1],
-            instructions[2],
-            sequence_word.assemble() as u64,
+            result.instructions[0],
+            result.instructions[1],
+            result.instructions[2],
+            result.sequence_word as u64,
         ])
     }
 }
@@ -249,24 +179,11 @@ impl<'a, 'b, 'c> Drop for CoverageHarness<'a, 'b, 'c> {
         // zero hooks
         let _ = self.pre_execution(v.as_ref());
 
-        restore_hooks(self.previous_hook_settings);
+        // dropping the hook guard will restore the hooks
+        drop(self.previous_hook_settings.take());
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum NotHookableReason {
-    AddressNotAligned,
-    AddressNotInRom,
-    AddressNotInDump,
-    ConditionalJump,
-    ModificationFailedSequenceWord(DisassembleError),
-    ControlOpPresent,
-    TodoControlOp,
-    TodoSyncOp,
-    TodoIndexNotZero,
-    TodoCondJump,
-    TodoJump,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExecutionResultEntry {
@@ -275,6 +192,19 @@ pub enum ExecutionResultEntry {
         count: CoverageEntry,
         timing: u64,
     },
+}
+
+impl ExecutionResultEntry {
+    pub fn coverage(&self) -> CoverageEntry {
+        match self {
+            ExecutionResultEntry::Covered { count, .. } => *count,
+            ExecutionResultEntry::NotCovered => 0,
+        }
+    }
+
+    pub fn covered(&self) -> bool {
+        self.coverage() > 0
+    }
 }
 
 pub struct ExecutionResult<R> {

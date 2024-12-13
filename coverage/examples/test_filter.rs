@@ -20,6 +20,8 @@ use uefi::{print, println, CString16};
 use uefi::proto::media::file::{File, FileAttribute, FileMode};
 use uefi::runtime::ResetType;
 
+const WRITE_PROTECT: bool = true;
+
 #[entry]
 unsafe fn main() -> Status {
     uefi::helpers::init().unwrap();
@@ -73,7 +75,6 @@ unsafe fn main() -> Status {
     interface.reset_coverage();
 
     let mut harness = CoverageHarness::new(&mut interface, &cpu);
-    harness.init();
 
     let last_ok = match read_ok() {
         Ok(last_ok) => last_ok,
@@ -86,9 +87,11 @@ unsafe fn main() -> Status {
     let mut next_address = 0;
     if last_ok > 0 {
         println!("Last ok address: {:04x}", last_ok);
-        if let Err(e) = write_blacklisted(last_ok + 1) {
-            info!("Failed to write blacklisted address: {:?}", e);
-            return Status::ABORTED;
+        if !WRITE_PROTECT {
+            if let Err(e) = write_blacklisted(last_ok + 1) {
+                info!("Failed to write blacklisted address: {:?}", e);
+                return Status::ABORTED;
+            }
         }
         next_address = last_ok + 1;
     }
@@ -105,6 +108,15 @@ unsafe fn main() -> Status {
 
     println!("Next address to test: {:04x}", next_address);
 
+    if WRITE_PROTECT {
+        next_address = 0;
+    }
+
+    let mut skipped = 0;
+    let mut excluded = 0;
+    let mut total = 0;
+    let mut worked = 0;
+
     if next_address >= 0x7c00 {
         println!("No more addresses to test");
     } else {
@@ -113,66 +125,83 @@ unsafe fn main() -> Status {
 
             if (chunk % 2) > 0 || (chunk % 4) >= 3 {
                 // skip
-                if let Err(e) = write_ok(chunk) {
-                    println!("Failed to write ok: {:?}", e);
-                    return Status::ABORTED;
+                if !WRITE_PROTECT {
+                    if let Err(e) = write_ok(chunk) {
+                        println!("Failed to write ok: {:?}", e);
+                        return Status::ABORTED;
+                    }
                 }
                 continue;
             }
 
+            total += 1;
+
             print!("\r[{}] ", &addresses);
 
-            if let Err(_err) = harness.is_hookable(addresses) {
-                //println!("Not hookable: {err:?}");
-                if let Err(e) = write_ok(chunk) {
-                    println!("Failed to write ok: {:?}", e);
-                    return Status::ABORTED;
+            if let Err(err) = harness.is_hookable(addresses) {
+                println!("Not hookable: {err:?}");
+                skipped += 1;
+                if !WRITE_PROTECT {
+                    if let Err(e) = write_ok(chunk) {
+                        println!("Failed to write ok: {:?}", e);
+                        return Status::ABORTED;
+                    }
                 }
                 continue;
             }
 
             if blacklisted.iter().contains(&chunk) {
-                //println!("Blacklisted");
-                if let Err(e) = write_ok(chunk) {
-                    println!("Failed to write ok: {:?}", e);
-                    return Status::ABORTED;
+                println!("Blacklisted");
+                excluded += 1;
+                if !WRITE_PROTECT {
+                    if let Err(e) = write_ok(chunk) {
+                        println!("Failed to write ok: {:?}", e);
+                        return Status::ABORTED;
+                    }
                 }
                 continue;
             }
 
-            if let Err(e) = harness.execute(
+            match harness.execute(
                 &[addresses],
                 |_| {
-                    rdrand();
+                    rdrand()
                 },
                 (),
             ) {
-                //println!("Failed to execute harness: {:?}", e);
-                match e {
-                    CoverageError::SetupFailed(_) => {
-                        if let Err(err) = write_skipped(chunk, &e) {
-                            println!("Failed to write skipped: {:?}", err);
+                Err(e) => {
+                    //println!("Failed to execute harness: {:?}", e);
+                    match e {
+                        CoverageError::SetupFailed(_) => {
+                            if let Err(err) = write_skipped(chunk, &e) {
+                                println!("Failed to write skipped: {:?}", err);
+                                return Status::ABORTED;
+                            }
+                            uefi::runtime::reset(ResetType::COLD, Status::SUCCESS, None)
+                        },
+                        _ => continue
+                    }
+                }
+                Ok(r) => {
+                    if r.hooks[0].covered() {
+                        println!("Covered");
+                        if let Err(e) = write_covered(chunk) {
+                            println!("Failed to write covered: {:?}", e);
                             return Status::ABORTED;
                         }
-                        uefi::runtime::reset(ResetType::COLD, Status::SUCCESS, None)
-                    },
-                    _ => continue
+                    }
                 }
             }
 
-            if let Err(e) = write_ok(chunk) {
-                println!("Failed to write ok: {:?}", e);
-                return Status::ABORTED;
-            }
-            if let Err(e) = write_actually_works(chunk) {
-                println!("Failed to write actually works: {:?}", e);
-                return Status::ABORTED;
-            }
+            worked += 1;
 
-            if harness.covered(addresses) {
-                println!("Covered");
-                if let Err(e) = write_covered(chunk) {
-                    println!("Failed to write covered: {:?}", e);
+            if !WRITE_PROTECT {
+                if let Err(e) = write_ok(chunk) {
+                    println!("Failed to write ok: {:?}", e);
+                    return Status::ABORTED;
+                }
+                if let Err(e) = write_actually_works(chunk) {
+                    println!("Failed to write actually works: {:?}", e);
                     return Status::ABORTED;
                 }
             }
@@ -181,43 +210,63 @@ unsafe fn main() -> Status {
 
     drop(harness);
 
-    let actually_worked = match read_actually_works() {
-        Ok(actually_worked) => actually_worked,
-        Err(e) => {
-            println!("Failed to read actually worked addresses: {:?}", e);
-            return Status::ABORTED;
-        }
-    };
-    let blacklisted = match read_blacklisted() {
-        Ok(blacklisted) => blacklisted,
-        Err(e) => {
-            println!("Failed to read blacklisted addresses: {:?}", e);
-            return Status::ABORTED;
-        }
-    };
-    let blacklisted_raw = match read_blacklisted_raw() {
-        Ok(blacklisted_raw) => blacklisted_raw,
-        Err(e) => {
-            println!("Failed to read blacklisted raw addresses: {:?}", e);
-            return Status::ABORTED;
-        }
-    };
-
-    let skipped = 0x7c00 - actually_worked.len() - blacklisted_raw.len();
-
     let mut summary = String::new();
-    summary.push_str(format!("Summary\n----------------------------------\n").as_str());
-    summary.push_str(format!("Total:           {:5}\n", 0x7c00).as_str());
-    summary.push_str(format!("Excluded:        {:5} {:2.2}%\n", blacklisted.len(), (blacklisted.len() as f64 / 0x7c00 as f64) * 100.0).as_str());
-    summary.push_str(format!("Skipped:         {:5} {:2.2}%\n", skipped, (skipped as f64 / 0x7c00 as f64) * 100.0).as_str());
-    summary.push_str(format!("Actually tested: {:5} {:2.2}%\n", actually_worked.len()+blacklisted_raw.len(), ((actually_worked.len()+blacklisted_raw.len()) as f64 / 0x7c00 as f64) * 100.0).as_str());
-    summary.push_str(format!(" - Worked:       {:5} {:2.2}%\n", actually_worked.len(), (actually_worked.len() as f64 / 0x7c00 as f64) * 100.0).as_str());
-    summary.push_str(format!(" - Blacklisted:  {:5} {:2.2}%\n", blacklisted_raw.len(), (blacklisted_raw.len() as f64 / 0x7c00 as f64) * 100.0).as_str());
-    summary.push_str("\n\n\n\n");
+
+    if !WRITE_PROTECT {
+        let actually_worked = match read_actually_works() {
+            Ok(actually_worked) => actually_worked,
+            Err(e) => {
+                println!("Failed to read actually worked addresses: {:?}", e);
+                return Status::ABORTED;
+            }
+        };
+        let blacklisted = match read_blacklisted() {
+            Ok(blacklisted) => blacklisted,
+            Err(e) => {
+                println!("Failed to read blacklisted addresses: {:?}", e);
+                return Status::ABORTED;
+            }
+        };
+        let blacklisted_raw = match read_blacklisted_raw() {
+            Ok(blacklisted_raw) => blacklisted_raw,
+            Err(e) => {
+                println!("Failed to read blacklisted raw addresses: {:?}", e);
+                return Status::ABORTED;
+            }
+        };
+        let covered = match read_covered() {
+            Ok(covered) => covered,
+            Err(e) => {
+                println!("Failed to read covered addresses: {:?}", e);
+                return Status::ABORTED;
+            }
+        };
+
+        let skipped = 0x7c00 - actually_worked.len() - blacklisted_raw.len();
+
+        summary.push_str(format!("Summary\n----------------------------------\n").as_str());
+        summary.push_str(format!("Total:           {:5}\n", 0x7c00/2).as_str());
+        summary.push_str(format!("Excluded:        {:5} {:5.02}%\n", blacklisted.len(), (blacklisted.len() as f64 / 0x7c00 as f64) * 100.0).as_str());
+        summary.push_str(format!("Skipped:         {:5} {:5.02}%\n", skipped, (skipped as f64 / 0x7c00 as f64) * 100.0).as_str());
+        summary.push_str(format!("Actually tested: {:5} {:5.02}%\n", actually_worked.len() + blacklisted_raw.len(), ((actually_worked.len() + blacklisted_raw.len()) as f64 / 0x7c00 as f64) * 100.0).as_str());
+        summary.push_str(format!(" - Worked:       {:5} {:5.02}%\n", actually_worked.len(), (actually_worked.len() as f64 / 0x7c00 as f64) * 100.0).as_str());
+        summary.push_str(format!(" - Blacklisted:  {:5} {:5.02}%\n", blacklisted_raw.len(), (blacklisted_raw.len() as f64 / 0x7c00 as f64) * 100.0).as_str());
+        summary.push_str(format!("Covered:         {:5} {:5.02}%\n", covered.len(), (covered.len() as f64 / 0x7c00 as f64) * 100.0).as_str());
+        summary.push_str("\n\n\n\n");
+    } else {
+        summary.push_str(format!("Summary\n----------------------------------\n").as_str());
+        summary.push_str(format!("Total:    {:5}\n", total).as_str());
+        summary.push_str(format!("Excluded: {:5} {:5.02}%\n", excluded, (excluded as f64 / total as f64) * 100.0).as_str());
+        summary.push_str(format!("Skipped:  {:5} {:5.02}%\n", skipped, (skipped as f64 / total as f64) * 100.0).as_str());
+        summary.push_str(format!("Worked:   {:5} {:5.02}%\n", worked, (worked as f64 / total as f64) * 100.0).as_str());
+        summary.push_str("\n");
+    }
 
     println!("{}", summary);
-    if let Err(err) = append_string_to_file(summary.as_str(), "summary.txt") {
-        println!("Failed to write summary: {:?}", err);
+    if !WRITE_PROTECT {
+        if let Err(err) = append_string_to_file(summary.as_str(), "summary.txt") {
+            println!("Failed to write summary: {:?}", err);
+        }
     }
 
     if let Err(err) = cpu.zero_hooks() {

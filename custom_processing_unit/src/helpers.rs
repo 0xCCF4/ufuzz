@@ -9,7 +9,7 @@ use data_types::addresses::{
     Address, MSRAMAddress, MSRAMHookIndex, MSRAMInstructionPartReadAddress,
     MSRAMInstructionPartWriteAddress, MSRAMSequenceWordAddress, UCInstructionAddress,
 };
-use data_types::{Patch, UcodePatchBlob};
+use data_types::patch::{Patch, UcodePatchBlob};
 use log::trace;
 #[cfg(not(feature = "no_std"))]
 use std::format;
@@ -593,6 +593,32 @@ pub fn restore_hooks(previous_value: usize) -> usize {
     let mp = crbus_read(0x692);
     crbus_write(0x692, (mp & !1) | (previous_value & 1));
     mp
+}
+
+pub struct HookGuard {
+    previous_value: usize,
+}
+
+impl HookGuard {
+    pub fn disable_all() -> Self {
+        let previous_value = disable_all_hooks();
+        HookGuard { previous_value }
+    }
+
+    pub fn enable_all() -> Self {
+        let previous_value = enable_hooks();
+        HookGuard { previous_value }
+    }
+
+    pub fn restore(self) {
+        drop(self)
+    }
+}
+
+impl Drop for HookGuard {
+    fn drop(&mut self) {
+        restore_hooks(self.previous_value);
+    }
 }
 
 pub fn read_hook_status() -> usize {

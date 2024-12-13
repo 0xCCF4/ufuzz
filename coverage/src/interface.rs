@@ -321,3 +321,115 @@ pub mod safe {
         }
     }
 }
+
+// default os
+#[cfg(all(not(feature = "uefi"), not(feature = "no_std")))]
+pub mod safe {
+    use crate::interface_definition::{
+        ComInterfaceDescription, CoverageEntry, InstructionTableEntry, JumpTableEntry,
+    };
+    use data_types::addresses::UCInstructionAddress;
+
+    pub struct ComInterface<'a> {
+        base: super::raw::ComInterface<'a>,
+    }
+
+    impl<'a> crate::interface::safe::ComInterface<'a> {
+        pub unsafe fn new(description: &'a ComInterfaceDescription) -> Result<Self, ()> {
+            if description.base == 0 {
+                return Err(());
+            }
+
+            let interface = unsafe { super::raw::ComInterface::new(description) };
+
+            Ok(Self {
+                base: interface,
+            })
+        }
+
+        pub const fn description(&self) -> &'a ComInterfaceDescription {
+            self.base.description
+        }
+
+        pub fn read_jump_table(&self) -> &[JumpTableEntry] {
+            unsafe { self.base.read_jump_table() }
+        }
+
+        pub fn write_jump_table<P: Into<UCInstructionAddress>>(&mut self, index: usize, value: P) {
+            unsafe { self.base.write_jump_table(index, value) }
+        }
+
+        pub fn write_jump_table_all<P: Into<UCInstructionAddress>, T: IntoIterator<Item = P>>(
+            &mut self,
+            values: T,
+        ) {
+            unsafe { self.base.write_jump_table_all(values) }
+        }
+
+        pub fn zero_jump_table(&mut self) {
+            unsafe { self.base.zero_jump_table() }
+        }
+
+        pub fn read_coverage_table(&self, index: usize) -> CoverageEntry {
+            unsafe { self.base.read_coverage_table(index) }
+        }
+
+        pub fn write_coverage_table(&mut self, index: usize, value: CoverageEntry) {
+            unsafe { self.base.write_coverage_table(index, value) }
+        }
+
+        pub fn reset_coverage(&mut self) {
+            unsafe { self.base.reset_coverage() }
+        }
+
+        pub fn read_instruction_table(&self, index: usize) -> InstructionTableEntry {
+            self.base.read_instruction_table(index)
+        }
+
+        pub fn write_instruction_table(&mut self, index: usize, value: InstructionTableEntry) {
+            self.base.write_instruction_table(index, value)
+        }
+
+        pub fn write_instruction_table_all<
+            P: Into<InstructionTableEntry>,
+            T: IntoIterator<Item = P>,
+        >(
+            &mut self,
+            values: T,
+        ) {
+            unsafe { self.base.write_instruction_table_all(values) }
+        }
+
+        pub fn write_clock_table(&mut self, index: usize, value: u64) {
+            unsafe { self.base.write_clock_table(index, value) }
+        }
+
+        pub fn write_clock_table_settings(&mut self, index: usize, value: u16) {
+            unsafe { self.base.write_clock_table_settings(index, value) }
+        }
+
+        pub fn write_clock_table_all<T: IntoIterator<Item = u64>>(&mut self, values: T) {
+            unsafe { self.base.write_clock_table_all(values) }
+        }
+
+        pub fn write_clock_table_settings_all<T: IntoIterator<Item = u16>>(&mut self, values: T) {
+            unsafe { self.base.write_clock_table_settings_all(values) }
+        }
+
+        pub fn read_clock_table(&self, index: usize) -> u64 {
+            unsafe { self.base.read_clock_table(index) }
+        }
+
+        pub fn read_clock_table_settings(&self, index: usize) -> u16 {
+            unsafe { self.base.read_clock_table_settings(index) }
+        }
+
+        pub fn zero_clock_table(&mut self) {
+            unsafe { self.base.zero_clock_table() }
+        }
+
+        pub fn zero_clock_table_settings(&mut self) {
+            unsafe { self.base.zero_clock_table_settings() }
+        }
+    }
+}

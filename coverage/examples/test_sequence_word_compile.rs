@@ -50,7 +50,7 @@ unsafe fn main() -> Status {
             print!("\r[{:04x}] ", i);
         }
 
-        let seqw = SequenceWord::new().set_goto(0, i).assemble();
+        let seqw = SequenceWord::new().set_goto(0, i).assemble().unwrap();
         let calculation = call_custom_ucode_function(patch::LABEL_FUNC_TEST, [i, 0, 0]).rax;
 
         if diff == 0 {

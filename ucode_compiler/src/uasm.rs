@@ -555,7 +555,7 @@ pub fn transform_h_patch_to_rs_patch<P: AsRef<Path>, Q: AsRef<Path>>(
     let content = format!(
         "{AUTOGEN}
 
-        use data_types::{{UcodePatchEntry, Patch, LabelMapping}};
+        use data_types::patch::{{UcodePatchEntry, Patch, LabelMapping}};
         #[allow(unused_imports)]
         use data_types::addresses::{{UCInstructionAddress, MSRAMHookIndex}};
 
