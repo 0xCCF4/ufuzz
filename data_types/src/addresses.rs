@@ -93,7 +93,7 @@ impl From<&LinearAddress> for LinearAddress {
 // Ucode instruction RAM starts at 0x7c00 counting up by 1
 // Ucode ROM starts at 0x000
 // Internally the same as Linear Address but semantically different
-#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Clone, Copy, Eq, Hash, Ord)]
 pub struct UCInstructionAddress(usize);
 impl Address for UCInstructionAddress {
     fn address(&self) -> usize {
@@ -251,12 +251,18 @@ impl AsRef<UCInstructionAddress> for UCInstructionAddress {
     }
 }
 
-impl PartialEq<usize> for UCInstructionAddress {
-    fn eq(&self, other: &usize) -> bool {
-        self.0 == *other
+impl<T: Into<usize> + Copy> PartialEq<T> for UCInstructionAddress {
+    fn eq(&self, other: &T) -> bool {
+        self.0 == (*other).into()
     }
-    fn ne(&self, other: &usize) -> bool {
-        self.0 != *other
+    fn ne(&self, other: &T) -> bool {
+        self.0 != (*other).into()
+    }
+}
+
+impl<T: Into<usize> + Copy> PartialOrd<T> for UCInstructionAddress {
+    fn partial_cmp(&self, other: &T) -> Option<core::cmp::Ordering> {
+        self.0.partial_cmp(&(*other).into())
     }
 }
 

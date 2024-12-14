@@ -185,9 +185,11 @@ unsafe fn main() -> Status {
                 Ok(r) => {
                     if r.hooks[0].covered() {
                         println!("Covered");
-                        if let Err(e) = write_covered(chunk) {
-                            println!("Failed to write covered: {:?}", e);
-                            return Status::ABORTED;
+                        if !WRITE_PROTECT {
+                            if let Err(e) = write_covered(chunk) {
+                                println!("Failed to write covered: {:?}", e);
+                                return Status::ABORTED;
+                            }
                         }
                     }
                 }
@@ -207,8 +209,6 @@ unsafe fn main() -> Status {
             }
         }
     }
-
-    drop(harness);
 
     let mut summary = String::new();
 
@@ -268,6 +268,52 @@ unsafe fn main() -> Status {
             println!("Failed to write summary: {:?}", err);
         }
     }
+
+    println!("Speedtest");
+
+    let before = match uefi::runtime::get_time() {
+        Ok(time) => time,
+        Err(e) => {
+            println!("Failed to get time: {:?}", e);
+            return Status::ABORTED;
+        }
+    };
+    let setups = core::hint::black_box(|| {
+        let mut setups = 0usize;
+        for address in 0..0x7c00 {
+            if address % 0x100 == 0 {
+                print!("\r{:04x}", address);
+            }
+            let r = harness.execute(
+                &[address.into()],
+                |_| {
+                    rdrand()
+                },
+                (),
+            );
+            if matches!(r, Ok(_)) {
+                setups += 1;
+            }
+        }
+        println!();
+        setups
+    })();
+    let after = match uefi::runtime::get_time() {
+        Ok(time) => time,
+        Err(e) => {
+            println!("Failed to get time: {:?}", e);
+            return Status::ABORTED;
+        }
+    };
+
+    let difference = (after.minute() - before.minute()) as usize * 60 as usize
+        + (after.second() - before.second()) as usize * 1 as usize;
+    let diff_per_setup = difference / setups;
+
+    println!("{}min {}s total for {} iterations", difference/60, difference%60, setups);
+    println!("{}s / {}ns per iteration", diff_per_setup, after.nanosecond() - before.nanosecond());
+
+    drop(harness);
 
     if let Err(err) = cpu.zero_hooks() {
         println!("Failed to zero hooks: {:?}", err);

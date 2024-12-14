@@ -19,6 +19,7 @@ use uefi::{print, println};
 use uefi::boot::ScopedProtocol;
 use uefi::proto::loaded_image::LoadedImage;
 use coverage::coverage_harness::CoverageHarness;
+use ucode_compiler::utils::instruction::Instruction;
 use ucode_compiler::utils::sequence_word::SequenceWord;
 
 #[entry]
@@ -172,19 +173,20 @@ fn print_status(max_count: usize) {
             coverage_collector::LABEL_FUNC_LDAT_READ,
             coverage_collector::LABEL_HOOK_EXIT_00 + i * 4,
         );
-        print!("{:08x} {} -> ", seqw, SequenceWord::disassemble_no_crc_check(seqw as u32).map_or("ERR".to_string(), |s| s.to_string()));
+        print!("{} -> ", SequenceWord::disassemble_no_crc_check(seqw as u32).map_or("ERR".to_string(), |s| s.to_string()));
         for offset in 0..3 {
             let instruction = ms_patch_instruction_read(
                 coverage_collector::LABEL_FUNC_LDAT_READ,
                 coverage_collector::LABEL_HOOK_EXIT_REPLACEMENT_00 + i * 4 + offset,
             );
-            //print!("{:08x} ", instruction);
+            let instruction = Instruction::disassemble(instruction as u64);
+            print!("{} ", instruction.opcode());
         }
         let seqw = ms_seqw_read(
             coverage_collector::LABEL_FUNC_LDAT_READ,
             coverage_collector::LABEL_HOOK_EXIT_REPLACEMENT_00 + i * 4,
         );
-        println!("-> {:08x} {}", seqw, SequenceWord::disassemble_no_crc_check(seqw as u32).map_or("ERR".to_string(), |s| s.to_string()));
+        println!("-> {}", SequenceWord::disassemble_no_crc_check(seqw as u32).map_or("ERR".to_string(), |s| s.to_string()));
     }
 }
 

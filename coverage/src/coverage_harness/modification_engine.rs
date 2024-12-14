@@ -3,8 +3,7 @@ use data_types::addresses::{Address, UCInstructionAddress};
 use data_types::patch::Triad;
 use ucode_compiler::utils::instruction::Instruction;
 use ucode_compiler::utils::opcodes::Opcode;
-use ucode_compiler::utils::sequence_word;
-use ucode_compiler::utils::sequence_word::{AssembleError, DisassembleError, SequenceWord, SequenceWordControl, SequenceWordSync};
+use ucode_compiler::utils::sequence_word::{AssembleError, DisassembleError, SequenceWord, SequenceWordControl};
 use ucode_dump::RomDump;
 
 
@@ -25,6 +24,7 @@ pub enum NotHookableReason {
     TodoSaveUIP, // needs second triad to jump back
     LBSYNC,
     TodoBlacklisted(UCInstructionAddress),
+    OddJumpTowardsHookPair,
 }
 
 pub fn is_hookable(address: UCInstructionAddress, rom: &RomDump) -> Result<(), NotHookableReason> {
@@ -34,6 +34,11 @@ pub fn is_hookable(address: UCInstructionAddress, rom: &RomDump) -> Result<(), N
 
     if address.address() % 4 != 0 && address.address() % 4 != 2 {
         return Err(NotHookableReason::AddressNotAligned);
+    }
+
+    let blacklist = include!("../blacklist.gen");
+    if blacklist.contains(&address.address()) {
+        return Err(NotHookableReason::OddJumpTowardsHookPair);
     }
 
     let hooked_instruction = match rom.get_instruction(address) {
@@ -84,13 +89,18 @@ pub fn is_hookable(address: UCInstructionAddress, rom: &RomDump) -> Result<(), N
         return Err(NotHookableReason::LBSYNC);
     }
 
-    if address == 0x8e && rom.model() == 0x506CA {
+    if address == 0x8eusize && rom.model() == 0x506CA {
         // LFNCEWAIT-> NOP SEQW UEND0
         // TODO: is this an exception or is uend0 not hookable?
         return Err(NotHookableReason::TodoBlacklisted(address));
     }
-    if address == 0x3ca && rom.model() == 0x506CA {
-        // r64src:= ZEROEXT_DSZ32N(tmp0, r64src) !m1 SEQW UEND0
+    if (address >= 0x3c8usize && address <= 0x3causize) && rom.model() == 0x506CA {
+        // U03c8: 004100030001 tmp0:= OR_DSZ64(r64dst)
+        // U03c9: 100800001042 r64dst:= ZEROEXT_DSZ32N(r64src, r64dst) !m1
+        // U03ca: 1008000020b0 r64src:= ZEROEXT_DSZ32N(tmp0, r64src) !m1 SEQW UEND0
+
+        // this seems to be a swapping microcode. No other microcode jumping to that addresses.
+
         // TODO: is this an exception or is uend0 not hookable?
         return Err(NotHookableReason::TodoBlacklisted(address));
     }
@@ -105,8 +115,6 @@ pub fn modify_triad_for_hooking(
     is_hookable(hooked_address, rom)?;
 
     let triad = rom.triad(hooked_address).ok_or(NotHookableReason::AddressNotInDump)?;
-
-    // todo: debug 3294, wrong exit jump
 
     let mut sequence_word = SequenceWord::disassemble_no_crc_check(triad.sequence_word as u32)
         .map_err(NotHookableReason::ModificationFailedSequenceWordParse)?;

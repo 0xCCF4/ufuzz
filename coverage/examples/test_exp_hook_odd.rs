@@ -4,14 +4,12 @@
 //! Experiment for testing of hooking odd addresses.
 //!
 //! Observations: A hook for an even address is applied. When jumping to the next
-//! odd address, the hook redirects the execution, still.
+//! odd address, the hook redirects the execution, still. But continues to execute the redirect+1 address.
 //!
-//! Implications: Hooks apply to the hooked address and the next one.
-//!
-//! Open questions: Is there a way to tell if the hook was called by the even
-//! or odd address?
+//! Implications: Hooks apply to the hooked address and the next one. One can execute different code when
+//! the hook is called by the even or odd address.
 
-use custom_processing_unit::{apply_hook_patch_func, apply_patch, call_custom_ucode_function, disable_all_hooks, enable_hooks, hook, CustomProcessingUnit};
+use custom_processing_unit::{apply_hook_patch_func, apply_patch, call_custom_ucode_function, disable_all_hooks, hook, CustomProcessingUnit, HookGuard};
 use data_types::addresses::{MSRAMHookIndex};
 use log::info;
 use uefi::{entry, println, Status};
@@ -33,17 +31,22 @@ mod patch {
         NOP SEQW GOTO 0x9c2
 
         <exit>
-        rax := ZEROEXT_DSZ32(0x2222)
+        rdx := OR_DSZ32(rdx, 0x0022)
         unk_256() !m1 SEQW LFNCEWAIT, UEND0
         NOP
 
         <experiment0>
-        rdx := ZEROEXT_DSZ32(0x1234)
+        rdx := ZEROEXT_DSZ32(0x1200)
         NOP
         NOP SEQW GOTO 0x429
 
+        <experiment0_even>
+        rdx := ZEROEXT_DSZ32(0x1200)
+        NOP
+        NOP SEQW GOTO 0x428
+
         <experiment1>
-        rdx := ZEROEXT_DSZ32(0x1234)
+        rdx := ZEROEXT_DSZ32(0x1200)
         NOP
         NOP SEQW GOTO 0x9c1
 
@@ -91,7 +94,7 @@ unsafe fn main() -> Status {
         return Status::ABORTED;
     }
 
-    disable_all_hooks();
+    let _guard = HookGuard::disable_all(); // will be dropped on end of method
 
     apply_patch(&patch::PATCH);
 
@@ -139,21 +142,20 @@ unsafe fn main() -> Status {
     }
 
     println!("Starting experiments");
-    enable_hooks();
+    let guard = HookGuard::enable_all();
     let result = core::hint::black_box(call_custom_ucode_function)(patch::LABEL_EXPERIMENT0, [0, 0, 0]);
-    disable_all_hooks();
+    guard.restore();
     println!("{:x?}", result);
-    assert_eq!(result.rax, 0x2222);
-    assert_eq!(result.rcx, 0xfefe);
-    assert_eq!(result.rdx, 0x1234);
 
-    enable_hooks();
-    let result = core::hint::black_box(call_custom_ucode_function)(patch::LABEL_EXPERIMENT1, [0, 0, 0]);
-    disable_all_hooks();
+    let guard = HookGuard::enable_all();
+    let result = core::hint::black_box(call_custom_ucode_function)(patch::LABEL_EXPERIMENT0_EVEN, [0, 0, 0]);
+    guard.restore();
     println!("{:x?}", result);
-    assert_eq!(result.rax, 0x2222);
-    assert_eq!(result.rcx, 0xfefe);
-    assert_eq!(result.rdx, 0x1234);
+
+    let guard = HookGuard::enable_all();
+    let result = core::hint::black_box(call_custom_ucode_function)(patch::LABEL_EXPERIMENT1, [0, 0, 0]);
+    guard.restore();
+    println!("{:x?}", result);
     println!("Success");
 
     Status::SUCCESS

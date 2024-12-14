@@ -326,9 +326,7 @@ impl Display for SequenceWord {
             text[goto.apply_to_index as usize].push(format!("GOTO {:?}", goto.value));
         }
 
-        write!(f, "SEQW [")?;
-        write!(f, "{}", text.map(|v| v.join(" ")).join(","))?;
-        write!(f, "]")
+        write!(f, "[{}]", text.map(|v| v.join(" ")).join(","))
     }
 }
 
