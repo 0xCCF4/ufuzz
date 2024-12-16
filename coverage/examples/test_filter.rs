@@ -123,7 +123,7 @@ unsafe fn main() -> Status {
         for chunk in (next_address..0x7c00).into_iter() {
             let addresses = UCInstructionAddress::from_const(chunk);
 
-            if (chunk % 2) > 0 || (chunk % 4) >= 3 {
+            if (chunk % 2) > 0 {
                 // skip
                 if !WRITE_PROTECT {
                     if let Err(e) = write_ok(chunk) {
@@ -183,6 +183,10 @@ unsafe fn main() -> Status {
                     }
                 }
                 Ok(r) => {
+                    if !r.result.0 {
+                        println!("Failed: {:x?}", r.result);
+                        return Status::ABORTED;
+                    }
                     if r.hooks[0].covered() {
                         println!("Covered");
                         if !WRITE_PROTECT {
@@ -284,6 +288,9 @@ unsafe fn main() -> Status {
             if address % 0x100 == 0 {
                 print!("\r{:04x}", address);
             }
+            if address % 2 > 0 {
+                continue;
+            }
             let r = harness.execute(
                 &[address.into()],
                 |_| {
@@ -308,10 +315,10 @@ unsafe fn main() -> Status {
 
     let difference = (after.minute() - before.minute()) as usize * 60 as usize
         + (after.second() - before.second()) as usize * 1 as usize;
-    let diff_per_setup = difference / setups;
+    let diff_per_setup = difference as f64 / setups as f64;
 
     println!("{}min {}s total for {} iterations", difference/60, difference%60, setups);
-    println!("{}s / {}ns per iteration", diff_per_setup, after.nanosecond() - before.nanosecond());
+    println!("{}us per iteration", diff_per_setup * 1e6);
 
     drop(harness);
 
@@ -339,12 +346,12 @@ fn read_ok() -> uefi::Result<usize> {
     let mut root_dir = proto.open_volume()?;
     let mut dir = root_dir.open(
         file_name("test_filter")?.as_ref(),
-        FileMode::CreateReadWrite,
+        if WRITE_PROTECT { FileMode::Read } else { FileMode::CreateReadWrite },
         FileAttribute::DIRECTORY
     )?;
     let file = dir.open(
         file_name("ok.txt")?.as_ref(),
-        FileMode::CreateReadWrite,
+        if WRITE_PROTECT { FileMode::Read } else { FileMode::CreateReadWrite },
         FileAttribute::empty(),
     )?;
 
@@ -377,12 +384,12 @@ fn write_ok(address: usize) -> uefi::Result<()> {
     let mut root_dir = proto.open_volume()?;
     let mut dir = root_dir.open(
         file_name("test_filter")?.as_ref(),
-        FileMode::CreateReadWrite,
+        if WRITE_PROTECT { FileMode::Read } else { FileMode::CreateReadWrite },
         FileAttribute::DIRECTORY
     )?;
     let file = dir.open(
         file_name("ok.txt")?.as_ref(),
-        FileMode::CreateReadWrite,
+        if WRITE_PROTECT { FileMode::Read } else { FileMode::CreateReadWrite },
         FileAttribute::empty(),
     )?;
 
@@ -412,12 +419,12 @@ fn append_string_to_file(text: &str, name: &str) -> uefi::Result<()> {
     let mut root_dir = proto.open_volume()?;
     let mut dir = root_dir.open(
         file_name("test_filter")?.as_ref(),
-        FileMode::CreateReadWrite,
+        if WRITE_PROTECT { FileMode::Read } else { FileMode::CreateReadWrite },
         FileAttribute::DIRECTORY
     )?;
     let file = dir.open(
         file_name(name)?.as_ref(),
-        FileMode::CreateReadWrite,
+        if WRITE_PROTECT { FileMode::Read } else { FileMode::CreateReadWrite },
         FileAttribute::empty(),
     )?;
 
@@ -482,12 +489,12 @@ fn read_file(name: &str) -> uefi::Result<Vec<(usize, String)>> {
     let mut root_dir = proto.open_volume()?;
     let mut dir = root_dir.open(
         file_name("test_filter")?.as_ref(),
-        FileMode::CreateReadWrite,
+        if WRITE_PROTECT { FileMode::Read } else { FileMode::CreateReadWrite },
         FileAttribute::DIRECTORY
     )?;
     let file = dir.open(
         file_name(name)?.as_ref(),
-        FileMode::CreateReadWrite,
+        if WRITE_PROTECT { FileMode::Read } else { FileMode::CreateReadWrite },
         FileAttribute::empty(),
     )?;
 
@@ -524,12 +531,9 @@ fn read_file(name: &str) -> uefi::Result<Vec<(usize, String)>> {
 }
 
 fn read_blacklisted() -> uefi::Result<Vec<usize>> {
-    let additional_blacklist = include!("../src/blacklist.gen");
-
     Ok(read_file("blacklist.txt")?
         .into_iter()
         .map(|(address, _)| address)
-        .chain(additional_blacklist.into_iter())
         .sorted()
         .collect_vec())
 }

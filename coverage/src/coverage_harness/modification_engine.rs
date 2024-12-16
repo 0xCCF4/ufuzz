@@ -1,8 +1,9 @@
-use data_types::addresses::{UCInstructionAddress};
+use data_types::addresses::{Address, UCInstructionAddress};
 use data_types::patch::Triad;
 use ucode_compiler::utils::instruction::Instruction;
 use ucode_compiler::utils::opcodes::Opcode;
 use ucode_compiler::utils::sequence_word::{AssembleError, DisassembleError, SequenceWord, SequenceWordControl};
+use ucode_compiler::utils::sequence_word::SequenceWordSync::LFNCEWAIT;
 use ucode_dump::RomDump;
 
 
@@ -76,9 +77,19 @@ pub fn is_hookable(address: UCInstructionAddress, rom: &RomDump) -> Result<(), N
         return Err(NotHookableReason::LBSYNC);
     }
 
-    if address == 0x8eusize && rom.model() == 0x506CA {
-        // LFNCEWAIT-> NOP SEQW UEND0
-        // TODO: is this an exception or is uend0 not hookable?
+    let blacklist: &[usize] = &[
+        0xd0, // U00d0: 000000000000 NOP
+        0xd1, // U00d1: 000000000000 LFNCEMARK-> NOP SEQW GOTO U008e
+
+        0x8e, // LFNCEWAIT-> NOP SEQW UEND0 // TODO: is this an exception or is uend0 not hookable?
+
+        0x3c8, // U03c8: 004100030001 tmp0:= OR_DSZ64(r64dst)
+        0x3c9, // U03c9: 100800001042 r64dst:= ZEROEXT_DSZ32N(r64src, r64dst) !m1
+        0x3ca, // U03ca: 1008000020b0 r64src:= ZEROEXT_DSZ32N(tmp0, r64src) !m1 SEQW UEND0
+        0x3cb
+    ];
+
+    if blacklist.contains(&address.address()) && rom.model() == 0x506CA {
         return Err(NotHookableReason::TodoBlacklisted(address));
     }
     if (address >= 0x3c8usize && address <= 0x3causize) && rom.model() == 0x506CA {
@@ -180,5 +191,8 @@ mod test {
         for (key, value) in count {
             println!(" - {:?}: {}", key, value);
         }
+
+        println!("{:?}", SequenceWord::disassemble(modify_triad_for_hooking(0xd0.into(), &rom).unwrap().sequence_word));
+        println!("{:?}", SequenceWord::disassemble(modify_triad_for_hooking(0xd1.into(), &rom).unwrap().sequence_word));
     }
 }
