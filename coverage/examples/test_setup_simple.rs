@@ -79,7 +79,7 @@ unsafe fn main() -> Status {
         }
         println!();
 
-        for i in 0..interface_definition::COM_INTERFACE_DESCRIPTION.max_number_of_hooks as usize {
+        for i in 0..2*interface_definition::COM_INTERFACE_DESCRIPTION.max_number_of_hooks as usize {
             print!("EXIT {:02}: ", i);
             let seqw = ms_seqw_read(
                 coverage_collector::LABEL_FUNC_LDAT_READ,
@@ -107,7 +107,7 @@ unsafe fn main() -> Status {
         instructions: &[InstructionTableEntry],
         printing: bool,
     ) {
-        assert_eq!(addresses.len(), instructions.len());
+        assert_eq!(addresses.len()*2, instructions.len());
         interface.write_jump_table_all(addresses);
         interface.write_instruction_table_all(instructions.iter().cloned().into_iter());
 
@@ -138,11 +138,8 @@ unsafe fn main() -> Status {
         UCInstructionAddress::from_const(0x42a),
         UCInstructionAddress::from_const(0x1862),
         UCInstructionAddress::from_const(0x1864),
-        UCInstructionAddress::from_const(0x1866),
-        UCInstructionAddress::from_const(0x1868),
-        UCInstructionAddress::from_const(0x186a),
     ];
-    let instructions: [InstructionTableEntry; 7] = [
+    let instructions: [InstructionTableEntry; 8] = [
         [0x01, 0x02, 0x03, 0x04],
         [0x11, 0x12, 0x13, 0x14],
         [0x21, 0x22, 0x23, 0x24],
@@ -150,6 +147,7 @@ unsafe fn main() -> Status {
         [0x41, 0x42, 0x43, 0x44],
         [0x51, 0x52, 0x53, 0x54],
         [0x61, 0x62, 0x63, 0x64],
+        [0x71, 0x72, 0x73, 0x74],
     ];
 
     setup_hooks(&mut interface, &addr, &instructions, true);
@@ -189,12 +187,11 @@ unsafe fn main() -> Status {
         }
     };
 
-    let difference = (after.minute() - before.minute()) as usize * 60e9 as usize
-        + (after.second() - before.second()) as usize * 1e9 as usize
-        + (after.nanosecond() - before.nanosecond()) as usize;
+    let difference = (after.minute() - before.minute()) as usize * 60
+        + (after.second() - before.second()) as usize;
 
-    println!("For {} iterations: {}ns", count, difference);
-    println!(" {}ns per iteration", difference as f64 / count as f64);
+    println!("For {} iterations: {}s", count, difference);
+    println!(" {}us per iteration", (difference as f64 / count as f64)*1e6);
 
     println!("Goodbye!");
 

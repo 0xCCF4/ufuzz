@@ -1,4 +1,3 @@
-use crate::build::static_jump_analysis::{jump_analysis};
 use crate::build::ucode_scripts;
 
 #[path = "src/interface_definition.rs"]
@@ -13,7 +12,7 @@ fn main() {
     println!("cargo::rerun-if-changed=build/static_jump_analysis.rs");
     println!("cargo::rerun-if-changed=build/ucode_scripts.rs");
 
-    jump_analysis();
+    // jump_analysis();
     if let Err(err) = ucode_scripts::build_ucode_scripts() {
         panic!("Failed to compile ucode scripts: {:?}", err);
     }

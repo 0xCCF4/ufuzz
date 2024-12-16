@@ -497,7 +497,7 @@ pub fn transform_h_patch_to_rs_patch<P: AsRef<Path>, Q: AsRef<Path>>(
     let length = patch.lines().count() / 2;
 
     let mut space_requirement_analysis = String::new();
-    space_requirement_analysis.push_str("// Space requirement analysis:\n");
+    space_requirement_analysis.push_str("/// Space requirement analysis:\n");
 
     let mut sorted_labels_by_size = labels
         .iter()
@@ -540,15 +540,15 @@ pub fn transform_h_patch_to_rs_patch<P: AsRef<Path>, Q: AsRef<Path>>(
         );
         let triads = size / 4 + if size % 4 > 0 { 1 } else { 0 };
         space_requirement_analysis.push_str(
-            format!("// {size:3}|{triads:3} [{address:04x} -> {other_address:04x}] {name}\n")
+            format!("/// {size:3}|{triads:3} [{address:04x} -> {other_address:04x}] {name}\n")
                 .as_str(),
         )
     }
     if !sorted_labels_by_size.is_empty() {
-        space_requirement_analysis.push_str("// ---------------------- \n");
+        space_requirement_analysis.push_str("/// ---------------------- \n");
     }
     space_requirement_analysis
-        .push_str(format!("// Total: {:3}| {:3} of 128 triads\n", length * 4, length).as_str());
+        .push_str(format!("/// Total: {:3}| {:3} of 128 triads\n", length * 4, length).as_str());
 
     assert!(length <= 128, "Patch code is too large to fit in MSRAM");
 
@@ -559,12 +559,11 @@ pub fn transform_h_patch_to_rs_patch<P: AsRef<Path>, Q: AsRef<Path>>(
         #[allow(unused_imports)]
         use data_types::addresses::{{UCInstructionAddress, MSRAMHookIndex}};
 
-        {space_requirement_analysis}
-
         {labels_const}
 
         const LABELS: [LabelMapping<'static>; {labels_count}] = [{labels_array}];
 
+        {space_requirement_analysis}
         {allow_dead}
         pub const PATCH: Patch<'static, 'static, 'static> = Patch {{
             addr: UCInstructionAddress::from_const({}),

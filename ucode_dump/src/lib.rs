@@ -54,6 +54,13 @@ impl<'a, 'b> RomDump<'a, 'b> {
         self.instructions.get(address.address()).copied()
     }
 
+    pub fn get_instruction_pair(&self, address: UCInstructionAddress) -> Option<[u64; 2]> {
+        Some([
+            self.get_instruction(address.align_even())?,
+            self.get_instruction(address.align_even()+1)?,
+        ])
+    }
+
     pub fn get_sequence_word(&self, address: UCInstructionAddress) -> Option<u32> {
         self.sequences.get(address.address() / 4).copied()
     }

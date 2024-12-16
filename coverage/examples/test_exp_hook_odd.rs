@@ -9,7 +9,7 @@
 //! Implications: Hooks apply to the hooked address and the next one. One can execute different code when
 //! the hook is called by the even or odd address.
 
-use custom_processing_unit::{apply_hook_patch_func, apply_patch, call_custom_ucode_function, disable_all_hooks, hook, CustomProcessingUnit, HookGuard};
+use custom_processing_unit::{apply_hook_patch_func, apply_patch, call_custom_ucode_function, hook, CustomProcessingUnit, HookGuard};
 use data_types::addresses::{MSRAMHookIndex};
 use log::info;
 use uefi::{entry, println, Status};

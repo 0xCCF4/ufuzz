@@ -1,5 +1,4 @@
-use itertools::Itertools;
-use data_types::addresses::{Address, UCInstructionAddress};
+use data_types::addresses::{UCInstructionAddress};
 use data_types::patch::Triad;
 use ucode_compiler::utils::instruction::Instruction;
 use ucode_compiler::utils::opcodes::Opcode;
@@ -9,9 +8,9 @@ use ucode_dump::RomDump;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum NotHookableReason {
-    AddressNotAligned,
     AddressNotInRom,
     AddressNotInDump,
+    TriadAlreadyHooked,
     ModificationFailedSequenceWordParse(DisassembleError),
     ModificationFailedSequenceWordBuild(AssembleError),
     ControlOpPresent(SequenceWordControl),
@@ -24,7 +23,6 @@ pub enum NotHookableReason {
     TodoSaveUIP, // needs second triad to jump back
     LBSYNC,
     TodoBlacklisted(UCInstructionAddress),
-    OddJumpTowardsHookPair,
 }
 
 pub fn is_hookable(address: UCInstructionAddress, rom: &RomDump) -> Result<(), NotHookableReason> {
@@ -32,39 +30,29 @@ pub fn is_hookable(address: UCInstructionAddress, rom: &RomDump) -> Result<(), N
         return Err(NotHookableReason::AddressNotInRom);
     }
 
-    if address.address() % 4 != 0 && address.address() % 4 != 2 {
-        return Err(NotHookableReason::AddressNotAligned);
-    }
+    let address = address.align_even();
 
-    let blacklist = include!("../blacklist.gen");
-    if blacklist.contains(&address.address()) {
-        return Err(NotHookableReason::OddJumpTowardsHookPair);
-    }
-
-    let hooked_instruction = match rom.get_instruction(address) {
-        Some(instruction) => Instruction::from(instruction),
-        None => return Err(NotHookableReason::AddressNotInDump),
-    };
-    let next_instruction = match rom.get_instruction(address+1) {
-        Some(instruction) => Instruction::from(instruction),
-        None => return Err(NotHookableReason::AddressNotInDump),
-    };
+    let instruction_pair = rom.get_instruction_pair(address).ok_or(NotHookableReason::AddressNotInRom)?;
+    let instruction_pair = [
+        Instruction::disassemble(instruction_pair[0]),
+        Instruction::disassemble(instruction_pair[1]),
+    ];
+    let [this_instruction, next_instruction] = &instruction_pair;
 
     let sequence_word = match rom.get_sequence_word(address) {
         Some(sequence_word) => SequenceWord::disassemble_no_crc_check(sequence_word as u32)
             .map_err(NotHookableReason::ModificationFailedSequenceWordParse)?,
         None => return Err(NotHookableReason::AddressNotInDump),
     };
+    let sequence_word_view = sequence_word.view(address.align_even().triad_offset(), 2);
 
-    let opcodes = [hooked_instruction.opcode(), next_instruction.opcode()];
-
-    if hooked_instruction.opcode() == Opcode::SAVEUIP_REGOVR {
+    if this_instruction.opcode() == Opcode::SAVEUIP_REGOVR {
         return Err(NotHookableReason::TodoSaveUIP);
     }
 
     if next_instruction.opcode() == Opcode::SAVEUIP_REGOVR {
-        if let Some(control) = sequence_word.control() {
-            if control.value.is_terminator() && control.apply_to_index == address.triad_offset() {
+        if let Some(control) = sequence_word_view.control() {
+            if control.value.is_terminator() && control.apply_to_index == 1 {
                 // this is fine, since we will return anyway
             } else {
                 return Err(NotHookableReason::TodoSaveUIP);
@@ -74,18 +62,17 @@ pub fn is_hookable(address: UCInstructionAddress, rom: &RomDump) -> Result<(), N
         }
     }
 
-    if let Some(control) = sequence_word.control() {
-        if (control.apply_to_index == address.triad_offset() || control.apply_to_index == address.triad_offset()+1) &&
-            control.value.is_saveupip() {
+    if let Some(control) = sequence_word_view.control() {
+        if control.value.is_saveupip() {
             return Err(NotHookableReason::TodoSaveUIP);
         }
     }
 
-    if opcodes.iter().any(|opcode | opcode.is_group_TESTUSTATE() || opcode.is_group_SUBR()) {
+    if instruction_pair.iter().any(|instruction | instruction.opcode().is_group_TESTUSTATE() || instruction.opcode().is_group_SUBR()) {
         return Err(NotHookableReason::TodoConditionalJump);
     }
 
-    if opcodes.iter().any(|opcode| *opcode == Opcode::LBSYNC) {
+    if instruction_pair.iter().any(|instruction| instruction.opcode() == Opcode::LBSYNC) {
         return Err(NotHookableReason::LBSYNC);
     }
 
@@ -109,60 +96,50 @@ pub fn is_hookable(address: UCInstructionAddress, rom: &RomDump) -> Result<(), N
 }
 
 pub fn modify_triad_for_hooking(
-    hooked_address: UCInstructionAddress,
+    address: UCInstructionAddress,
     rom: &RomDump,
 ) -> Result<Triad, NotHookableReason> {
-    is_hookable(hooked_address, rom)?;
+    is_hookable(address, rom)?;
 
-    let triad = rom.triad(hooked_address).ok_or(NotHookableReason::AddressNotInDump)?;
+    let triad = rom.triad(address).ok_or(NotHookableReason::AddressNotInDump)?;
+
+    let instruction = Instruction::disassemble(*triad.instructions.get(address.triad_offset() as usize).unwrap_or(&0u64));
 
     let mut sequence_word = SequenceWord::disassemble_no_crc_check(triad.sequence_word as u32)
         .map_err(NotHookableReason::ModificationFailedSequenceWordParse)?;
-    let instructions = triad
-        .instructions
-        .into_iter()
-        .map(Instruction::disassemble)
-        .map(|i| i.assemble())
-        .collect_vec();
 
-    let jump_idx = (hooked_address.triad_offset()+1).min(2);
+    sequence_word.view_mut(address.triad_offset(), 1).apply();
 
     if let Some(control) = sequence_word.control() {
-        if jump_idx == control.apply_to_index {
-            if control.value.is_terminator() {
-                // do nothing, since we will return anyway
-                return Ok(Triad {
-                    instructions: [
-                        instructions[0],
-                        instructions[1],
-                        instructions[2],
-                    ],
-                    sequence_word: sequence_word.assemble().map_err(NotHookableReason::ModificationFailedSequenceWordBuild)?,
-                });
-            } else {
-                return Err(NotHookableReason::ControlOpPresent(control.value));
-            }
+        if control.value.is_terminator() {
+            // do nothing, since we will return anyway
+            return Ok(Triad {
+                instructions: [
+                    instruction.assemble(),
+                    0,
+                    0
+                ],
+                sequence_word: sequence_word.assemble().map_err(NotHookableReason::ModificationFailedSequenceWordBuild)?,
+            });
+        } else {
+            return Err(NotHookableReason::ControlOpPresent(control.value));
         }
     }
 
     match sequence_word.goto() {
-        Some(goto) => {
-            if goto.apply_to_index == jump_idx || goto.apply_to_index == hooked_address.triad_offset() {
-                // do nothing, since jump will be automatically taken
-            } else {
-                sequence_word.set_goto(jump_idx, hooked_address.next_even_address());
-            }
+        Some(_goto) => {
+            // do nothing, since jump will be automatically taken
         }
         None => {
-            sequence_word.set_goto(jump_idx, hooked_address.next_even_address());
+            sequence_word.set_goto(0, address.next_address());
         }
     }
 
     Ok(Triad {
         instructions: [
-            instructions[0],
-            instructions[1],
-            instructions[2],
+            instruction.assemble(),
+            0,
+            0,
         ],
         sequence_word: sequence_word.assemble().map_err(NotHookableReason::ModificationFailedSequenceWordBuild)?,
     })
@@ -180,7 +157,7 @@ mod test {
         let rom = ucode_dump::dump::ROM_cpu_000506CA;
         let mut count = HashMap::new();
         let mut total = 0;
-        for i in (0..0x7c00).filter(|v| matches!(v % 4, 0 | 2)).map(UCInstructionAddress::from_const) {
+        for i in (0..0x7c00).map(UCInstructionAddress::from_const) {
             let result = is_hookable(i, &rom);
             total += 1;
             if let Err(err) = result {
@@ -203,7 +180,5 @@ mod test {
         for (key, value) in count {
             println!(" - {:?}: {}", key, value);
         }
-
-        println!("{:x?}", modify_triad_for_hooking(0x19d4.into(), &rom));
     }
 }

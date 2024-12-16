@@ -303,15 +303,25 @@ fn generate_entries<A: AsRef<Path>>(path: A, interface: &ComInterfaceDescription
     let mut content = "".to_string();
     content.push_str("# ");
     content.push_str(AUTOGEN);
-    content.push_str("\n\n");
+    content.push_str("\n\nNOPB # Align to 4\n\n");
 
     for i in 0..interface.max_number_of_hooks {
+        let even = i * 2;
+        let odd = even + 1;
         content.push_str(
             format!(
                 "
 <hook_entry_{i:02}>
+NOP SEQW GOTO <hook_entry_{i:02}_even>
+NOP # if odd then just NOP to _odd entry
+NOP
+<hook_entry_{i:02}_odd>
 STADSTGBUF_DSZ64_ASZ16_SC1([adr_stg_r10], , r10) !m2 # save original value of r10
-[in_hook_offset] := ZEROEXT_DSZ32(0x{i:02x}) SEQW GOTO <handler> # index {i}
+[in_hook_offset] := ZEROEXT_DSZ32(0x{odd:02x}) SEQW GOTO <handler>
+NOP
+<hook_entry_{i:02}_even>
+STADSTGBUF_DSZ64_ASZ16_SC1([adr_stg_r10], , r10) !m2 # save original value of r10
+[in_hook_offset] := ZEROEXT_DSZ32(0x{even:02x}) SEQW GOTO <handler>
 NOP
 "
             )
@@ -322,7 +332,7 @@ NOP
     std::fs::write(file, content).expect("write failed");
 }
 
-fn generate_exits<A: AsRef<Path>>(path: A, interface: &ComInterfaceDescription, data: Option<Stage2Pass>) {
+fn generate_exits<A: AsRef<Path>>(path: A, interface: &ComInterfaceDescription, _data: Option<Stage2Pass>) {
     let file = path.as_ref().join("exits.up");
     let mut content = "".to_string();
     content.push_str("# ");
@@ -332,14 +342,19 @@ fn generate_exits<A: AsRef<Path>>(path: A, interface: &ComInterfaceDescription, 
     content.push_str("NOPB # Align to 4\n\n");
 
     for i in 0..interface.max_number_of_hooks as usize {
-        let exit_handler = data.unwrap_or_default().hook_exit_replacement_address + i * 4;
         content.push_str(
             format!(
                 "
 <hook_exit_{i:02}>
-r10 := LDSTGBUF_DSZ64_ASZ16_SC1([adr_stg_r10]) !m2
+<hook_exit_{i:02}_even>
+r10 := LDSTGBUF_DSZ64_ASZ16_SC1([adr_stg_r10]) !m2 SEQW GOTO <hook_exit_replacement_{i:02}_even>
 NOP
-NOP SEQW GOTO 0x{exit_handler:04x}
+NOP
+
+<hook_exit_{i:02}_odd>
+r10 := LDSTGBUF_DSZ64_ASZ16_SC1([adr_stg_r10]) !m2 SEQW GOTO <hook_exit_replacement_{i:02}_odd>
+NOP
+NOP
 "
             )
             .as_str(),
@@ -353,6 +368,12 @@ NOP SEQW GOTO 0x{exit_handler:04x}
             format!(
                 "
 <hook_exit_replacement_{i:02}>
+<hook_exit_replacement_{i:02}_even>
+NOP
+NOP
+NOP SEQW GOTO <exit_trap>
+
+<hook_exit_replacement_{i:02}_odd>
 NOP
 NOP
 NOP SEQW GOTO <exit_trap>

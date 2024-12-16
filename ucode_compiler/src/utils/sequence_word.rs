@@ -6,6 +6,7 @@ use num_traits::FromPrimitive;
 
 use alloc::vec::Vec;
 use alloc::format;
+use core::borrow::{Borrow, BorrowMut};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, FromPrimitive)]
 #[allow(non_camel_case_types)] // these are the names
@@ -61,7 +62,7 @@ impl SequenceWordControl {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, FromPrimitive)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, FromPrimitive)]
 pub enum SequenceWordSync {
     LFNCEWAIT = 0x1,
     LFNCEMARK = 0x2,
@@ -311,6 +312,78 @@ impl SequenceWord {
         }
         true
     }
+
+    pub fn view(&self, base: u8, len: u8) -> SequenceWordView<&SequenceWord> {
+        SequenceWordView::new(self, base, len)
+    }
+
+    pub fn view_mut(&mut self, base: u8, len: u8) -> SequenceWordView<&mut SequenceWord> {
+        SequenceWordView::new(self, base, len)
+    }
+
+    pub fn shift_right(&mut self, amount: u8) -> &mut Self {
+        if amount == 0 {
+            return self;
+        }
+
+        if let Some(control) = self.control() {
+            if amount > control.apply_to_index {
+                self.no_control();
+            } else {
+                self.set_control(control.apply_to_index - amount, control.value);
+            }
+        }
+
+        if let Some(sync) = self.sync() {
+            if amount > sync.apply_to_index {
+                self.no_sync();
+            } else {
+                self.set_sync(sync.apply_to_index - amount, sync.value);
+            }
+        }
+
+        if let Some(goto) = self.goto() {
+            if amount > goto.apply_to_index {
+                self.no_goto();
+            } else {
+                self.set_goto(goto.apply_to_index - amount, goto.value);
+            }
+        }
+
+        self
+    }
+
+    pub fn shift_left(&mut self, amount: u8) -> &mut Self {
+        if amount == 0 {
+            return self;
+        }
+
+        if let Some(control) = self.control() {
+            if control.apply_to_index + amount >= 3 {
+                self.no_control();
+            } else {
+                self.set_control(control.apply_to_index + amount, control.value);
+            }
+        }
+
+        if let Some(sync) = self.sync() {
+            if sync.apply_to_index + amount >= 3 {
+                self.no_sync();
+            } else {
+                self.set_sync(sync.apply_to_index + amount, sync.value);
+            }
+        }
+
+        if let Some(goto) = self.goto() {
+            if goto.apply_to_index + amount >= 3 {
+                self.no_goto();
+            } else {
+                self.set_goto(goto.apply_to_index + amount, goto.value);
+            }
+        }
+
+        self
+    }
 }
 
 impl Display for SequenceWord {
@@ -346,6 +419,100 @@ pub type AssembleResult<T> = Result<T, AssembleError>;
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum AssembleError {
     InvalidCombination,
+}
+
+pub struct SequenceWordView<T: Borrow<SequenceWord>> {
+    word: T,
+    base: u8,
+    len: u8,
+}
+
+impl<T: Borrow<SequenceWord>> SequenceWordView<T> {
+    fn new(word: T, base: u8, len: u8) -> Self {
+        Self { word, base, len }
+    }
+
+    fn rebase<V: Copy>(&self, value: &Option<SequenceWordPart<V>>) -> Option<SequenceWordPart<V>> {
+        match value {
+            Some(control) if control.apply_to_index >= self.base && control.apply_to_index < self.base + self.len => {
+                Some(SequenceWordPart {
+                    apply_to_index: control.apply_to_index - self.base,
+                    value: control.value,
+                })
+            },
+            _ => None,
+        }
+    }
+
+    pub fn control(&self) -> Option<SequenceWordPart<SequenceWordControl>> {
+        self.rebase(self.word.borrow().control())
+    }
+
+    pub fn sync(&self) -> Option<SequenceWordPart<SequenceWordSync>> {
+        self.rebase(self.word.borrow().sync())
+    }
+
+    pub fn goto(&self) -> Option<SequenceWordPart<UCInstructionAddress>> {
+        self.rebase(self.word.borrow().goto())
+    }
+
+    pub fn close(self) -> T {
+        self.word
+    }
+}
+
+impl<T: BorrowMut<SequenceWord>> SequenceWordView<T> {
+    pub fn set_control(&mut self, index: u8, control: SequenceWordControl) -> &mut Self {
+        assert!(index < self.len);
+        self.word.borrow_mut().set_control(index + self.base, control);
+        self
+    }
+
+    pub fn no_control(&mut self) -> &mut Self {
+        self.word.borrow_mut().no_control();
+        self
+    }
+
+    pub fn set_sync(&mut self, index: u8, sync: SequenceWordSync) -> &mut Self {
+        assert!(index < self.len);
+        self.word.borrow_mut().set_sync(index + self.base, sync);
+        self
+    }
+
+    pub fn no_sync(&mut self) -> &mut Self {
+        self.word.borrow_mut().no_sync();
+        self
+    }
+
+    pub fn set_goto<A: Into<UCInstructionAddress>>(&mut self, index: u8, goto: A) -> &mut Self {
+        assert!(index < self.len);
+        self.word.borrow_mut().set_goto(index + self.base, goto);
+        self
+    }
+
+    pub fn no_goto(&mut self) -> &mut Self {
+        self.word.borrow_mut().no_goto();
+        self
+    }
+
+    pub fn cleanup_outside(&mut self) -> &mut Self {
+        if self.control().is_none() {
+            self.word.borrow_mut().no_control();
+        }
+        if self.sync().is_none() {
+            self.word.borrow_mut().no_sync();
+        }
+        if self.goto().is_none() {
+            self.word.borrow_mut().no_goto();
+        }
+        self
+    }
+
+    pub fn apply(mut self) -> T {
+        self.cleanup_outside();
+        self.word.borrow_mut().shift_right(self.base);
+        self.word
+    }
 }
 
 #[cfg(test)]

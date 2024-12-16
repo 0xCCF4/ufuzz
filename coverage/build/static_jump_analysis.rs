@@ -7,6 +7,7 @@ use ucode_dump::{dump, RomDump};
 use data_types::addresses::{Address, UCInstructionAddress};
 
 
+#[allow(dead_code)]
 pub fn jump_analysis() {
     analyse_jumps(&dump::ROM_cpu_000506CA); // TODO add other archs
 }

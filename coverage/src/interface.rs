@@ -208,6 +208,7 @@ pub mod safe {
     use crate::page_allocation::PageAllocation;
     use data_types::addresses::UCInstructionAddress;
     use uefi::data_types::PhysicalAddress;
+    use data_types::patch::Triad;
 
     pub struct ComInterface<'a> {
         base: super::raw::ComInterface<'a>,
@@ -276,6 +277,15 @@ pub mod safe {
 
         pub fn write_instruction_table(&mut self, index: usize, value: InstructionTableEntry) {
             self.base.write_instruction_table(index, value)
+        }
+
+        pub fn write_instruction_table_triad(&mut self, index: usize, value: Triad) {
+            self.write_instruction_table(index, [
+                value.instructions[0],
+                value.instructions[1],
+                value.instructions[2],
+                value.sequence_word as u64,
+            ])
         }
 
         pub fn write_instruction_table_all<

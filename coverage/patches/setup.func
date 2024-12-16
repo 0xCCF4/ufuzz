@@ -46,27 +46,28 @@ func lib/ldat_write({0}, {tmp_zero}, {1}, 0x3)
 # -------------------------------------------
 {tmp_counter} := ZEROEXT_DSZ64(0x0)
 <setup_exit_loop>
-# if index == n || index == table_length
-func lib/jump_if_equal({tmp_counter}, {n}, {0}, 32, <setup_exit_loop_end>)
-func lib/jump_if_equal({tmp_counter}, [table_length], {0}, 32, <setup_exit_loop_end>)
+# if index == 2*n || index == 2*table_length
+{3} := SHR_DSZ64({tmp_counter}, 0x01)
+func lib/jump_if_equal({3}, {n}, {0}, 32, <setup_exit_loop_end>)
+func lib/jump_if_equal({3}, [table_length], {0}, 32, <setup_exit_loop_end>)
 
-# Write exit jump to replacement triad
-{0} := SHL_DSZ64({tmp_counter}, [convert_index_to_jump_table_offset])
-{1} := ZEROEXT_DSZ64([address_jump_table_base])
-{2} := LDPPHYS_DSZ16_ASZ32_SC1({0}, {1}) # {2} := JUMP_TABLE[index]
-{2} := AND_DSZ64({2}, 0x2)
-# since we can only hook on even addresses, {2} now contains the triad offset
-{0} := SHL_DSZ64({tmp_counter}, 0x02) # {0} := index * 4
-{0} := ADD_DSZ64({0}, {2}) # {0} := index * 4 + triad_offset
-{1} := ADD_DSZ64({0}, <hook_exit_replacement_00>)
-# {1} := HOOK_EXIT_REPLACER + index * 4 + triad_offset
-
-func compute_exit_jump({0}, {1}, {2}, {3})
-# {1} := SEQW { GOTO {1}; NOP; NOP }
-
-{1} := ZEROEXT_DSZ64([hook_exit_offset_in_seqw])
-{1} := ADD_DSZ64({1}, {tmp_counter}) # {1} := HOOK_EXIT (seqw addr) + index
-func lib/ldat_write({1}, {0}, {2}, 0x2) # SEQW_mem[{1} = EXIT + index] := {0} = SEQW GOTO {2}
+# # Write exit jump to replacement triad
+# {0} := SHL_DSZ64({tmp_counter}, [convert_index_to_jump_table_offset])
+# {1} := ZEROEXT_DSZ64([address_jump_table_base])
+# {2} := LDPPHYS_DSZ16_ASZ32_SC1({0}, {1}) # {2} := JUMP_TABLE[index]
+# {2} := AND_DSZ64({2}, 0x2)
+# # since we can only hook on even addresses, {2} now contains the triad offset
+# {0} := SHL_DSZ64({tmp_counter}, 0x02) # {0} := index * 4
+# {0} := ADD_DSZ64({0}, {2}) # {0} := index * 4 + triad_offset
+# {1} := ADD_DSZ64({0}, <hook_exit_replacement_00>)
+# # {1} := HOOK_EXIT_REPLACER + index * 4 + triad_offset
+#
+# func compute_exit_jump({0}, {1}, {2}, {3})
+# # {1} := SEQW { GOTO {1}; NOP; NOP }
+#
+# {1} := ZEROEXT_DSZ64([hook_exit_offset_in_seqw])
+# {1} := ADD_DSZ64({1}, {tmp_counter}) # {1} := HOOK_EXIT (seqw addr) + index
+# func lib/ldat_write({1}, {0}, {2}, 0x2) # SEQW_mem[{1} = EXIT + index] := {0} = SEQW GOTO {2}
 
 
 # Write replacement triad

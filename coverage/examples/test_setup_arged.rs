@@ -5,6 +5,7 @@
 
 extern crate alloc;
 
+use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::arch::asm;
@@ -71,7 +72,7 @@ unsafe fn main() -> Status {
     }
     drop(guard);
 
-    print_status(addresses.len());
+    print_status(addresses.len(), &addresses);
 
     println!(" ---- RDRAND test ---- ");
 
@@ -82,8 +83,11 @@ unsafe fn main() -> Status {
     match result {
         Ok(result) => {
             println!("RDRAND: {:x?}", result.result);
-            for (h, a) in result.hooks.iter().zip(&addresses) {
-                println!(" - {}: {:?}", a, h);
+            for entry in result.hooks.iter() {
+                println!(" - {}: {}", entry.address(), match entry.coverage() {
+                    0 => "NotCovered".to_string(),
+                    x => format!("Covered {{ count: {} }}", x),
+                });
             }
         }
         Err(err) => {
@@ -155,7 +159,7 @@ fn get_args() -> Option<Vec<UCInstructionAddress>> {
     Some(addresses)
 }
 
-fn print_status(max_count: usize) {
+fn print_status(max_count: usize, hooks: &[UCInstructionAddress]) {
     print!("Hooks  : ");
     for i in 0..max_count.min(interface_definition::COM_INTERFACE_DESCRIPTION.max_number_of_hooks as usize) {
         let hook = call_custom_ucode_function(
@@ -167,20 +171,19 @@ fn print_status(max_count: usize) {
     }
     println!();
 
-    for i in 0..max_count.min(interface_definition::COM_INTERFACE_DESCRIPTION.max_number_of_hooks as usize) {
-        print!("EXIT {:02}: ", i);
-        let seqw = ms_seqw_read(
-            coverage_collector::LABEL_FUNC_LDAT_READ,
-            coverage_collector::LABEL_HOOK_EXIT_00 + i * 4,
-        );
-        print!("{} -> ", SequenceWord::disassemble_no_crc_check(seqw as u32).map_or("ERR".to_string(), |s| s.to_string()));
+    for i in 0..2*max_count.min(interface_definition::COM_INTERFACE_DESCRIPTION.max_number_of_hooks as usize) {
+        print!("EXIT {:02}_{}: {}: ", i/2, i%2, hooks[i/2].align_even() + i%2);
         for offset in 0..3 {
             let instruction = ms_patch_instruction_read(
                 coverage_collector::LABEL_FUNC_LDAT_READ,
                 coverage_collector::LABEL_HOOK_EXIT_REPLACEMENT_00 + i * 4 + offset,
             );
             let instruction = Instruction::disassemble(instruction as u64);
-            print!("{} ", instruction.opcode());
+            print!("{} {}", if instruction.assemble() != 0 { instruction.opcode().to_string() } else { "NOP".to_string() }, if offset == 0 {
+                format!("({:08x}) ", instruction.assemble_no_crc())
+            } else {
+                "".to_string()
+            });
         }
         let seqw = ms_seqw_read(
             coverage_collector::LABEL_FUNC_LDAT_READ,

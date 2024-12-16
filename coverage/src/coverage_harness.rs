@@ -2,13 +2,12 @@ mod modification_engine;
 
 use crate::coverage_collector;
 use crate::interface::safe::ComInterface;
-use crate::interface_definition::{ClockTableSettingsEntry, CoverageEntry, InstructionTableEntry};
+use crate::interface_definition::{CoverageEntry, InstructionTableEntry};
 #[cfg(feature = "no_std")]
 use alloc::vec::Vec;
 use core::fmt::Debug;
-use custom_processing_unit::{apply_patch, call_custom_ucode_function, disable_all_hooks, enable_hooks, lmfence, read_unwrap_ucode_clock, unwrap_ucode_clock, CustomProcessingUnit, FunctionResult, HookGuard};
+use custom_processing_unit::{apply_patch, call_custom_ucode_function, disable_all_hooks, enable_hooks, lmfence, CustomProcessingUnit, FunctionResult, HookGuard};
 use data_types::addresses::{UCInstructionAddress};
-use itertools::Itertools;
 use ucode_compiler::utils::sequence_word::{DisassembleError};
 use crate::coverage_harness::modification_engine::NotHookableReason;
 // const COVERAGE_ENTRIES: usize = UCInstructionAddress::MAX.to_const();
@@ -47,27 +46,31 @@ impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
     }
 
     #[inline(always)]
-    fn pre_execution(&mut self, hooks: &[(UCInstructionAddress, ClockTableSettingsEntry)]) -> Result<(), CoverageError> {
+    fn pre_execution(&mut self, hooks: &[UCInstructionAddress]) -> Result<(), CoverageError> {
         if hooks.len() > self.interface.description().max_number_of_hooks as usize {
             return Err(CoverageError::TooManyHooks);
         }
 
         let mut instructions = Vec::with_capacity(hooks.len());
-        for (hook, _) in hooks {
-            if let Err(err) = self.is_hookable(*hook) {
-                return Err(CoverageError::AddressNotHookable(*hook, err));
+        for hook in hooks.iter().copied() {
+            if hooks.iter().filter(|a| a.triad_base() == hook.triad_base()).count() > 1 {
+                return Err(CoverageError::AddressNotHookable(hook, NotHookableReason::TriadAlreadyHooked));
             }
 
-            instructions.push(
-                self.modify_triad_for_hooking(*hook)
-                    .map_err(|err| CoverageError::AddressNotHookable(*hook, err))?,
-            );
+            if let Err(err) = self.is_hookable(hook) {
+                return Err(CoverageError::AddressNotHookable(hook, err));
+            }
+
+            let triads = self.modify_triad_for_hooking(hook)
+                .map_err(|err| CoverageError::AddressNotHookable(hook, err))?;
+
+            for triad in triads.into_iter() {
+                instructions.push(triad);
+            }
         }
 
-        self.interface.write_jump_table_all(hooks.iter().map(|(v, _)| *v));
-        self.interface.write_clock_table_settings_all(hooks.iter().map(|(_, v)| *v));
+        self.interface.write_jump_table_all(hooks);
         self.interface.write_instruction_table_all(instructions);
-        self.interface.zero_clock_table();
         self.interface.reset_coverage();
 
         let result =
@@ -81,31 +84,41 @@ impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
     }
 
     #[inline(always)]
-    fn post_execution(&mut self, hooks: &[(UCInstructionAddress, ClockTableSettingsEntry)], start_time: u64) -> Vec<ExecutionResultEntry> {
+    fn post_execution(&mut self, hooks: &[UCInstructionAddress]) -> Vec<ExecutionResultEntry> {
         let mut result = Vec::with_capacity(hooks.len());
-        for (index, (_address, _)) in hooks.iter().enumerate() {
-            let covered = self.interface.read_coverage_table(index);
-            // self.coverage[address.address()] += covered;
+        for (index, address) in hooks.iter().enumerate() {
+            let address = address.align_even();
 
-            result.push(if covered > 0 {
+            let covered_even = self.interface.read_coverage_table(index << 1);
+            let covered_odd = self.interface.read_coverage_table((index << 1) + 1);
+
+            result.push(if covered_even > 0 {
                 ExecutionResultEntry::Covered {
-                    count: covered,
-                    timing: unwrap_ucode_clock(self.interface.read_clock_table(index)).wrapping_sub(start_time),
+                    address,
+                    count: covered_even,
                 }
             } else {
-                ExecutionResultEntry::NotCovered
+                ExecutionResultEntry::NotCovered {
+                    address,
+                }
+            });
+
+            result.push(if covered_odd > 0 {
+                ExecutionResultEntry::Covered {
+                    address: address + 1,
+                    count: covered_odd,
+                }
+            } else {
+                ExecutionResultEntry::NotCovered {
+                    address: address + 1,
+                }
             });
         }
         result
     }
 
     pub fn setup(&mut self, hooks: &[UCInstructionAddress]) -> Result<(), CoverageError> {
-        let hooks = hooks.iter().map(|v| (*v, 0)).collect_vec();
         self.pre_execution(&hooks)
-    }
-
-    pub fn setup_with_timing_measurement(&mut self, hooks: &[(UCInstructionAddress, ClockTableSettingsEntry)]) -> Result<(), CoverageError> {
-        self.pre_execution(hooks)
     }
 
     pub fn execute<T, R, F: FnOnce(T) -> R>(
@@ -114,19 +127,7 @@ impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
         func: F,
         param: T,
     ) -> Result<ExecutionResult<R>, CoverageError> {
-        let hooks = hooks.iter().map(|v| (*v, 0)).collect_vec();
-
-        self.execute_with_timing_measurement(hooks.as_ref(), func, param)
-    }
-
-    pub fn execute_with_timing_measurement<T, R, F: FnOnce(T) -> R>(
-        &mut self,
-        hooks: &[(UCInstructionAddress, ClockTableSettingsEntry)],
-        func: F,
-        param: T,
-    ) -> Result<ExecutionResult<R>, CoverageError> {
         self.pre_execution(hooks)?;
-        let start_time = read_unwrap_ucode_clock();
         enable_hooks();
 
         lmfence();
@@ -134,21 +135,13 @@ impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
         lmfence();
 
         disable_all_hooks();
-        let timing = self.post_execution(hooks, start_time);
+        let timing = self.post_execution(hooks);
 
         Ok(ExecutionResult {
             result,
             hooks: timing,
         })
     }
-
-    /* pub fn covered<A: AsRef<UCInstructionAddress>>(&self, address: A) -> bool {
-        self.coverage[address.as_ref().address()] > 0
-    } */
-
-    /* pub fn get_coverage(&self) -> &[CoverageEntry; COVERAGE_ENTRIES] {
-        &self.coverage
-    } */
 
     pub fn is_hookable(&self, address: UCInstructionAddress) -> Result<(), NotHookableReason> {
         modification_engine::is_hookable(address, self.custom_processing_unit.rom())
@@ -157,27 +150,37 @@ impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
     fn modify_triad_for_hooking(
         &self,
         hooked_address: UCInstructionAddress,
-    ) -> Result<InstructionTableEntry, NotHookableReason> {
-        let result = modification_engine::modify_triad_for_hooking(hooked_address, self.custom_processing_unit.rom())?;
-        Ok([
-            result.instructions[0],
-            result.instructions[1],
-            result.instructions[2],
-            result.sequence_word as u64,
-        ])
+    ) -> Result<[InstructionTableEntry; 2], NotHookableReason> {
+        let even = modification_engine::modify_triad_for_hooking(hooked_address.align_even(), self.custom_processing_unit.rom())?;
+        let odd = modification_engine::modify_triad_for_hooking(hooked_address.align_even()+1, self.custom_processing_unit.rom())?;
+        Ok([[
+            even.instructions[0],
+            even.instructions[1],
+            even.instructions[2],
+            even.sequence_word as u64,
+        ], [
+            odd.instructions[0],
+            odd.instructions[1],
+            odd.instructions[2],
+            odd.sequence_word as u64,
+        ]])
     }
 }
 
 impl<'a, 'b, 'c> Drop for CoverageHarness<'a, 'b, 'c> {
     fn drop(&mut self) {
-        let mut v = Vec::with_capacity(self.interface.description().max_number_of_hooks as usize);
-
-        for _ in 0..self.interface.description().max_number_of_hooks {
-            v.push((UCInstructionAddress::ZERO, 0));
+        for i in 0..self.interface.description().max_number_of_hooks {
+            let address = UCInstructionAddress::ZERO;
+            let triads = self.modify_triad_for_hooking(address).expect("Zero address should be hookable");
+            self.interface.write_instruction_table(i as usize * 2, triads[0]);
+            self.interface.write_instruction_table(i as usize * 2 + 1, triads[1]);
+            self.interface.write_jump_table(i as usize, address);
         }
 
-        // zero hooks
-        let _ = self.pre_execution(v.as_ref());
+        self.interface.reset_coverage();
+
+        let _ =
+            call_custom_ucode_function(coverage_collector::LABEL_FUNC_SETUP, [self.interface.description().max_number_of_hooks as usize, 0, 0]);
 
         // dropping the hook guard will restore the hooks
         drop(self.previous_hook_settings.take());
@@ -187,18 +190,27 @@ impl<'a, 'b, 'c> Drop for CoverageHarness<'a, 'b, 'c> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExecutionResultEntry {
-    NotCovered,
+    NotCovered {
+        address: UCInstructionAddress,
+    },
     Covered {
+        address: UCInstructionAddress,
         count: CoverageEntry,
-        timing: u64,
     },
 }
 
 impl ExecutionResultEntry {
+    pub fn address(&self) -> UCInstructionAddress {
+        match self {
+            ExecutionResultEntry::Covered { address, .. } => *address,
+            ExecutionResultEntry::NotCovered { address } => *address,
+        }
+    }
+
     pub fn coverage(&self) -> CoverageEntry {
         match self {
             ExecutionResultEntry::Covered { count, .. } => *count,
-            ExecutionResultEntry::NotCovered => 0,
+            ExecutionResultEntry::NotCovered { .. } => 0,
         }
     }
 
