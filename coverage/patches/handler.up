@@ -24,4 +24,3 @@ NOPB
 NOP SEQW LFNCEWAIT
 
 UJMP(,r10) # jump to exit hook
-

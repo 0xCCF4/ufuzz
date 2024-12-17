@@ -77,7 +77,9 @@ unsafe fn main() -> Status {
     println!(" ---- RDRAND test ---- ");
 
     let result = harness.execute(&addresses, |_| {
-        rdrand()
+        let a = rdrand();
+        let b = rdrand();
+        (a.0 && b.0, a.1)
     }, ());
 
     match result {

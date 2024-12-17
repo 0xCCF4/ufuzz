@@ -119,9 +119,6 @@ fn execute<R: Debug, F: FnOnce() -> R>(coverage_harness: &mut CoverageHarness, a
     match x {
         Err(err ) => println!("Error: {:?}", err),
         Ok(x) => {
-            print!("{} ", x.hooks.iter().map(|entry| {
-                entry.coverage()
-            }).join(","));
             println!("\n{:x?}", x.result);
             for entry in x.hooks {
                 println!(" - {:?}", entry);
