@@ -1,11 +1,11 @@
-use core::fmt::{Display};
 use crate::utils::even_odd_parity_u32;
+use core::fmt::Display;
 use data_types::addresses::{Address, UCInstructionAddress};
 use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
 
-use alloc::vec::Vec;
 use alloc::format;
+use alloc::vec::Vec;
 use core::borrow::{Borrow, BorrowMut};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, FromPrimitive)]
@@ -44,8 +44,7 @@ impl SequenceWordControl {
     pub fn is_uret(&self) -> bool {
         matches!(
             self,
-            SequenceWordControl::URET0
-                | SequenceWordControl::URET1
+            SequenceWordControl::URET0 | SequenceWordControl::URET1
         )
     }
 
@@ -57,12 +56,14 @@ impl SequenceWordControl {
         matches!(
             self,
             SequenceWordControl::SAVEUPIP0
-                | SequenceWordControl::SAVEUPIP1 | SequenceWordControl::ROVR_SAVEUPIP0 | SequenceWordControl::ROVR_SAVEUPIP1
+                | SequenceWordControl::SAVEUPIP1
+                | SequenceWordControl::ROVR_SAVEUPIP0
+                | SequenceWordControl::ROVR_SAVEUPIP1
         )
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, FromPrimitive)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, FromPrimitive)]
 pub enum SequenceWordSync {
     LFNCEWAIT = 0x1,
     LFNCEMARK = 0x2,
@@ -73,7 +74,7 @@ pub enum SequenceWordSync {
     SYNCWTMRK = 0x7,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Copy, PartialEq, Eq, Hash)]
 pub struct SequenceWordPart<T> {
     pub apply_to_index: u8,
     pub value: T,
@@ -109,7 +110,7 @@ pub struct SequenceWordPart<T> {
 ///  - https://github.com/chip-red-pill/uCodeDisasm/
 ///  - https://github.com/pietroborrello/CustomProcessingUnit
 ///  - https://libmicro.dev/structure.html#sequence-word
-#[derive(Default, Clone, Debug)]
+#[derive(Default, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct SequenceWord {
     control: Option<SequenceWordPart<SequenceWordControl>>,
     sync: Option<SequenceWordPart<SequenceWordSync>>,
@@ -127,6 +128,11 @@ impl SequenceWord {
             apply_to_index: index,
             value: control,
         });
+        self
+    }
+
+    pub fn apply_control(mut self, index: u8, control: SequenceWordControl) -> Self {
+        self.set_control(index, control);
         self
     }
 
@@ -148,6 +154,11 @@ impl SequenceWord {
         self
     }
 
+    pub fn apply_sync(mut self, index: u8, sync: SequenceWordSync) -> Self {
+        self.set_sync(index, sync);
+        self
+    }
+
     pub fn no_sync(&mut self) -> &mut Self {
         self.sync = None;
         self
@@ -163,6 +174,11 @@ impl SequenceWord {
             apply_to_index: index,
             value: goto.into(),
         });
+        self
+    }
+
+    pub fn apply_goto<T: Into<UCInstructionAddress>>(mut self, index: u8, goto: T) -> Self {
+        self.set_goto(index, goto);
         self
     }
 
@@ -305,7 +321,9 @@ impl SequenceWord {
     pub fn is_valid(&self) -> bool {
         if let Some(control) = self.control() {
             if let Some(goto) = self.goto() {
-                if (control.value.is_uret() || control.value.is_uend()) && control.apply_to_index == goto.apply_to_index {
+                if (control.value.is_uret() || control.value.is_uend())
+                    && control.apply_to_index == goto.apply_to_index
+                {
                     return false;
                 }
             }
@@ -321,64 +339,44 @@ impl SequenceWord {
         SequenceWordView::new(self, base, len)
     }
 
-    pub fn shift_right(&mut self, amount: u8) -> &mut Self {
-        if amount == 0 {
-            return self;
-        }
+    pub fn apply_view(self, base: u8, len: u8) -> SequenceWordView<SequenceWord> {
+        SequenceWordView::new(self, base, len)
+    }
 
-        if let Some(control) = self.control() {
-            if amount > control.apply_to_index {
-                self.no_control();
-            } else {
-                self.set_control(control.apply_to_index - amount, control.value);
-            }
-        }
-
-        if let Some(sync) = self.sync() {
-            if amount > sync.apply_to_index {
-                self.no_sync();
-            } else {
-                self.set_sync(sync.apply_to_index - amount, sync.value);
-            }
-        }
-
-        if let Some(goto) = self.goto() {
-            if amount > goto.apply_to_index {
-                self.no_goto();
-            } else {
-                self.set_goto(goto.apply_to_index - amount, goto.value);
-            }
-        }
-
+    pub fn apply_shift(mut self, amount: i8) -> Self {
+        self.shift(amount);
         self
     }
 
-    pub fn shift_left(&mut self, amount: u8) -> &mut Self {
+    pub fn shift(&mut self, amount: i8) -> &mut Self {
         if amount == 0 {
             return self;
         }
 
         if let Some(control) = self.control() {
-            if control.apply_to_index + amount >= 3 {
+            let target = control.apply_to_index as i8 + amount;
+            if target < 0 || target > 2 {
                 self.no_control();
             } else {
-                self.set_control(control.apply_to_index + amount, control.value);
+                self.set_control(target as u8, control.value);
             }
         }
 
         if let Some(sync) = self.sync() {
-            if sync.apply_to_index + amount >= 3 {
+            let target = sync.apply_to_index as i8 + amount;
+            if target < 0 || target > 2 {
                 self.no_sync();
             } else {
-                self.set_sync(sync.apply_to_index + amount, sync.value);
+                self.set_sync(target as u8, sync.value);
             }
         }
 
         if let Some(goto) = self.goto() {
-            if goto.apply_to_index + amount >= 3 {
+            let target = goto.apply_to_index as i8 + amount;
+            if target < 0 || target > 2 {
                 self.no_goto();
             } else {
-                self.set_goto(goto.apply_to_index + amount, goto.value);
+                self.set_goto(target as u8, goto.value);
             }
         }
 
@@ -434,12 +432,15 @@ impl<T: Borrow<SequenceWord>> SequenceWordView<T> {
 
     fn rebase<V: Copy>(&self, value: &Option<SequenceWordPart<V>>) -> Option<SequenceWordPart<V>> {
         match value {
-            Some(control) if control.apply_to_index >= self.base && control.apply_to_index < self.base + self.len => {
+            Some(control)
+                if control.apply_to_index >= self.base
+                    && control.apply_to_index < self.base + self.len =>
+            {
                 Some(SequenceWordPart {
                     apply_to_index: control.apply_to_index - self.base,
                     value: control.value,
                 })
-            },
+            }
             _ => None,
         }
     }
@@ -464,7 +465,9 @@ impl<T: Borrow<SequenceWord>> SequenceWordView<T> {
 impl<T: BorrowMut<SequenceWord>> SequenceWordView<T> {
     pub fn set_control(&mut self, index: u8, control: SequenceWordControl) -> &mut Self {
         assert!(index < self.len);
-        self.word.borrow_mut().set_control(index + self.base, control);
+        self.word
+            .borrow_mut()
+            .set_control(index + self.base, control);
         self
     }
 
@@ -510,7 +513,7 @@ impl<T: BorrowMut<SequenceWord>> SequenceWordView<T> {
 
     pub fn apply(mut self) -> T {
         self.cleanup_outside();
-        self.word.borrow_mut().shift_right(self.base);
+        self.word.borrow_mut().shift(-(self.base as i8));
         self.word
     }
 }
@@ -560,7 +563,8 @@ mod test {
             ["", "SEQW GOTO U7c00", ""],
             SequenceWord::new()
                 .set_goto(1, UCInstructionAddress::MSRAM_START)
-                .assemble().unwrap(),
+                .assemble()
+                .unwrap(),
         );
         check(
             ["LFNCEMARK->", "SEQW UEND0", "SEQW GOTO U7c00"],
@@ -568,7 +572,8 @@ mod test {
                 .set_goto(2, UCInstructionAddress::MSRAM_START)
                 .set_sync(0, SequenceWordSync::LFNCEMARK)
                 .set_control(1, SequenceWordControl::UEND0)
-                .assemble().unwrap(),
+                .assemble()
+                .unwrap(),
         );
     }
 
@@ -597,7 +602,9 @@ mod test {
         let rom = custom_processing_unit::dump::ROM_cpu_000506CA;
         let hooked_address = UCInstructionAddress::from_const(0x428);
 
-        let input = rom.get_sequence_word(hooked_address).expect("Failed to get seqw");
+        let input = rom
+            .get_sequence_word(hooked_address)
+            .expect("Failed to get seqw");
         println!("Original Bits: {:x}", input);
 
         let mut word = SequenceWord::disassemble_no_crc_check(input)?;

@@ -535,7 +535,8 @@ pub fn hook<A: Into<UCInstructionAddress>, B: Into<UCInstructionAddress>>(
     redirect_to_addr: B,
     enabled: bool,
 ) -> crate::Result<()> {
-    let patch_value = calculate_hook_value(to_hook_ucode_addr.into(), redirect_to_addr.into(), enabled)?;
+    let patch_value =
+        calculate_hook_value(to_hook_ucode_addr.into(), redirect_to_addr.into(), enabled)?;
 
     let result = call_custom_ucode_function(apply_hook_func, [patch_value, hook_idx.address(), 0]);
 

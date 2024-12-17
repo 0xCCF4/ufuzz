@@ -1,15 +1,20 @@
 mod modification_engine;
 
 use crate::coverage_collector;
+use crate::coverage_harness::modification_engine::NotHookableReason;
 use crate::interface::safe::ComInterface;
 use crate::interface_definition::{CoverageEntry, InstructionTableEntry};
 #[cfg(feature = "no_std")]
 use alloc::vec::Vec;
 use core::fmt::Debug;
-use custom_processing_unit::{apply_patch, call_custom_ucode_function, disable_all_hooks, enable_hooks, lmfence, CustomProcessingUnit, FunctionResult, HookGuard};
-use data_types::addresses::{UCInstructionAddress};
-use ucode_compiler::utils::sequence_word::{DisassembleError};
-use crate::coverage_harness::modification_engine::NotHookableReason;
+use custom_processing_unit::{
+    apply_patch, call_custom_ucode_function, disable_all_hooks, enable_hooks, lmfence,
+    CustomProcessingUnit, FunctionResult, HookGuard,
+};
+use data_types::addresses::UCInstructionAddress;
+use ucode_compiler::utils::instruction::Instruction;
+use ucode_compiler::utils::sequence_word::{DisassembleError, SequenceWord};
+use ucode_compiler::utils::Triad;
 // const COVERAGE_ENTRIES: usize = UCInstructionAddress::MAX.to_const();
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -53,15 +58,24 @@ impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
 
         let mut instructions = Vec::with_capacity(hooks.len());
         for hook in hooks.iter().copied() {
-            if hooks.iter().filter(|a| a.triad_base() == hook.triad_base()).count() > 1 {
-                return Err(CoverageError::AddressNotHookable(hook, NotHookableReason::TriadAlreadyHooked));
+            if hooks
+                .iter()
+                .filter(|a| a.triad_base() == hook.triad_base())
+                .count()
+                > 1
+            {
+                return Err(CoverageError::AddressNotHookable(
+                    hook,
+                    NotHookableReason::TriadAlreadyHooked,
+                ));
             }
 
             if let Err(err) = self.is_hookable(hook) {
                 return Err(CoverageError::AddressNotHookable(hook, err));
             }
 
-            let triads = self.modify_triad_for_hooking(hook)
+            let triads = self
+                .modify_triad_for_hooking(hook)
                 .map_err(|err| CoverageError::AddressNotHookable(hook, err))?;
 
             for triad in triads.into_iter() {
@@ -98,9 +112,7 @@ impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
                     count: covered_even,
                 }
             } else {
-                ExecutionResultEntry::NotCovered {
-                    address,
-                }
+                ExecutionResultEntry::NotCovered { address }
             });
 
             result.push(if covered_odd > 0 {
@@ -150,20 +162,29 @@ impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
     fn modify_triad_for_hooking(
         &self,
         hooked_address: UCInstructionAddress,
-    ) -> Result<[InstructionTableEntry; 2], NotHookableReason> {
-        let even = modification_engine::modify_triad_for_hooking(hooked_address.align_even(), self.custom_processing_unit.rom())?;
-        let odd = modification_engine::modify_triad_for_hooking(hooked_address.align_even()+1, self.custom_processing_unit.rom())?;
-        Ok([[
-            even.instructions[0],
-            even.instructions[1],
-            even.instructions[2],
-            even.sequence_word as u64,
-        ], [
-            odd.instructions[0],
-            odd.instructions[1],
-            odd.instructions[2],
-            odd.sequence_word as u64,
-        ]])
+    ) -> Result<[InstructionTableEntry; 4], NotHookableReason> {
+        let even = modification_engine::modify_triad_for_hooking(
+            hooked_address.align_even(),
+            self.custom_processing_unit.rom(),
+        )?;
+        let odd = modification_engine::modify_triad_for_hooking(
+            hooked_address.align_even() + 1,
+            self.custom_processing_unit.rom(),
+        )?;
+        Ok([
+            even[0]
+                .assemble()
+                .map_err(NotHookableReason::ModificationFailedSequenceWordBuild)?,
+            even[1]
+                .assemble()
+                .map_err(NotHookableReason::ModificationFailedSequenceWordBuild)?,
+            odd[0]
+                .assemble()
+                .map_err(NotHookableReason::ModificationFailedSequenceWordBuild)?,
+            odd[1]
+                .assemble()
+                .map_err(NotHookableReason::ModificationFailedSequenceWordBuild)?,
+        ])
     }
 }
 
@@ -171,22 +192,33 @@ impl<'a, 'b, 'c> Drop for CoverageHarness<'a, 'b, 'c> {
     fn drop(&mut self) {
         for i in 0..self.interface.description().max_number_of_hooks {
             let address = UCInstructionAddress::ZERO;
-            let triads = self.modify_triad_for_hooking(address).expect("Zero address should be hookable");
-            self.interface.write_instruction_table(i as usize * 2, triads[0]);
-            self.interface.write_instruction_table(i as usize * 2 + 1, triads[1]);
+            let triads = [Triad {
+                instructions: [Instruction::NOP; 3],
+                sequence_word: SequenceWord::new()
+                    .apply_goto(0, coverage_collector::LABEL_EXIT_TRAP),
+            }; 4];
+            for triad in triads.iter().enumerate() {
+                self.interface
+                    .write_instruction_table(i as usize * 4 + triad.0, triad.1.assemble().unwrap())
+            }
             self.interface.write_jump_table(i as usize, address);
         }
 
         self.interface.reset_coverage();
 
-        let _ =
-            call_custom_ucode_function(coverage_collector::LABEL_FUNC_SETUP, [self.interface.description().max_number_of_hooks as usize, 0, 0]);
+        let _ = call_custom_ucode_function(
+            coverage_collector::LABEL_FUNC_SETUP,
+            [
+                self.interface.description().max_number_of_hooks as usize,
+                0,
+                0,
+            ],
+        );
 
         // dropping the hook guard will restore the hooks
         drop(self.previous_hook_settings.take());
     }
 }
-
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExecutionResultEntry {
@@ -221,7 +253,7 @@ impl ExecutionResultEntry {
 
 pub struct ExecutionResult<R> {
     pub result: R,
-    pub hooks: Vec<ExecutionResultEntry>
+    pub hooks: Vec<ExecutionResultEntry>,
 }
 
 impl<R: Clone> Clone for ExecutionResult<R> {

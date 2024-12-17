@@ -1,4 +1,4 @@
-use ucode_compiler::uasm::{CompilerOptions};
+use ucode_compiler::uasm::CompilerOptions;
 
 fn main() {
     println!("cargo::rerun-if-changed=build.rs");
@@ -15,4 +15,3 @@ fn main() {
         panic!("Failed to compile: {:?}", err);
     }
 }
-

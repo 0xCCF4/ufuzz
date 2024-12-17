@@ -26,7 +26,10 @@ impl ComInterfaceDescription {
             }
         }
 
-        max(max(jump, coverage), max(instructions, max(clocks, clocks_settings)))
+        max(
+            max(jump, coverage),
+            max(instructions, max(clocks, clocks_settings)),
+        )
     }
 }
 
@@ -41,13 +44,15 @@ const JUMP_TABLE_BYTE_SIZE: usize = size_of::<JumpTableEntry>() * MAX_NUMBER_OF_
 
 pub type InstructionTableEntry = [u64; 4];
 const INSTRUCTION_TABLE_BYTE_SIZE: usize =
-    size_of::<InstructionTableEntry>() * MAX_NUMBER_OF_HOOKS as usize;
+    size_of::<InstructionTableEntry>() * MAX_NUMBER_OF_HOOKS as usize * 4;
 
 pub type ClockTableEntry = u64;
-const CLOCK_TABLE_BYTE_SIZE: usize = size_of::<ClockTableEntry>() * MAX_NUMBER_OF_HOOKS as usize * 2;
+const CLOCK_TABLE_BYTE_SIZE: usize =
+    size_of::<ClockTableEntry>() * MAX_NUMBER_OF_HOOKS as usize * 2;
 
 pub type ClockTableSettingsEntry = CoverageEntry;
-const CLOCK_TABLE_SETTINGS_BYTE_SIZE: usize = size_of::<ClockTableSettingsEntry>() * MAX_NUMBER_OF_HOOKS as usize * 2;
+const CLOCK_TABLE_SETTINGS_BYTE_SIZE: usize =
+    size_of::<ClockTableSettingsEntry>() * MAX_NUMBER_OF_HOOKS as usize * 2;
 
 pub const COM_INTERFACE_DESCRIPTION: ComInterfaceDescription = ComInterfaceDescription {
     base: 0x1000,
@@ -55,6 +60,11 @@ pub const COM_INTERFACE_DESCRIPTION: ComInterfaceDescription = ComInterfaceDescr
     offset_coverage_result_table: 0,
     offset_jump_back_table: COVERAGE_RESULT_TABLE_BYTE_SIZE,
     offset_instruction_table: COVERAGE_RESULT_TABLE_BYTE_SIZE + JUMP_TABLE_BYTE_SIZE,
-    offset_clock_table: COVERAGE_RESULT_TABLE_BYTE_SIZE + JUMP_TABLE_BYTE_SIZE + INSTRUCTION_TABLE_BYTE_SIZE,
-    offset_clock_table_settings: COVERAGE_RESULT_TABLE_BYTE_SIZE + JUMP_TABLE_BYTE_SIZE + INSTRUCTION_TABLE_BYTE_SIZE + CLOCK_TABLE_BYTE_SIZE,
+    offset_clock_table: COVERAGE_RESULT_TABLE_BYTE_SIZE
+        + JUMP_TABLE_BYTE_SIZE
+        + INSTRUCTION_TABLE_BYTE_SIZE,
+    offset_clock_table_settings: COVERAGE_RESULT_TABLE_BYTE_SIZE
+        + JUMP_TABLE_BYTE_SIZE
+        + INSTRUCTION_TABLE_BYTE_SIZE
+        + CLOCK_TABLE_BYTE_SIZE,
 };

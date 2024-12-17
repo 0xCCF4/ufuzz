@@ -3,6 +3,7 @@
 
 extern crate alloc;
 
+use alloc::collections::BTreeMap;
 use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
@@ -12,13 +13,13 @@ use coverage::coverage_harness::{CoverageError, CoverageHarness};
 use coverage::interface::safe::ComInterface;
 use coverage::{coverage_collector, interface_definition};
 use custom_processing_unit::{apply_patch, lmfence, CustomProcessingUnit, FunctionResult};
-use data_types::addresses::{UCInstructionAddress};
+use data_types::addresses::{Address, UCInstructionAddress};
 use itertools::Itertools;
 use log::info;
 use uefi::prelude::*;
-use uefi::{print, println, CString16};
 use uefi::proto::media::file::{File, FileAttribute, FileMode};
 use uefi::runtime::ResetType;
+use uefi::{print, println, CString16};
 
 const WRITE_PROTECT: bool = true;
 
@@ -117,6 +118,8 @@ unsafe fn main() -> Status {
     let mut total = 0;
     let mut worked = 0;
 
+    let mut actually_covered = BTreeMap::new();
+
     if next_address >= 0x7c00 {
         println!("No more addresses to test");
     } else {
@@ -162,13 +165,7 @@ unsafe fn main() -> Status {
                 continue;
             }
 
-            match harness.execute(
-                &[addresses],
-                |_| {
-                    rdrand()
-                },
-                (),
-            ) {
+            match harness.execute(&[addresses], |_| rdrand(), ()) {
                 Err(e) => {
                     //println!("Failed to execute harness: {:?}", e);
                     match e {
@@ -178,8 +175,8 @@ unsafe fn main() -> Status {
                                 return Status::ABORTED;
                             }
                             uefi::runtime::reset(ResetType::COLD, Status::SUCCESS, None)
-                        },
-                        _ => continue
+                        }
+                        _ => continue,
                     }
                 }
                 Ok(r) => {
@@ -187,12 +184,17 @@ unsafe fn main() -> Status {
                         println!("Failed: {:x?}", r.result);
                         return Status::ABORTED;
                     }
-                    if r.hooks[0].covered() {
-                        println!("Covered");
-                        if !WRITE_PROTECT {
-                            if let Err(e) = write_covered(chunk) {
-                                println!("Failed to write covered: {:?}", e);
-                                return Status::ABORTED;
+                    for entry in r.hooks {
+                        if entry.covered() {
+                            *(actually_covered
+                                .entry(entry.address().address())
+                                .or_insert(0)) += entry.coverage();
+                            print!("Covered: {:04x} ", entry.address().address());
+                            if !WRITE_PROTECT {
+                                if let Err(e) = write_covered(entry.address().address()) {
+                                    println!("Failed to write covered: {:?}", e);
+                                    return Status::ABORTED;
+                                }
                             }
                         }
                     }
@@ -249,20 +251,83 @@ unsafe fn main() -> Status {
         let skipped = 0x7c00 - actually_worked.len() - blacklisted_raw.len();
 
         summary.push_str(format!("Summary\n----------------------------------\n").as_str());
-        summary.push_str(format!("Total:           {:5}\n", 0x7c00/2).as_str());
-        summary.push_str(format!("Excluded:        {:5} {:5.02}%\n", blacklisted.len(), (blacklisted.len() as f64 / 0x7c00 as f64) * 100.0).as_str());
-        summary.push_str(format!("Skipped:         {:5} {:5.02}%\n", skipped, (skipped as f64 / 0x7c00 as f64) * 100.0).as_str());
-        summary.push_str(format!("Actually tested: {:5} {:5.02}%\n", actually_worked.len() + blacklisted_raw.len(), ((actually_worked.len() + blacklisted_raw.len()) as f64 / 0x7c00 as f64) * 100.0).as_str());
-        summary.push_str(format!(" - Worked:       {:5} {:5.02}%\n", actually_worked.len(), (actually_worked.len() as f64 / 0x7c00 as f64) * 100.0).as_str());
-        summary.push_str(format!(" - Blacklisted:  {:5} {:5.02}%\n", blacklisted_raw.len(), (blacklisted_raw.len() as f64 / 0x7c00 as f64) * 100.0).as_str());
-        summary.push_str(format!("Covered:         {:5} {:5.02}%\n", covered.len(), (covered.len() as f64 / 0x7c00 as f64) * 100.0).as_str());
+        summary.push_str(format!("Total:           {:5}\n", 0x7c00 / 2).as_str());
+        summary.push_str(
+            format!(
+                "Excluded:        {:5} {:5.02}%\n",
+                blacklisted.len(),
+                (blacklisted.len() as f64 / 0x7c00 as f64) * 100.0
+            )
+            .as_str(),
+        );
+        summary.push_str(
+            format!(
+                "Skipped:         {:5} {:5.02}%\n",
+                skipped,
+                (skipped as f64 / 0x7c00 as f64) * 100.0
+            )
+            .as_str(),
+        );
+        summary.push_str(
+            format!(
+                "Actually tested: {:5} {:5.02}%\n",
+                actually_worked.len() + blacklisted_raw.len(),
+                ((actually_worked.len() + blacklisted_raw.len()) as f64 / 0x7c00 as f64) * 100.0
+            )
+            .as_str(),
+        );
+        summary.push_str(
+            format!(
+                " - Worked:       {:5} {:5.02}%\n",
+                actually_worked.len(),
+                (actually_worked.len() as f64 / 0x7c00 as f64) * 100.0
+            )
+            .as_str(),
+        );
+        summary.push_str(
+            format!(
+                " - Blacklisted:  {:5} {:5.02}%\n",
+                blacklisted_raw.len(),
+                (blacklisted_raw.len() as f64 / 0x7c00 as f64) * 100.0
+            )
+            .as_str(),
+        );
+        summary.push_str(
+            format!(
+                "Covered:         {:5} {:5.02}%\n",
+                covered.len(),
+                (covered.len() as f64 / 0x7c00 as f64) * 100.0
+            )
+            .as_str(),
+        );
         summary.push_str("\n\n\n\n");
     } else {
         summary.push_str(format!("Summary\n----------------------------------\n").as_str());
         summary.push_str(format!("Total:    {:5}\n", total).as_str());
-        summary.push_str(format!("Excluded: {:5} {:5.02}%\n", excluded, (excluded as f64 / total as f64) * 100.0).as_str());
-        summary.push_str(format!("Skipped:  {:5} {:5.02}%\n", skipped, (skipped as f64 / total as f64) * 100.0).as_str());
-        summary.push_str(format!("Worked:   {:5} {:5.02}%\n", worked, (worked as f64 / total as f64) * 100.0).as_str());
+        summary.push_str(
+            format!(
+                "Excluded: {:5} {:5.02}%\n",
+                excluded,
+                (excluded as f64 / total as f64) * 100.0
+            )
+            .as_str(),
+        );
+        summary.push_str(
+            format!(
+                "Skipped:  {:5} {:5.02}%\n",
+                skipped,
+                (skipped as f64 / total as f64) * 100.0
+            )
+            .as_str(),
+        );
+        summary.push_str(
+            format!(
+                "Worked:   {:5} {:5.02}%\n",
+                worked,
+                (worked as f64 / total as f64) * 100.0
+            )
+            .as_str(),
+        );
         summary.push_str("\n");
     }
 
@@ -272,6 +337,23 @@ unsafe fn main() -> Status {
             println!("Failed to write summary: {:?}", err);
         }
     }
+
+    println!(
+        "Covered: {}\n",
+        actually_covered
+            .iter()
+            .map(|(address, count)| format!("{:04x}:{}", address, count))
+            .join(", ")
+    );
+
+    println!(
+        "Covered: {}\n",
+        actually_covered
+            .iter()
+            .sorted_by_key(|(_, count)| **count)
+            .map(|(address, count)| format!("{:04x}:{}", address, count))
+            .join(", ")
+    );
 
     println!("Speedtest");
 
@@ -291,13 +373,7 @@ unsafe fn main() -> Status {
             if address % 2 > 0 {
                 continue;
             }
-            let r = harness.execute(
-                &[address.into()],
-                |_| {
-                    rdrand()
-                },
-                (),
-            );
+            let r = harness.execute(&[address.into()], |_| rdrand(), ());
             if matches!(r, Ok(_)) {
                 setups += 1;
             }
@@ -313,11 +389,17 @@ unsafe fn main() -> Status {
         }
     };
 
-    let difference = (after.minute() - before.minute()) as usize * 60 as usize
-        + (after.second() - before.second()) as usize * 1 as usize;
+    let difference = (after.hour() as i16 - before.hour() as i16) as usize * 3600
+        + (after.minute() as i16 - before.minute() as i16) as usize * 60
+        + (after.second() as i16 - before.second() as i16) as usize;
     let diff_per_setup = difference as f64 / setups as f64;
 
-    println!("{}min {}s total for {} iterations", difference/60, difference%60, setups);
+    println!(
+        "{}min {}s total for {} iterations",
+        difference / 60,
+        difference % 60,
+        setups
+    );
     println!("{}us per iteration", diff_per_setup * 1e6);
 
     drop(harness);
@@ -346,12 +428,20 @@ fn read_ok() -> uefi::Result<usize> {
     let mut root_dir = proto.open_volume()?;
     let mut dir = root_dir.open(
         file_name("test_filter")?.as_ref(),
-        if WRITE_PROTECT { FileMode::Read } else { FileMode::CreateReadWrite },
-        FileAttribute::DIRECTORY
+        if WRITE_PROTECT {
+            FileMode::Read
+        } else {
+            FileMode::CreateReadWrite
+        },
+        FileAttribute::DIRECTORY,
     )?;
     let file = dir.open(
         file_name("ok.txt")?.as_ref(),
-        if WRITE_PROTECT { FileMode::Read } else { FileMode::CreateReadWrite },
+        if WRITE_PROTECT {
+            FileMode::Read
+        } else {
+            FileMode::CreateReadWrite
+        },
         FileAttribute::empty(),
     )?;
 
@@ -384,12 +474,20 @@ fn write_ok(address: usize) -> uefi::Result<()> {
     let mut root_dir = proto.open_volume()?;
     let mut dir = root_dir.open(
         file_name("test_filter")?.as_ref(),
-        if WRITE_PROTECT { FileMode::Read } else { FileMode::CreateReadWrite },
-        FileAttribute::DIRECTORY
+        if WRITE_PROTECT {
+            FileMode::Read
+        } else {
+            FileMode::CreateReadWrite
+        },
+        FileAttribute::DIRECTORY,
     )?;
     let file = dir.open(
         file_name("ok.txt")?.as_ref(),
-        if WRITE_PROTECT { FileMode::Read } else { FileMode::CreateReadWrite },
+        if WRITE_PROTECT {
+            FileMode::Read
+        } else {
+            FileMode::CreateReadWrite
+        },
         FileAttribute::empty(),
     )?;
 
@@ -419,12 +517,20 @@ fn append_string_to_file(text: &str, name: &str) -> uefi::Result<()> {
     let mut root_dir = proto.open_volume()?;
     let mut dir = root_dir.open(
         file_name("test_filter")?.as_ref(),
-        if WRITE_PROTECT { FileMode::Read } else { FileMode::CreateReadWrite },
-        FileAttribute::DIRECTORY
+        if WRITE_PROTECT {
+            FileMode::Read
+        } else {
+            FileMode::CreateReadWrite
+        },
+        FileAttribute::DIRECTORY,
     )?;
     let file = dir.open(
         file_name(name)?.as_ref(),
-        if WRITE_PROTECT { FileMode::Read } else { FileMode::CreateReadWrite },
+        if WRITE_PROTECT {
+            FileMode::Read
+        } else {
+            FileMode::CreateReadWrite
+        },
         FileAttribute::empty(),
     )?;
 
@@ -489,12 +595,20 @@ fn read_file(name: &str) -> uefi::Result<Vec<(usize, String)>> {
     let mut root_dir = proto.open_volume()?;
     let mut dir = root_dir.open(
         file_name("test_filter")?.as_ref(),
-        if WRITE_PROTECT { FileMode::Read } else { FileMode::CreateReadWrite },
-        FileAttribute::DIRECTORY
+        if WRITE_PROTECT {
+            FileMode::Read
+        } else {
+            FileMode::CreateReadWrite
+        },
+        FileAttribute::DIRECTORY,
     )?;
     let file = dir.open(
         file_name(name)?.as_ref(),
-        if WRITE_PROTECT { FileMode::Read } else { FileMode::CreateReadWrite },
+        if WRITE_PROTECT {
+            FileMode::Read
+        } else {
+            FileMode::CreateReadWrite
+        },
         FileAttribute::empty(),
     )?;
 
@@ -519,13 +633,13 @@ fn read_file(name: &str) -> uefi::Result<Vec<(usize, String)>> {
 
     Ok(data
         .lines()
-        .filter(|line| {
-            !(line.starts_with("//") || line.starts_with("#") || line.is_empty())
-        })
+        .filter(|line| !(line.starts_with("//") || line.starts_with("#") || line.is_empty()))
         .filter_map(|line| {
             let (address, reason) = line.split_once(" ").unwrap_or((line, ""));
             usize::from_str_radix(address, 16)
-                .map_err(|_| uefi::Error::from(uefi::Status::UNSUPPORTED)).ok().map(|address| (address, reason.to_string()))
+                .map_err(|_| uefi::Error::from(uefi::Status::UNSUPPORTED))
+                .ok()
+                .map(|address| (address, reason.to_string()))
         })
         .collect())
 }

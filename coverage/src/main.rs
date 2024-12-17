@@ -6,7 +6,7 @@ extern crate alloc;
 use coverage::coverage_harness::CoverageHarness;
 use coverage::interface::safe::ComInterface;
 use coverage::interface_definition;
-use custom_processing_unit::{CustomProcessingUnit};
+use custom_processing_unit::CustomProcessingUnit;
 use data_types::addresses::UCInstructionAddress;
 use itertools::Itertools;
 use log::info;
@@ -122,4 +122,3 @@ fn filter_blacklisted_instruction(address: usize) -> bool {
     let blacklist = include!("blacklist.gen");
     !blacklist.contains(&address)
 }
-

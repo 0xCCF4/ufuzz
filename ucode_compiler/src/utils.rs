@@ -1,6 +1,26 @@
+use crate::utils::instruction::Instruction;
+use crate::utils::sequence_word::SequenceWord;
+
 pub mod instruction;
 pub mod opcodes;
 pub mod sequence_word;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Triad {
+    pub instructions: [Instruction; 3],
+    pub sequence_word: SequenceWord,
+}
+
+impl Triad {
+    pub fn assemble(&self) -> sequence_word::AssembleResult<[u64; 4]> {
+        Ok([
+            self.instructions[0].assemble(),
+            self.instructions[1].assemble(),
+            self.instructions[2].assemble(),
+            self.sequence_word.assemble()? as u64,
+        ])
+    }
+}
 
 pub fn even_odd_parity_u32(mut value: u32) -> u32 {
     let mut result = 0;

@@ -5,12 +5,14 @@ extern crate alloc;
 
 use core::arch::asm;
 use core::fmt::Debug;
-use itertools::Itertools;
 use coverage::coverage_harness::CoverageHarness;
 use coverage::interface::safe::ComInterface;
 use coverage::{coverage_collector, interface_definition};
-use custom_processing_unit::{call_custom_ucode_function, lmfence, ms_patch_instruction_read, ms_seqw_read, CustomProcessingUnit, FunctionResult};
-use data_types::addresses::{UCInstructionAddress};
+use custom_processing_unit::{
+    call_custom_ucode_function, lmfence, ms_patch_instruction_read, ms_seqw_read,
+    CustomProcessingUnit, FunctionResult,
+};
+use data_types::addresses::UCInstructionAddress;
 use log::info;
 use uefi::prelude::*;
 use uefi::{print, println};
@@ -67,9 +69,7 @@ unsafe fn main() -> Status {
 
     print_status();
 
-    let addresses = [
-        UCInstructionAddress::from_const(0x428),
-    ];
+    let addresses = [UCInstructionAddress::from_const(0x428)];
 
     if let Err(err) = harness.setup(&addresses) {
         info!("Failed to setup harness: {:?}", err);
@@ -77,13 +77,9 @@ unsafe fn main() -> Status {
 
     print_status();
 
-    execute(&mut harness, &addresses, || {
-        rdrand()
-    });
+    execute(&mut harness, &addresses, || rdrand());
 
-    execute(&mut harness, &addresses, || {
-        rdrand()
-    });
+    execute(&mut harness, &addresses, || rdrand());
 
     execute(&mut harness, &addresses, || {
         for _ in 0..100 {
@@ -113,11 +109,15 @@ unsafe fn main() -> Status {
     Status::SUCCESS
 }
 
-fn execute<R: Debug, F: FnOnce() -> R>(coverage_harness: &mut CoverageHarness, addresses: &[UCInstructionAddress], func: F) {
+fn execute<R: Debug, F: FnOnce() -> R>(
+    coverage_harness: &mut CoverageHarness,
+    addresses: &[UCInstructionAddress],
+    func: F,
+) {
     print!("Coverage: ");
     let x = coverage_harness.execute(&addresses, |_| func(), ());
     match x {
-        Err(err ) => println!("Error: {:?}", err),
+        Err(err) => println!("Error: {:?}", err),
         Ok(x) => {
             println!("\n{:x?}", x.result);
             for entry in x.hooks {
@@ -147,13 +147,13 @@ fn print_status() {
         for offset in 0..3 {
             let instruction = ms_patch_instruction_read(
                 coverage_collector::LABEL_FUNC_LDAT_READ,
-                coverage_collector::LABEL_HOOK_EXIT_REPLACEMENT_00 + i * 4 + offset,
+                coverage_collector::LABEL_HOOK_EXIT_00 + i * 4 + offset,
             );
             print!("{:012x} ", instruction);
         }
         let seqw = ms_seqw_read(
             coverage_collector::LABEL_FUNC_LDAT_READ,
-            coverage_collector::LABEL_HOOK_EXIT_REPLACEMENT_00 + i * 4,
+            coverage_collector::LABEL_HOOK_EXIT_00 + i * 4,
         );
         println!("-> {:08x}", seqw);
     }

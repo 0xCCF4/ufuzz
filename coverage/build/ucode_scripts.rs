@@ -1,5 +1,8 @@
 use crate::interface_definition;
-use crate::interface_definition::{ClockTableEntry, ClockTableSettingsEntry, ComInterfaceDescription, CoverageEntry, InstructionTableEntry, JumpTableEntry};
+use crate::interface_definition::{
+    ClockTableEntry, ClockTableSettingsEntry, ComInterfaceDescription, CoverageEntry,
+    InstructionTableEntry, JumpTableEntry,
+};
 use std::path::Path;
 use ucode_compiler::uasm::{CompilerOptions, AUTOGEN};
 
@@ -12,6 +15,7 @@ pub fn build_ucode_scripts() -> ucode_compiler::uasm::Result<()> {
         std::fs::create_dir("patches/gen").expect("dir creation failed")
     }
 
+    #[track_caller]
     fn extract_label_value(text: &str, label: &str) -> usize {
         let regex = regex::Regex::new(format!(r"LABEL_{}:[^(]+\(0x([^)]+)\)", label).as_str())
             .expect("regex failed");
@@ -47,10 +51,6 @@ pub fn build_ucode_scripts() -> ucode_compiler::uasm::Result<()> {
     let data = Stage2Pass {
         hook_entry_address: extract_label_value(result_text.as_str(), "HOOK_ENTRY_00"),
         hook_exit_address: extract_label_value(result_text.as_str(), "HOOK_EXIT_00"),
-        hook_exit_replacement_address: extract_label_value(
-            result_text.as_str(),
-            "HOOK_EXIT_REPLACEMENT_00",
-        ),
     };
 
     generate_ucode_files(
@@ -90,7 +90,6 @@ fn delete_intermediate_files<A: AsRef<Path>>(path: A) {
 struct Stage2Pass {
     hook_entry_address: usize,
     hook_exit_address: usize,
-    hook_exit_replacement_address: usize,
 }
 
 impl Default for Stage2Pass {
@@ -98,7 +97,6 @@ impl Default for Stage2Pass {
         Stage2Pass {
             hook_entry_address: 0x7c00,
             hook_exit_address: 0x7c00,
-            hook_exit_replacement_address: 0x7c00,
         }
     }
 }
@@ -122,6 +120,11 @@ fn generate_interface_definitions<A: AsRef<Path>>(
     let file = path.as_ref().join("interface_definition.up");
 
     let mut definitions = Vec::default();
+
+    if let Some(data) = pass1data {
+        assert!(data.hook_entry_address > 0x7c00);
+        assert!(data.hook_exit_address > 0x7c00);
+    }
 
     definitions.push((
         "index_mask",
@@ -274,19 +277,9 @@ fn generate_interface_definitions<A: AsRef<Path>>(
         "offset in sequence ram to exit SEQW",
     ));
     definitions.push((
-        "hook_replacement_offset_in_seqw",
-        (pass1data.unwrap_or_default().hook_exit_replacement_address - 0x7c00) / 4,
-        "offset in sequence ram to replacement SEQW",
-    ));
-    assert_eq!(
-        pass1data.unwrap_or_default().hook_exit_replacement_address % 4,
-        0,
-        "exit replacer triads must be aligned"
-    );
-    definitions.push((
-        "hook_replacement_offset",
-        (pass1data.unwrap_or_default().hook_exit_replacement_address - 0x7c00),
-        "offset in instruction ram to replacement triad",
+        "hook_exit_offset",
+        pass1data.unwrap_or_default().hook_exit_address - 0x7c00,
+        "offset in sequence ram to exit",
     ));
 
     let definitions = definitions
@@ -332,7 +325,11 @@ NOP
     std::fs::write(file, content).expect("write failed");
 }
 
-fn generate_exits<A: AsRef<Path>>(path: A, interface: &ComInterfaceDescription, _data: Option<Stage2Pass>) {
+fn generate_exits<A: AsRef<Path>>(
+    path: A,
+    interface: &ComInterfaceDescription,
+    _data: Option<Stage2Pass>,
+) {
     let file = path.as_ref().join("exits.up");
     let mut content = "".to_string();
     content.push_str("# ");
@@ -347,33 +344,19 @@ fn generate_exits<A: AsRef<Path>>(path: A, interface: &ComInterfaceDescription, 
                 "
 <hook_exit_{i:02}>
 <hook_exit_{i:02}_even>
-r10 := LDSTGBUF_DSZ64_ASZ16_SC1([adr_stg_r10]) !m2 SEQW GOTO <hook_exit_replacement_{i:02}_even>
+r10 := LDSTGBUF_DSZ64_ASZ16_SC1([adr_stg_r10]) !m2 SEQW GOTO <exit_trap>
 NOP
 NOP
 
-<hook_exit_{i:02}_odd>
-r10 := LDSTGBUF_DSZ64_ASZ16_SC1([adr_stg_r10]) !m2 SEQW GOTO <hook_exit_replacement_{i:02}_odd>
-NOP
-NOP
-"
-            )
-            .as_str(),
-        )
-    }
-
-    content.push_str("\n# Must be 4 aligned\n\n");
-
-    for i in 0..interface.max_number_of_hooks {
-        content.push_str(
-            format!(
-                "
-<hook_exit_replacement_{i:02}>
-<hook_exit_replacement_{i:02}_even>
 NOP
 NOP
 NOP SEQW GOTO <exit_trap>
 
-<hook_exit_replacement_{i:02}_odd>
+<hook_exit_{i:02}_odd>
+r10 := LDSTGBUF_DSZ64_ASZ16_SC1([adr_stg_r10]) !m2 SEQW GOTO <exit_trap>
+NOP
+NOP
+
 NOP
 NOP
 NOP SEQW GOTO <exit_trap>

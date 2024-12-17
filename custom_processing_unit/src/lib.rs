@@ -6,7 +6,7 @@ use data_types::patch::UcodePatchEntry;
 extern crate alloc;
 #[cfg(feature = "no_std")]
 use alloc::{format, string::String};
-use data_types::addresses::{UCInstructionAddress};
+use data_types::addresses::UCInstructionAddress;
 
 mod helpers;
 pub use helpers::*;

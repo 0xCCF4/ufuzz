@@ -43,7 +43,8 @@ fn create_cpu_files() {
 
             let disassembly = format!(
                 "pub const DISSASSEMBLY: &str = \"{}\";\n",
-                fs::read_to_string(cpu_arch.join("glm.ucode")).expect("Failed to read disassembly file"),
+                fs::read_to_string(cpu_arch.join("glm.ucode"))
+                    .expect("Failed to read disassembly file"),
             );
 
             let file_content = format!("{}\n{}\n{}", array_dump, labels, disassembly);
@@ -64,13 +65,25 @@ fn create_cpu_files() {
         }
     }
 
-    module_file_contents.push_str(format!("\n\npub const ROMS: [&RomDump<'static, 'static>; {}] = [", array_dumps.len()).as_str());
+    module_file_contents.push_str(
+        format!(
+            "\n\npub const ROMS: [&RomDump<'static, 'static>; {}] = [",
+            array_dumps.len()
+        )
+        .as_str(),
+    );
     for cpu_model_name in &array_dumps {
         module_file_contents.push_str(format!("&ROM_{}, ", cpu_model_name).as_str());
     }
     module_file_contents.push_str("];\n");
 
-    module_file_contents.push_str(format!("\n\npub const ROMS_DISASM: [&RomDumpDissasembly<'static>; {}] = [", array_dumps.len()).as_str());
+    module_file_contents.push_str(
+        format!(
+            "\n\npub const ROMS_DISASM: [&RomDumpDissasembly<'static>; {}] = [",
+            array_dumps.len()
+        )
+        .as_str(),
+    );
     for cpu_model_name in &array_dumps {
         module_file_contents.push_str(format!("&ROM_DISASM_{}, ", cpu_model_name).as_str());
     }
@@ -132,7 +145,12 @@ fn read_arrays<A: AsRef<Path>>(parent_folder: A) -> Vec<Vec<u64>> {
             array.truncate(0x7c00)
         } else if i == 1 {
             // sequence words ROM
-            array = array.into_iter().enumerate().filter(|(i, _)| i % 4 == 0).map(|(_, v)| v).collect::<Vec<u64>>();
+            array = array
+                .into_iter()
+                .enumerate()
+                .filter(|(i, _)| i % 4 == 0)
+                .map(|(_, v)| v)
+                .collect::<Vec<u64>>();
             array.truncate(0x7c00 / 4)
         }
 
@@ -167,7 +185,7 @@ fn generate_ms_array_file(arrays: &Vec<Vec<u64>>) -> String {
                 "pub const MS_ARRAY_{i}: [{data_type}; {}] = [\n",
                 content.len()
             )
-                .as_str(),
+            .as_str(),
         );
         for value in content {
             result.push_str(format!("    0x{:016x},\n", value).as_str());

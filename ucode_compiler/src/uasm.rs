@@ -1,11 +1,11 @@
 use error_chain::error_chain;
 use regex::{Captures, Replacer};
+use std::ffi::OsStr;
 use std::io::Read;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
 use std::{env, fs};
-use std::ffi::OsStr;
 
 error_chain! {
     errors {

@@ -4,13 +4,15 @@
 //! Experiment for testing if one could tell apart if a hook was called by an even or odd address.
 
 use core::ptr::NonNull;
-use itertools::Itertools;
-use custom_processing_unit::{apply_hook_patch_func, apply_patch, call_custom_ucode_function, hook, CustomProcessingUnit};
-use data_types::addresses::{MSRAMHookIndex};
-use log::info;
-use uefi::{entry, print, println, Status};
-use uefi::data_types::PhysicalAddress;
 use coverage::page_allocation::PageAllocation;
+use custom_processing_unit::{
+    apply_hook_patch_func, apply_patch, call_custom_ucode_function, hook, CustomProcessingUnit,
+};
+use data_types::addresses::MSRAMHookIndex;
+use itertools::Itertools;
+use log::info;
+use uefi::data_types::PhysicalAddress;
+use uefi::{entry, print, println, Status};
 
 mod patch {
     use ucode_compiler_derive::patch;
@@ -65,7 +67,7 @@ unsafe fn main() -> Status {
 
     if let Err(err) = hook(
         apply_hook_patch_func(),
-        MSRAMHookIndex::ZERO+0,
+        MSRAMHookIndex::ZERO + 0,
         0x428,
         patch::LABEL_ENTRY,
         true,
@@ -74,14 +76,15 @@ unsafe fn main() -> Status {
         return Status::ABORTED;
     }
 
-    let size_bytes = 8*0x2000;
-    let allocation = match PageAllocation::alloc_address(0x2000 as PhysicalAddress, size_bytes/4096) {
-        Ok(allocation) => allocation,
-        Err(e) => {
-            info!("Failed to allocate memory {:?}", e);
-            return Status::ABORTED;
-        }
-    };
+    let size_bytes = 8 * 0x2000;
+    let allocation =
+        match PageAllocation::alloc_address(0x2000 as PhysicalAddress, size_bytes / 4096) {
+            Ok(allocation) => allocation,
+            Err(e) => {
+                info!("Failed to allocate memory {:?}", e);
+                return Status::ABORTED;
+            }
+        };
     for i in 0..size_bytes {
         allocation.ptr().add(i).write_volatile(0xf0);
     }
@@ -99,14 +102,20 @@ unsafe fn main() -> Status {
     }
     println!();
 
-    println!("b800: {:x}", allocation.ptr().add(0xb800).cast::<u64>().read_volatile());
-    println!("fff8: {:x}", allocation.ptr().add(0xFFF8).cast::<u64>().read_volatile());
+    println!(
+        "b800: {:x}",
+        allocation.ptr().add(0xb800).cast::<u64>().read_volatile()
+    );
+    println!(
+        "fff8: {:x}",
+        allocation.ptr().add(0xFFF8).cast::<u64>().read_volatile()
+    );
 
     for (j, c) in (0..0x10).collect_vec().chunks(4).enumerate() {
         if c.iter().all(|v| *v == 0) {
             continue;
         }
-        print!("[{:04x}]: ", (j*4) << 3);
+        print!("[{:04x}]: ", (j * 4) << 3);
         for i in c {
             let data = ptr.add(j * 4 + i).read_volatile();
             print!("{:016x} ", data);
@@ -116,4 +125,3 @@ unsafe fn main() -> Status {
 
     Status::SUCCESS
 }
-

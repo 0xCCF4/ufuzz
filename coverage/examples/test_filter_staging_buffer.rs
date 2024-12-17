@@ -10,8 +10,8 @@ use custom_processing_unit::{apply_patch, call_custom_ucode_function, CustomProc
 use itertools::Itertools;
 use log::info;
 use uefi::prelude::*;
-use uefi::{print, println, CString16};
 use uefi::proto::media::file::{File, FileAttribute, FileMode};
+use uefi::{print, println, CString16};
 
 mod patch {
     use ucode_compiler_derive::patch;
@@ -146,7 +146,7 @@ fn read_ok() -> uefi::Result<usize> {
     let mut dir = root_dir.open(
         file_name("test_staging_buffer")?.as_ref(),
         FileMode::CreateReadWrite,
-        FileAttribute::DIRECTORY
+        FileAttribute::DIRECTORY,
     )?;
     let file = dir.open(
         file_name("ok.txt")?.as_ref(),
@@ -184,7 +184,7 @@ fn write_ok(address: usize) -> uefi::Result<()> {
     let mut dir = root_dir.open(
         file_name("test_staging_buffer")?.as_ref(),
         FileMode::CreateReadWrite,
-        FileAttribute::DIRECTORY
+        FileAttribute::DIRECTORY,
     )?;
     let file = dir.open(
         file_name("ok.txt")?.as_ref(),
@@ -223,7 +223,7 @@ fn write_blacklisted(new_address: usize) -> uefi::Result<()> {
     let mut dir = root_dir.open(
         file_name("test_staging_buffer")?.as_ref(),
         FileMode::CreateReadWrite,
-        FileAttribute::DIRECTORY
+        FileAttribute::DIRECTORY,
     )?;
     let file = dir.open(
         file_name("blacklist.txt")?.as_ref(),
@@ -273,7 +273,7 @@ fn read_blacklisted() -> uefi::Result<Vec<usize>> {
     let mut dir = root_dir.open(
         file_name("test_staging_buffer")?.as_ref(),
         FileMode::CreateReadWrite,
-        FileAttribute::DIRECTORY
+        FileAttribute::DIRECTORY,
     )?;
     let file = dir.open(
         file_name("blacklist.txt")?.as_ref(),

@@ -46,8 +46,8 @@ func lib/ldat_write({0}, {tmp_zero}, {1}, 0x3)
 # -------------------------------------------
 {tmp_counter} := ZEROEXT_DSZ64(0x0)
 <setup_exit_loop>
-# if index == 2*n || index == 2*table_length
-{3} := SHR_DSZ64({tmp_counter}, 0x01)
+# if index == 4*n || index == 4*table_length
+{3} := SHR_DSZ64({tmp_counter}, 0x02)
 func lib/jump_if_equal({3}, {n}, {0}, 32, <setup_exit_loop_end>)
 func lib/jump_if_equal({3}, [table_length], {0}, 32, <setup_exit_loop_end>)
 
@@ -80,8 +80,8 @@ func lib/jump_if_equal({3}, 0x03, {0}, 32, <setup_replacement_loop_end>)
 {1} := SHL_DSZ64({3}, 0x03) # 64bit values
 {2} := LDPPHYS_DSZ64_ASZ32_SC1({0}, {1}) # {2} := INSTRUCTION_TABLE[index][offset]
 {0} := SHL_DSZ64({tmp_counter}, 0x02) # {0} := index * 4
-{0} := ADD_DSZ64({0}, [hook_replacement_offset]) # {0} := <hook_exit_replacement_00> - 0x7c00 + index * 4
-{0} := ADD_DSZ64({0}, {3}) # {0} := <hook_exit_replacement_00> - 0x7c00 + index * 4 + triad_offset
+{0} := ADD_DSZ64({0}, [hook_exit_offset]) # {0} := <hook_exit_00> - 0x7c00 + index * 4
+{0} := ADD_DSZ64({0}, {3}) # {0} := <hook_exit_00> - 0x7c00 + index * 4 + triad_offset
 
 func lib/ldat_write({0}, {2}, {1}, 0x4)
 
@@ -93,7 +93,7 @@ func lib/ldat_write({0}, {2}, {1}, 0x4)
 {1} := ZEROEXT_DSZ64([address_instruction_table_base])
 {2} := LDPPHYS_DSZ64_ASZ32_SC1({0}, {1}) # {2} := INSTRUCTION_TABLE[index][3]
 
-{0} := ADD_DSZ64({tmp_counter}, [hook_replacement_offset_in_seqw])
+{0} := ADD_DSZ64({tmp_counter}, [hook_exit_offset_in_seqw])
 func lib/ldat_write({0}, {2}, {1}, 0x2)
 
 
@@ -113,7 +113,9 @@ func lib/jump_if_equal({tmp_counter}, [table_length], {0}, 32, <setup_hook_loop_
 {1} := ZEROEXT_DSZ64([address_jump_table_base])
 {2} := LDPPHYS_DSZ16_ASZ32_SC1({0}, {1}) # {2} := JUMP_TABLE[index]
 
-{0} := SHL_DSZ64({tmp_counter}, 0x02) # {0} := index * 4
+{3} := SHL_DSZ64({tmp_counter}, 0x02) # {3} := index * 4
+{0} := SHL_DSZ64({tmp_counter}, 0x03) # {0} := index * 8
+{0} := ADD_DSZ64({0}, {3}) # {0} := index * 12
 {0} := ADD_DSZ64({0}, [hook_entry_address_offset]) # {0} := HOOK_ENTRY + index * 4
 func lib/compute_hook({2}, {0}, {1}, {3})
 # <-- {3} is now to value to place inside the hook register

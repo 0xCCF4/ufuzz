@@ -79,8 +79,10 @@ unsafe fn main() -> Status {
         }
         println!();
 
-        for i in 0..2*interface_definition::COM_INTERFACE_DESCRIPTION.max_number_of_hooks as usize {
-            print!("EXIT {:02}: ", i);
+        for i in 0..(8)
+            .min(4 * interface_definition::COM_INTERFACE_DESCRIPTION.max_number_of_hooks as usize)
+        {
+            print!("EXIT {:02}: ", i / 4);
             let seqw = ms_seqw_read(
                 coverage_collector::LABEL_FUNC_LDAT_READ,
                 coverage_collector::LABEL_HOOK_EXIT_00 + i * 4,
@@ -89,13 +91,13 @@ unsafe fn main() -> Status {
             for offset in 0..3 {
                 let instruction = ms_patch_instruction_read(
                     coverage_collector::LABEL_FUNC_LDAT_READ,
-                    coverage_collector::LABEL_HOOK_EXIT_REPLACEMENT_00 + i * 4 + offset,
+                    coverage_collector::LABEL_HOOK_EXIT_00 + i * 4 + offset,
                 );
                 print!("{:08x} ", instruction);
             }
             let seqw = ms_seqw_read(
                 coverage_collector::LABEL_FUNC_LDAT_READ,
-                coverage_collector::LABEL_HOOK_EXIT_REPLACEMENT_00 + i * 4,
+                coverage_collector::LABEL_HOOK_EXIT_00 + i * 4,
             );
             println!("-> {:08x}", seqw);
         }
@@ -107,7 +109,7 @@ unsafe fn main() -> Status {
         instructions: &[InstructionTableEntry],
         printing: bool,
     ) {
-        assert_eq!(addresses.len()*2, instructions.len());
+        assert_eq!(addresses.len() * 4, instructions.len());
         interface.write_jump_table_all(addresses);
         interface.write_instruction_table_all(instructions.iter().cloned().into_iter());
 
@@ -136,8 +138,6 @@ unsafe fn main() -> Status {
     let addr = [
         UCInstructionAddress::from_const(0x428),
         UCInstructionAddress::from_const(0x42a),
-        UCInstructionAddress::from_const(0x1862),
-        UCInstructionAddress::from_const(0x1864),
     ];
     let instructions: [InstructionTableEntry; 8] = [
         [0x01, 0x02, 0x03, 0x04],
@@ -187,11 +187,18 @@ unsafe fn main() -> Status {
         }
     };
 
-    let difference = (after.minute() - before.minute()) as usize * 60
-        + (after.second() - before.second()) as usize;
+    println!("Before: {:?}", before);
+    println!("After: {:?}", after);
+
+    let difference = (after.hour() as i16 - before.hour() as i16) as usize * 3600
+        + (after.minute() as i16 - before.minute() as i16) as usize * 60
+        + (after.second() as i16 - before.second() as i16) as usize;
 
     println!("For {} iterations: {}s", count, difference);
-    println!(" {}us per iteration", (difference as f64 / count as f64)*1e6);
+    println!(
+        " {}us per iteration",
+        (difference as f64 / count as f64) * 1e6
+    );
 
     println!("Goodbye!");
 

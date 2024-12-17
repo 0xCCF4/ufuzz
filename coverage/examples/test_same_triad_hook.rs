@@ -167,7 +167,10 @@ unsafe fn main() -> Status {
     ) {
         Err(err) => println!("Failed to execute experiment: {:?}", err),
         Ok(x) => {
-            print!("{} ", x.hooks.iter().map(|entry| entry.coverage()).join(","));
+            print!(
+                "{} ",
+                x.hooks.iter().map(|entry| entry.coverage()).join(",")
+            );
             println!("\n{:x?}", x.result);
             for entry in x.hooks {
                 println!(" - {:?}", entry);

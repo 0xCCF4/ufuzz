@@ -2,12 +2,15 @@ use crate::utils::even_odd_parity_u64;
 use crate::utils::opcodes::Opcode;
 use num_traits::FromPrimitive;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Instruction {
     instruction: u64,
 }
 
 impl Instruction {
-    pub fn disassemble(micro_operation: u64) -> Instruction {
+    pub const NOP: Instruction = Instruction::disassemble(0);
+
+    pub const fn disassemble(micro_operation: u64) -> Instruction {
         Instruction {
             instruction: micro_operation & 0x3FFFFFFFFFFF, // cut of CRC
         }

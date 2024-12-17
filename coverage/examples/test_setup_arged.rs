@@ -9,19 +9,22 @@ use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::arch::asm;
-use itertools::Itertools;
+use coverage::coverage_harness::CoverageHarness;
 use coverage::interface::safe::ComInterface;
 use coverage::{coverage_collector, interface_definition};
-use custom_processing_unit::{call_custom_ucode_function, lmfence, ms_patch_instruction_read, ms_seqw_read, CustomProcessingUnit, FunctionResult, HookGuard};
+use custom_processing_unit::{
+    call_custom_ucode_function, lmfence, ms_patch_instruction_read, ms_seqw_read,
+    CustomProcessingUnit, FunctionResult, HookGuard,
+};
 use data_types::addresses::UCInstructionAddress;
+use itertools::Itertools;
 use log::info;
-use uefi::prelude::*;
-use uefi::{print, println};
-use uefi::boot::ScopedProtocol;
-use uefi::proto::loaded_image::LoadedImage;
-use coverage::coverage_harness::CoverageHarness;
 use ucode_compiler::utils::instruction::Instruction;
 use ucode_compiler::utils::sequence_word::SequenceWord;
+use uefi::boot::ScopedProtocol;
+use uefi::prelude::*;
+use uefi::proto::loaded_image::LoadedImage;
+use uefi::{print, println};
 
 #[entry]
 unsafe fn main() -> Status {
@@ -62,7 +65,7 @@ unsafe fn main() -> Status {
     let mut harness = CoverageHarness::new(&mut interface, &cpu);
 
     // println!(" ---- NORMAL ---- ");
-    // print_status();
+    // print_status(addresses.len(), &addresses);
 
     println!(" ---- SETUP ---- ");
     let guard = HookGuard::disable_all();
@@ -76,20 +79,28 @@ unsafe fn main() -> Status {
 
     println!(" ---- RDRAND test ---- ");
 
-    let result = harness.execute(&addresses, |_| {
-        let a = rdrand();
-        let b = rdrand();
-        (a.0 && b.0, a.1)
-    }, ());
+    let result = harness.execute(
+        &addresses,
+        |_| {
+            let a = rdrand();
+            let b = rdrand();
+            (a.0 && b.0, a.1)
+        },
+        (),
+    );
 
     match result {
         Ok(result) => {
             println!("RDRAND: {:x?}", result.result);
             for entry in result.hooks.iter() {
-                println!(" - {}: {}", entry.address(), match entry.coverage() {
-                    0 => "NotCovered".to_string(),
-                    x => format!("Covered {{ count: {} }}", x),
-                });
+                println!(
+                    " - {}: {}",
+                    entry.address(),
+                    match entry.coverage() {
+                        0 => "NotCovered".to_string(),
+                        x => format!("Covered {{ count: {} }}", x),
+                    }
+                );
             }
         }
         Err(err) => {
@@ -163,35 +174,50 @@ fn get_args() -> Option<Vec<UCInstructionAddress>> {
 
 fn print_status(max_count: usize, hooks: &[UCInstructionAddress]) {
     print!("Hooks  : ");
-    for i in 0..max_count.min(interface_definition::COM_INTERFACE_DESCRIPTION.max_number_of_hooks as usize) {
-        let hook = call_custom_ucode_function(
-            coverage_collector::LABEL_FUNC_LDAT_READ_HOOKS,
-            [i, 0, 0],
-        )
-            .rax;
+    for i in 0..max_count
+        .min(interface_definition::COM_INTERFACE_DESCRIPTION.max_number_of_hooks as usize)
+    {
+        let hook =
+            call_custom_ucode_function(coverage_collector::LABEL_FUNC_LDAT_READ_HOOKS, [i, 0, 0])
+                .rax;
         print!("{:08x}, ", hook);
     }
     println!();
 
-    for i in 0..2*max_count.min(interface_definition::COM_INTERFACE_DESCRIPTION.max_number_of_hooks as usize) {
-        print!("EXIT {:02}_{}: {}: ", i/2, i%2, hooks[i/2].align_even() + i%2);
+    for index in 0..4 * max_count
+        .min(interface_definition::COM_INTERFACE_DESCRIPTION.max_number_of_hooks as usize)
+    {
+        print!(
+            "EXIT {index:02}_{even_odd}: {address}: ",
+            index = index / 4,
+            even_odd = (index % 4),
+            address = hooks[index / 4].align_even() + (index % 4) / 2
+        );
         for offset in 0..3 {
             let instruction = ms_patch_instruction_read(
                 coverage_collector::LABEL_FUNC_LDAT_READ,
-                coverage_collector::LABEL_HOOK_EXIT_REPLACEMENT_00 + i * 4 + offset,
+                coverage_collector::LABEL_HOOK_EXIT_00 + index * 4 + offset,
             );
             let instruction = Instruction::disassemble(instruction as u64);
-            print!("{} {}", if instruction.assemble() != 0 { instruction.opcode().to_string() } else { "NOP".to_string() }, if offset == 0 {
-                format!("({:08x}) ", instruction.assemble_no_crc())
-            } else {
-                "".to_string()
-            });
+
+            let ins_str = match instruction {
+                x if x.assemble() == 0x6e75406aa00d => "RESTORE".to_string(),
+                x if x.assemble_no_crc() == 0 => "NOP".to_string(),
+                x => x.opcode().to_string(),
+            };
+
+            print!("{} ", ins_str);
         }
+
         let seqw = ms_seqw_read(
             coverage_collector::LABEL_FUNC_LDAT_READ,
-            coverage_collector::LABEL_HOOK_EXIT_REPLACEMENT_00 + i * 4,
+            coverage_collector::LABEL_HOOK_EXIT_00 + index * 4,
         );
-        println!("-> {}", SequenceWord::disassemble_no_crc_check(seqw as u32).map_or("ERR".to_string(), |s| s.to_string()));
+        println!(
+            "-> {}",
+            SequenceWord::disassemble_no_crc_check(seqw as u32)
+                .map_or("ERR".to_string(), |s| s.to_string())
+        );
     }
 }
 

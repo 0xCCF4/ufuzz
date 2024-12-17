@@ -1,8 +1,11 @@
 #![no_main]
 #![no_std]
 
-use custom_processing_unit::{apply_hook_patch_func, apply_patch, call_custom_ucode_function, hook, CustomProcessingUnit, HookGuard};
-use data_types::addresses::{MSRAMHookIndex};
+use custom_processing_unit::{
+    apply_hook_patch_func, apply_patch, call_custom_ucode_function, hook, CustomProcessingUnit,
+    HookGuard,
+};
+use data_types::addresses::MSRAMHookIndex;
 use log::info;
 use uefi::{entry, println, Status};
 
@@ -73,7 +76,7 @@ unsafe fn main() -> Status {
 
     if let Err(err) = hook(
         apply_hook_patch_func(),
-        MSRAMHookIndex::ZERO+2,
+        MSRAMHookIndex::ZERO + 2,
         0x19ca,
         patch::LABEL_EXIT,
         true,
@@ -84,7 +87,7 @@ unsafe fn main() -> Status {
 
     if let Err(err) = hook(
         apply_hook_patch_func(),
-        MSRAMHookIndex::ZERO+0,
+        MSRAMHookIndex::ZERO + 0,
         0x428,
         patch::LABEL_ENTRY,
         true,
@@ -95,15 +98,16 @@ unsafe fn main() -> Status {
 
     println!("Starting experiments");
     let guard = HookGuard::enable_all();
-    let result = core::hint::black_box(call_custom_ucode_function)(patch::LABEL_EXPERIMENT_ODD, [0, 0, 0]);
+    let result =
+        core::hint::black_box(call_custom_ucode_function)(patch::LABEL_EXPERIMENT_ODD, [0, 0, 0]);
     guard.restore();
     println!("{:x?}", result);
 
     let guard = HookGuard::enable_all();
-    let result = core::hint::black_box(call_custom_ucode_function)(patch::LABEL_EXPERIMENT_EVEN, [0, 0, 0]);
+    let result =
+        core::hint::black_box(call_custom_ucode_function)(patch::LABEL_EXPERIMENT_EVEN, [0, 0, 0]);
     guard.restore();
     println!("{:x?}", result);
 
     Status::SUCCESS
 }
-

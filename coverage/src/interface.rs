@@ -1,6 +1,9 @@
 #[allow(clippy::missing_safety_doc)] // todo: remove this and write safety docs
 pub mod raw {
-    use crate::interface_definition::{ClockTableEntry, ClockTableSettingsEntry, ComInterfaceDescription, CoverageEntry, InstructionTableEntry, JumpTableEntry};
+    use crate::interface_definition::{
+        ClockTableEntry, ClockTableSettingsEntry, ComInterfaceDescription, CoverageEntry,
+        InstructionTableEntry, JumpTableEntry,
+    };
     use core::ptr::NonNull;
     use data_types::addresses::{Address, UCInstructionAddress};
 
@@ -75,7 +78,7 @@ pub mod raw {
         }
 
         pub unsafe fn read_coverage_table(&self, index: usize) -> CoverageEntry {
-            if index >= self.description.max_number_of_hooks.into() {
+            if index >= self.description.max_number_of_hooks as usize * 2 {
                 return 0;
             }
 
@@ -83,7 +86,7 @@ pub mod raw {
         }
 
         pub unsafe fn write_coverage_table(&mut self, index: usize, value: CoverageEntry) {
-            if index >= self.description.max_number_of_hooks.into() {
+            if index >= self.description.max_number_of_hooks as usize * 2 {
                 return;
             }
 
@@ -91,7 +94,7 @@ pub mod raw {
         }
 
         pub unsafe fn reset_coverage(&mut self) {
-            for index in 0..self.description.max_number_of_hooks as usize {
+            for index in 0..self.description.max_number_of_hooks as usize * 2 {
                 self.write_coverage_table(index, 0);
             }
         }
@@ -103,7 +106,7 @@ pub mod raw {
         }
 
         pub fn read_instruction_table(&self, index: usize) -> InstructionTableEntry {
-            if index >= self.description.max_number_of_hooks.into() {
+            if index >= self.description.max_number_of_hooks as usize * 4 {
                 return [0; 4];
             }
 
@@ -111,7 +114,7 @@ pub mod raw {
         }
 
         pub fn write_instruction_table(&mut self, index: usize, value: InstructionTableEntry) {
-            if index >= self.description.max_number_of_hooks.into() {
+            if index >= self.description.max_number_of_hooks as usize * 4 {
                 return;
             }
 
@@ -131,9 +134,7 @@ pub mod raw {
         }
 
         unsafe fn clock_table(&self) -> NonNull<ClockTableEntry> {
-            self.base
-                .add(self.description.offset_clock_table)
-                .cast()
+            self.base.add(self.description.offset_clock_table).cast()
         }
 
         unsafe fn clock_table_settings(&self) -> NonNull<ClockTableSettingsEntry> {
@@ -143,35 +144,47 @@ pub mod raw {
         }
 
         pub unsafe fn write_clock_table(&mut self, index: usize, value: ClockTableEntry) {
-            if index >= self.description.max_number_of_hooks.into() {
+            if index >= self.description.max_number_of_hooks as usize * 2 {
                 return;
             }
 
             self.clock_table().add(index).write_volatile(value);
         }
 
-        pub unsafe fn write_clock_table_settings(&mut self, index: usize, value: ClockTableSettingsEntry) {
-            if index >= self.description.max_number_of_hooks.into() {
+        pub unsafe fn write_clock_table_settings(
+            &mut self,
+            index: usize,
+            value: ClockTableSettingsEntry,
+        ) {
+            if index >= self.description.max_number_of_hooks as usize * 2 {
                 return;
             }
 
             self.clock_table_settings().add(index).write_volatile(value);
         }
 
-        pub unsafe fn write_clock_table_all<T: IntoIterator<Item = ClockTableEntry>>(&mut self, values: T) {
+        pub unsafe fn write_clock_table_all<T: IntoIterator<Item = ClockTableEntry>>(
+            &mut self,
+            values: T,
+        ) {
             for (index, value) in values.into_iter().enumerate() {
                 self.write_clock_table(index, value);
             }
         }
 
-        pub unsafe fn write_clock_table_settings_all<T: IntoIterator<Item = ClockTableSettingsEntry>>(&mut self, values: T) {
+        pub unsafe fn write_clock_table_settings_all<
+            T: IntoIterator<Item = ClockTableSettingsEntry>,
+        >(
+            &mut self,
+            values: T,
+        ) {
             for (index, value) in values.into_iter().enumerate() {
                 self.write_clock_table_settings(index, value);
             }
         }
 
         pub unsafe fn read_clock_table(&self, index: usize) -> ClockTableEntry {
-            if index >= self.description.max_number_of_hooks.into() {
+            if index >= self.description.max_number_of_hooks as usize * 2 {
                 return 0;
             }
 
@@ -179,7 +192,7 @@ pub mod raw {
         }
 
         pub unsafe fn read_clock_table_settings(&self, index: usize) -> ClockTableSettingsEntry {
-            if index >= self.description.max_number_of_hooks.into() {
+            if index >= self.description.max_number_of_hooks as usize * 2 {
                 return 0;
             }
 
@@ -187,13 +200,13 @@ pub mod raw {
         }
 
         pub unsafe fn zero_clock_table(&mut self) {
-            for i in 0..self.description.max_number_of_hooks as usize {
+            for i in 0..self.description.max_number_of_hooks as usize * 2 {
                 self.write_clock_table(i, 0);
             }
         }
 
         pub unsafe fn zero_clock_table_settings(&mut self) {
-            for i in 0..self.description.max_number_of_hooks as usize {
+            for i in 0..self.description.max_number_of_hooks as usize * 2 {
                 self.write_clock_table_settings(i, 0);
             }
         }
@@ -207,8 +220,8 @@ pub mod safe {
     };
     use crate::page_allocation::PageAllocation;
     use data_types::addresses::UCInstructionAddress;
-    use uefi::data_types::PhysicalAddress;
     use data_types::patch::Triad;
+    use uefi::data_types::PhysicalAddress;
 
     pub struct ComInterface<'a> {
         base: super::raw::ComInterface<'a>,
@@ -280,12 +293,15 @@ pub mod safe {
         }
 
         pub fn write_instruction_table_triad(&mut self, index: usize, value: Triad) {
-            self.write_instruction_table(index, [
-                value.instructions[0],
-                value.instructions[1],
-                value.instructions[2],
-                value.sequence_word as u64,
-            ])
+            self.write_instruction_table(
+                index,
+                [
+                    value.instructions[0],
+                    value.instructions[1],
+                    value.instructions[2],
+                    value.sequence_word as u64,
+                ],
+            )
         }
 
         pub fn write_instruction_table_all<
@@ -352,9 +368,7 @@ pub mod safe {
 
             let interface = unsafe { super::raw::ComInterface::new(description) };
 
-            Ok(Self {
-                base: interface,
-            })
+            Ok(Self { base: interface })
         }
 
         pub const fn description(&self) -> &'a ComInterfaceDescription {
