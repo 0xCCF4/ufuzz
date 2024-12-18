@@ -70,5 +70,8 @@ fn compile(text: &str) -> String {
     )
     .unwrap_or_else(|err| panic!("Failed to compile patch! macro: {}", err));
 
-    std::fs::read_to_string(&dest_path).expect("Failed to read compiled patch! macro!")
+    let result =
+        std::fs::read_to_string(&dest_path).expect("Failed to read compiled patch! macro!");
+    println!("{}", result);
+    result
 }

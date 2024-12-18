@@ -1,3 +1,4 @@
+use core::fmt::Display;
 use crate::utils::even_odd_parity_u64;
 use crate::utils::opcodes::Opcode;
 use num_traits::FromPrimitive;
@@ -32,6 +33,16 @@ impl Instruction {
     pub fn assemble(&self) -> u64 {
         let instruction = self.assemble_no_crc();
         instruction | even_odd_parity_u64(instruction) << 46
+    }
+}
+
+impl Display for Instruction {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        if self.instruction == 0 {
+            write!(f, "NOP")
+        } else {
+            write!(f, "{}", self.opcode())
+        }
     }
 }
 

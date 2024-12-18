@@ -1,7 +1,7 @@
 mod modification_engine;
 
 use crate::coverage_collector;
-use crate::coverage_harness::modification_engine::NotHookableReason;
+use crate::coverage_harness::modification_engine::{ModificationEngineSettings, NotHookableReason};
 use crate::interface::safe::ComInterface;
 use crate::interface_definition::{CoverageEntry, InstructionTableEntry};
 #[cfg(feature = "no_std")]
@@ -30,6 +30,7 @@ pub struct CoverageHarness<'a, 'b, 'c> {
     // coverage: [CoverageEntry; COVERAGE_ENTRIES], // every forth entry, beginning at 3 is zero
     previous_hook_settings: Option<HookGuard>,
     custom_processing_unit: &'c CustomProcessingUnit,
+    compile_mode: ModificationEngineSettings,
 }
 
 impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
@@ -47,6 +48,7 @@ impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
             // coverage: [0; COVERAGE_ENTRIES],
             previous_hook_settings: Some(HookGuard::disable_all()),
             custom_processing_unit: cpu,
+            compile_mode: ModificationEngineSettings::empty(),
         }
     }
 
@@ -75,7 +77,7 @@ impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
             }
 
             let triads = self
-                .modify_triad_for_hooking(hook)
+                .modify_triad_for_hooking(hook, &self.compile_mode)
                 .map_err(|err| CoverageError::AddressNotHookable(hook, err))?;
 
             for triad in triads.into_iter() {
@@ -156,20 +158,23 @@ impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
     }
 
     pub fn is_hookable(&self, address: UCInstructionAddress) -> Result<(), NotHookableReason> {
-        modification_engine::is_hookable(address, self.custom_processing_unit.rom())
+        modification_engine::is_hookable(address, self.custom_processing_unit.rom(), &self.compile_mode)
     }
 
     fn modify_triad_for_hooking(
         &self,
         hooked_address: UCInstructionAddress,
+        mode: &ModificationEngineSettings
     ) -> Result<[InstructionTableEntry; 4], NotHookableReason> {
         let even = modification_engine::modify_triad_for_hooking(
             hooked_address.align_even(),
             self.custom_processing_unit.rom(),
+            mode
         )?;
         let odd = modification_engine::modify_triad_for_hooking(
             hooked_address.align_even() + 1,
             self.custom_processing_unit.rom(),
+            mode
         )?;
         Ok([
             even[0]

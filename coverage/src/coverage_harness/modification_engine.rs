@@ -9,6 +9,17 @@ use ucode_dump::RomDump;
 
 const RESTORE_CONTEXT: u64 = 0x6e75406aa00d; // LDSTGBUF_DSZ64_ASZ16_SC1(0xba40) !m2
 
+bitflags::bitflags! {
+    pub struct ModificationEngineSettings: u64 {
+        const NoGotos = 1 << 0;
+        const NoSaveupIPSequenceWords = 1 << 1;
+        const NoSaveupIPRegOVRInstructions = 1 << 2;
+        const NoSUBR = 1 << 3;
+        const NoControl = 1 << 4;
+        const NoSync = 1 << 5;
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum NotHookableReason {
     AddressNotInRom,
@@ -20,15 +31,15 @@ pub enum NotHookableReason {
     TodoControlOp,
     TodoSyncOp,
     TodoIndexNotZero,
-    TodoCondJump,
     TodoJump,
-    TodoConditionalJump, // needs second triad to jump back
-    TodoSaveUIP,         // needs second triad to jump back
     LBSYNC,
     TodoBlacklisted(UCInstructionAddress),
+    TodoConditionalJump,
+    TESTUSTATE,
+    FeatureDisabled,
 }
 
-pub fn is_hookable(address: UCInstructionAddress, rom: &RomDump) -> Result<(), NotHookableReason> {
+pub fn is_hookable(address: UCInstructionAddress, rom: &RomDump, mode: &ModificationEngineSettings) -> Result<(), NotHookableReason> {
     if address >= UCInstructionAddress::MSRAM_START {
         return Err(NotHookableReason::AddressNotInRom);
     }
@@ -42,7 +53,7 @@ pub fn is_hookable(address: UCInstructionAddress, rom: &RomDump) -> Result<(), N
         Instruction::disassemble(instruction_pair[0]),
         Instruction::disassemble(instruction_pair[1]),
     ];
-    let [this_instruction, next_instruction] = &instruction_pair;
+    let [_this_instruction, _next_instruction] = &instruction_pair;
 
     let sequence_word = match rom.get_sequence_word(address) {
         Some(sequence_word) => SequenceWord::disassemble_no_crc_check(sequence_word as u32)
@@ -51,32 +62,52 @@ pub fn is_hookable(address: UCInstructionAddress, rom: &RomDump) -> Result<(), N
     };
     let sequence_word_view = sequence_word.view(address.align_even().triad_offset(), 2);
 
-    if this_instruction.opcode() == Opcode::SAVEUIP_REGOVR {
-        return Err(NotHookableReason::TodoSaveUIP);
-    }
-
-    if next_instruction.opcode() == Opcode::SAVEUIP_REGOVR {
-        if let Some(control) = sequence_word_view.control() {
-            if control.value.is_terminator() && control.apply_to_index == 1 {
-                // this is fine, since we will return anyway
-            } else {
-                return Err(NotHookableReason::TodoSaveUIP);
-            }
-        } else {
-            return Err(NotHookableReason::TodoSaveUIP);
+    if mode.contains(ModificationEngineSettings::NoSUBR) {
+        if instruction_pair
+            .iter()
+            .any(|instruction| instruction.opcode().is_group_TESTUSTATE()) {
+            return Err(NotHookableReason::FeatureDisabled);
         }
     }
 
-    if let Some(control) = sequence_word_view.control() {
-        if control.value.is_saveupip() {
-            return Err(NotHookableReason::TodoSaveUIP);
+    if mode.contains(ModificationEngineSettings::NoGotos) {
+        if sequence_word_view.goto().is_some() {
+            return Err(NotHookableReason::FeatureDisabled);
         }
     }
 
-    if instruction_pair.iter().any(|instruction| {
-        instruction.opcode().is_group_TESTUSTATE() || instruction.opcode().is_group_SUBR()
-    }) {
-        return Err(NotHookableReason::TodoConditionalJump);
+    if mode.contains(ModificationEngineSettings::NoSaveupIPSequenceWords) {
+        if sequence_word_view.control().map(|c| c.value.is_saveupip()).unwrap_or(false) {
+            return Err(NotHookableReason::FeatureDisabled);
+        }
+    }
+
+    if mode.contains(ModificationEngineSettings::NoSaveupIPRegOVRInstructions) {
+        if instruction_pair
+            .iter()
+            .any(|instruction| instruction.opcode() == Opcode::SAVEUIP_REGOVR)
+        {
+            return Err(NotHookableReason::FeatureDisabled);
+        }
+    }
+
+    if mode.contains(ModificationEngineSettings::NoControl) {
+        if sequence_word_view.control().is_some() {
+            return Err(NotHookableReason::FeatureDisabled);
+        }
+    }
+
+    if mode.contains(ModificationEngineSettings::NoControl) {
+        if sequence_word_view.sync().is_some() {
+            return Err(NotHookableReason::FeatureDisabled);
+        }
+    }
+
+    if instruction_pair
+        .iter()
+        .any(|instruction| instruction.opcode().is_group_TESTUSTATE())
+    {
+        return Err(NotHookableReason::TESTUSTATE);
     }
 
     if instruction_pair
@@ -88,9 +119,9 @@ pub fn is_hookable(address: UCInstructionAddress, rom: &RomDump) -> Result<(), N
 
     let blacklist: &[usize] = &[
         // is this lfence instruction?
-        0xd0, // U00d0: 000000000000 NOP
-        0xd1, // U00d1: 000000000000 LFNCEMARK-> NOP SEQW GOTO U008e
-        0x8e, // LFNCEWAIT-> NOP SEQW UEND0
+        0xd0,  // U00d0: 000000000000 NOP
+        0xd1,  // U00d1: 000000000000 LFNCEMARK-> NOP SEQW GOTO U008e
+        0x8e,  // LFNCEWAIT-> NOP SEQW UEND0
         0x3c8, // U03c8: 004100030001 tmp0:= OR_DSZ64(r64dst)
         0x3c9, // U03c9: 100800001042 r64dst:= ZEROEXT_DSZ32N(r64src, r64dst) !m1
         0x3ca, // U03ca: 1008000020b0 r64src:= ZEROEXT_DSZ32N(tmp0, r64src) !m1 SEQW UEND0
@@ -110,8 +141,9 @@ pub fn is_hookable(address: UCInstructionAddress, rom: &RomDump) -> Result<(), N
 pub fn modify_triad_for_hooking(
     address: UCInstructionAddress,
     rom: &RomDump,
+    mode: &ModificationEngineSettings,
 ) -> Result<[Triad; 2], NotHookableReason> {
-    is_hookable(address, rom)?;
+    is_hookable(address, rom, mode)?;
 
     let triad = rom
         .triad(address)
@@ -141,24 +173,14 @@ pub fn modify_triad_for_hooking(
 
     let next_triad = Triad {
         instructions: [Instruction::NOP, Instruction::NOP, Instruction::NOP],
-        sequence_word: SequenceWord::new()
-            .apply_goto(0, crate::coverage_collector::LABEL_EXIT_TRAP),
+        sequence_word: SequenceWord::new().apply_goto(0, address.next_address()), // when using SEQW SAVEUIP or SAVEUIP_REGOVR() this will restore the control flow
     };
 
     if let Some(control) = result_triad.sequence_word.control() {
-        if control.value.is_terminator() {
-            // do nothing, since we will return anyway
-
-            let _ = result_triad
-                .sequence_word
-                .assemble()
-                .map_err(NotHookableReason::ModificationFailedSequenceWordBuild)?;
-            let _ = next_triad
-                .sequence_word
-                .assemble()
-                .map_err(NotHookableReason::ModificationFailedSequenceWordBuild)?;
-            return Ok([result_triad, next_triad]);
+        if control.value.is_terminator() || control.value.is_saveupip() {
+            // ok, we can handle this
         } else {
+            // todo: other sequence word operations behavior unknown -> not hookable
             return Err(NotHookableReason::ControlOpPresent(control.value));
         }
     }
@@ -168,9 +190,21 @@ pub fn modify_triad_for_hooking(
             // do nothing, since jump will be automatically taken
         }
         None => {
-            result_triad
-                .sequence_word
-                .set_goto(1, address.next_address());
+            let terminator = if let Some(control) = result_triad.sequence_word.control() {
+                if control.value.is_terminator() {
+                    true
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+
+            if !terminator {
+                result_triad
+                    .sequence_word
+                    .set_goto(1, address.next_address());
+            }
         }
     }
 
@@ -190,6 +224,43 @@ mod test {
     use super::*;
     use std::collections::HashMap;
     use std::println;
+    use std::string::ToString;
+
+    #[test]
+    fn test_if_multiple_saveup_per_triad_pair() {
+        let rom = ucode_dump::dump::ROM_cpu_000506CA;
+
+        for address in (0..0x7c00)
+            .filter(|p| p % 2 == 0)
+            .map(UCInstructionAddress::from_const)
+        {
+            let pair = rom
+                .get_instruction_pair(address)
+                .unwrap()
+                .map(Instruction::disassemble);
+            let sequence_word =
+                SequenceWord::disassemble_no_crc_check(rom.get_sequence_word(address).unwrap())
+                    .unwrap()
+                    .apply_view(address.triad_offset(), 2)
+                    .apply();
+
+            let pair_save = pair
+                .iter()
+                .filter(|instruction| instruction.opcode() == Opcode::SAVEUIP_REGOVR)
+                .count();
+            let sequence_word_save =
+                if let Some(control) = sequence_word.view(address.triad_offset(), 2).control() {
+                    control.value.is_saveupip() as usize
+                } else {
+                    0
+                };
+
+            if pair_save + sequence_word_save > 1 {
+                print!("{}: {:?} ", address, pair.map(|o| o.opcode()));
+                println!("{}", sequence_word.to_string());
+            }
+        }
+    }
 
     #[test]
     fn test_offline_modification() {
@@ -228,21 +299,6 @@ mod test {
             println!(" - {:?}: {}", key, value);
         }
 
-        println!(
-            "{:?}",
-            SequenceWord::disassemble(
-                modify_triad_for_hooking(0xd0.into(), &rom)
-                    .unwrap()
-                    .sequence_word
-            )
-        );
-        println!(
-            "{:?}",
-            SequenceWord::disassemble(
-                modify_triad_for_hooking(0xd1.into(), &rom)
-                    .unwrap()
-                    .sequence_word
-            )
-        );
+        println!("{}", modify_triad_for_hooking(0x19d4.into(), &rom).unwrap().map(|x| format!("{}", x)).join(" ; "));
     }
 }
