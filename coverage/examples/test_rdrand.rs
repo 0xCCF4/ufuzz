@@ -115,7 +115,7 @@ fn execute<R: Debug, F: FnOnce() -> R>(
     func: F,
 ) {
     print!("Coverage: ");
-    let x = coverage_harness.execute(&addresses, |_| func(), ());
+    let x = coverage_harness.execute(&addresses, || func());
     match x {
         Err(err) => println!("Error: {:?}", err),
         Ok(x) => {

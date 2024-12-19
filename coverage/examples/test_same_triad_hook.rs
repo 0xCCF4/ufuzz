@@ -149,22 +149,18 @@ unsafe fn main() -> Status {
     println!("Hooking: {:?}", addresses);
 
     println!(" ---- Execute {number_of_executions} times ----");
-    match harness.execute(
-        &addresses,
-        |n| {
-            read_hooks();
+    match harness.execute(&addresses, || {
+        read_hooks();
+        let x = rdrand();
+        println!("RDRAND: {:?}", x);
+        for _ in 0..(number_of_executions - 1) {
             let x = rdrand();
-            println!("RDRAND: {:?}", x);
-            for _ in 0..(n - 1) {
-                let x = rdrand();
-                if !x.0 {
-                    println!("RDRAND: {:?}", x);
-                    break;
-                }
+            if !x.0 {
+                println!("RDRAND: {:?}", x);
+                break;
             }
-        },
-        number_of_executions,
-    ) {
+        }
+    }) {
         Err(err) => println!("Failed to execute experiment: {:?}", err),
         Ok(x) => {
             print!(

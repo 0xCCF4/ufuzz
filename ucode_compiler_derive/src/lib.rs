@@ -72,6 +72,6 @@ fn compile(text: &str) -> String {
 
     let result =
         std::fs::read_to_string(&dest_path).expect("Failed to read compiled patch! macro!");
-    println!("{}", result);
+
     result
 }

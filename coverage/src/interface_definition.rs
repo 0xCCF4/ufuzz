@@ -1,6 +1,6 @@
 pub struct ComInterfaceDescription {
     pub base: u16,
-    pub max_number_of_hooks: u8,
+    pub max_number_of_hooks: usize,
     pub offset_coverage_result_table: usize,
     pub offset_jump_back_table: usize,
     pub offset_instruction_table: usize,
@@ -33,7 +33,7 @@ impl ComInterfaceDescription {
     }
 }
 
-const MAX_NUMBER_OF_HOOKS: u8 = 8;
+const MAX_NUMBER_OF_HOOKS: usize = 8;
 
 pub type CoverageEntry = u16;
 const COVERAGE_RESULT_TABLE_BYTE_SIZE: usize =

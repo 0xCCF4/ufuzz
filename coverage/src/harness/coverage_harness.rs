@@ -1,6 +1,10 @@
-mod modification_engine;
+pub mod hookable_address_iterator;
+pub mod modification_engine;
 
 use crate::coverage_collector;
+use crate::harness::coverage_harness::modification_engine::{
+    ModificationEngineSettings, NotHookableReason,
+};
 use crate::interface::safe::ComInterface;
 use crate::interface_definition::{CoverageEntry, InstructionTableEntry};
 #[cfg(feature = "no_std")]
@@ -11,10 +15,7 @@ use custom_processing_unit::{
     CustomProcessingUnit, FunctionResult, HookGuard,
 };
 use data_types::addresses::UCInstructionAddress;
-use ucode_compiler::utils::instruction::Instruction;
-use ucode_compiler::utils::sequence_word::{DisassembleError, SequenceWord};
-use ucode_compiler::utils::Triad;
-use crate::harness::coverage_harness::modification_engine::{ModificationEngineSettings, NotHookableReason};
+use ucode_compiler::utils::sequence_word::DisassembleError;
 // const COVERAGE_ENTRIES: usize = UCInstructionAddress::MAX.to_const();
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -174,23 +175,22 @@ impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
         ])
     }
 
-    pub fn execute<FuncParam, FuncResult, F: FnOnce(FuncParam) -> FuncResult>(
+    pub fn execute<FuncResult, F: FnOnce() -> FuncResult>(
         &mut self,
         hooks: &[UCInstructionAddress],
         func: F,
-        param: FuncParam,
-    ) -> Result<ExecutionResult<FuncResult>, CoverageError> {
+    ) -> Result<CoverageExecutionResult<FuncResult>, CoverageError> {
         self.pre_execution(hooks)?;
         enable_hooks();
 
         lmfence();
-        let result = core::hint::black_box(func)(param);
+        let result = core::hint::black_box(func)();
         lmfence();
 
         disable_all_hooks();
         let timing = self.post_execution(hooks);
 
-        Ok(ExecutionResult {
+        Ok(CoverageExecutionResult {
             result,
             hooks: timing,
         })
@@ -199,30 +199,7 @@ impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
 
 impl<'a, 'b, 'c> Drop for CoverageHarness<'a, 'b, 'c> {
     fn drop(&mut self) {
-        for i in 0..self.interface.description().max_number_of_hooks {
-            let address = UCInstructionAddress::ZERO;
-            let triads = [Triad {
-                instructions: [Instruction::NOP; 3],
-                sequence_word: SequenceWord::new()
-                    .apply_goto(0, coverage_collector::LABEL_EXIT_TRAP),
-            }; 4];
-            for triad in triads.iter().enumerate() {
-                self.interface
-                    .write_instruction_table(i as usize * 4 + triad.0, triad.1.assemble().unwrap())
-            }
-            self.interface.write_jump_table(i as usize, address);
-        }
-
-        self.interface.reset_coverage();
-
-        let _ = call_custom_ucode_function(
-            coverage_collector::LABEL_FUNC_SETUP,
-            [
-                self.interface.description().max_number_of_hooks as usize,
-                0,
-                0,
-            ],
-        );
+        let _ = call_custom_ucode_function(coverage_collector::LABEL_FUNC_SETUP, [0, 0, 0]);
 
         // dropping the hook guard will restore the hooks
         drop(self.previous_hook_settings.take());
@@ -260,29 +237,29 @@ impl ExecutionResultEntry {
     }
 }
 
-pub struct ExecutionResult<R> {
+pub struct CoverageExecutionResult<R> {
     pub result: R,
     pub hooks: Vec<ExecutionResultEntry>,
 }
 
-impl<R: PartialEq> PartialEq for ExecutionResult<R> {
+impl<R: PartialEq> PartialEq for CoverageExecutionResult<R> {
     fn eq(&self, other: &Self) -> bool {
         self.result == other.result && self.hooks == other.hooks
     }
 }
 
-impl<R: Eq> Eq for ExecutionResult<R> {}
+impl<R: Eq> Eq for CoverageExecutionResult<R> {}
 
-impl<R: Clone> Clone for ExecutionResult<R> {
+impl<R: Clone> Clone for CoverageExecutionResult<R> {
     fn clone(&self) -> Self {
-        ExecutionResult {
+        CoverageExecutionResult {
             result: self.result.clone(),
             hooks: self.hooks.clone(),
         }
     }
 }
 
-impl<R: Debug> Debug for ExecutionResult<R> {
+impl<R: Debug> Debug for CoverageExecutionResult<R> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("ExecutionResult")
             .field("result", &self.result)

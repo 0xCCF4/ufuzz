@@ -1,7 +1,7 @@
+use crate::harness::coverage_harness::{CoverageError, CoverageHarness, ExecutionResultEntry};
 use alloc::vec::Vec;
 use core::arch::asm;
 use data_types::addresses::UCInstructionAddress;
-use crate::harness::coverage_harness::{CoverageError, CoverageHarness, ExecutionResultEntry};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct State<R: PartialEq + Eq> {
@@ -29,9 +29,19 @@ impl<R: PartialEq + Eq> State<R> {
         self.result == other.result
     }
     pub fn is_state_equal_exclude_result(&self, other: &State<R>) -> bool {
-        self.rax == other.rax && self.rcx == other.rcx && self.rdx == other.rdx && self.rsi == other.rsi && self.rdi == other.rdi &&
-            self.r8 == other.r8 && self.r9 == other.r9 && self.r10 == other.r10 && self.r11 == other.r11 && self.r12 == other.r12 &&
-            self.r13 == other.r13 && self.r14 == other.r14 && self.r15 == other.r15
+        self.rax == other.rax
+            && self.rcx == other.rcx
+            && self.rdx == other.rdx
+            && self.rsi == other.rsi
+            && self.rdi == other.rdi
+            && self.r8 == other.r8
+            && self.r9 == other.r9
+            && self.r10 == other.r10
+            && self.r11 == other.r11
+            && self.r12 == other.r12
+            && self.r13 == other.r13
+            && self.r14 == other.r14
+            && self.r15 == other.r15
     }
 }
 
@@ -116,7 +126,20 @@ impl StateCapturer {
             }
         }
         State {
-            rax, rcx, rdx, rsi, rdi, r8, r9, r10, r11, r12, r13, r14, r15, result
+            rax,
+            rcx,
+            rdx,
+            rsi,
+            rdi,
+            r8,
+            r9,
+            r10,
+            r11,
+            r12,
+            r13,
+            r14,
+            r15,
+            result,
         }
     }
 }
@@ -128,7 +151,7 @@ pub enum ValidationError<R: PartialEq + Eq> {
         state_without_coverage_collection: State<R>,
         coverage: Vec<ExecutionResultEntry>,
     },
-    ExecutionFailure(CoverageError)
+    ExecutionFailure(CoverageError),
 }
 
 impl<R: PartialEq + Eq> From<CoverageError> for ValidationError<R> {
@@ -140,58 +163,50 @@ impl<R: PartialEq + Eq> From<CoverageError> for ValidationError<R> {
 #[derive(Debug, Clone)]
 pub struct ValidationResult<R: PartialEq + Eq> {
     pub result: R,
-    pub hooks: Vec<ExecutionResultEntry>
+    pub hooks: Vec<ExecutionResultEntry>,
 }
 
 /// runs a function using coverage collection, then without and compare results for validity
-pub struct ValidationHarness<'a, 'b, 'c> {
-    coverage_harness: CoverageHarness<'a, 'b, 'c>
+pub struct ValidationHarness<'a, 'b, 'c, 'd> {
+    coverage_harness: &'d mut CoverageHarness<'a, 'b, 'c>,
 }
 
-impl<'a, 'b, 'c> ValidationHarness<'a, 'b, 'c> {
-    pub fn new(coverage_harness: CoverageHarness<'a,'b,'c>) -> Self {
-        ValidationHarness {
-            coverage_harness
-        }
+impl<'a, 'b, 'c, 'd> ValidationHarness<'a, 'b, 'c, 'd> {
+    pub fn new(coverage_harness: &'d mut CoverageHarness<'a, 'b, 'c>) -> Self {
+        ValidationHarness { coverage_harness }
     }
 
     pub fn coverage_harness(&self) -> &CoverageHarness<'a, 'b, 'c> {
         &self.coverage_harness
     }
 
-    pub fn into_inner(self) -> CoverageHarness<'a, 'b, 'c> {
-        self.coverage_harness
-    }
-
-    pub fn execute<FuncParam, FuncResult: PartialEq + Eq, F: Copy + Fn(&FuncParam) -> FuncResult>(
+    pub fn execute<FuncParam, FuncResult: PartialEq + Eq, F: Copy + Fn() -> FuncResult>(
         &mut self,
         hooks: &[UCInstructionAddress],
         func: F,
-        param: FuncParam,
     ) -> Result<ValidationResult<FuncResult>, ValidationError<FuncResult>> {
-        let wrapped_func = move |param: &FuncParam| {
+        let wrapped_func = || {
             let state = StateCapturer::prepare_state();
 
-            let result = func(param);
+            let result = func();
 
             state.capture(result)
         };
 
-
-        let coverage_result = self.coverage_harness.execute(hooks, wrapped_func, &param)?;
-        let no_coverage_result = wrapped_func(&param);
+        let coverage_result = self.coverage_harness.execute(hooks, wrapped_func)?;
+        let no_coverage_result = wrapped_func();
 
         if no_coverage_result.is_state_equal(&coverage_result.result) {
             Ok(ValidationResult {
                 result: coverage_result.result.result,
-                hooks: coverage_result.hooks
+                hooks: coverage_result.hooks,
             })
         } else {
             // todo address problems with w.g. calling rdrand()
             Err(ValidationError::StateMismatch {
                 state_with_coverage_collection: coverage_result.result,
                 coverage: coverage_result.hooks,
-                state_without_coverage_collection: no_coverage_result
+                state_without_coverage_collection: no_coverage_result,
             })
         }
     }

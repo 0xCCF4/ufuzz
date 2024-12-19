@@ -165,7 +165,7 @@ unsafe fn main() -> Status {
                 continue;
             }
 
-            match harness.execute(&[addresses], |_| rdrand(), ()) {
+            match harness.execute(&[addresses], || rdrand()) {
                 Err(e) => {
                     //println!("Failed to execute harness: {:?}", e);
                     match e {
@@ -373,7 +373,7 @@ unsafe fn main() -> Status {
             if address % 2 > 0 {
                 continue;
             }
-            let r = harness.execute(&[address.into()], |_| rdrand(), ());
+            let r = harness.execute(&[address.into()], || rdrand());
             if matches!(r, Ok(_)) {
                 setups += 1;
             }
