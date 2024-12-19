@@ -1,6 +1,6 @@
-use core::fmt::Display;
 use crate::utils::even_odd_parity_u64;
 use crate::utils::opcodes::Opcode;
+use core::fmt::Display;
 use num_traits::FromPrimitive;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

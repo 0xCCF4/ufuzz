@@ -9,7 +9,7 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::arch::asm;
 use core::fmt::Debug;
-use coverage::coverage_harness::{CoverageError, CoverageHarness};
+use coverage::harness::coverage_harness::{CoverageError, CoverageHarness};
 use coverage::interface::safe::ComInterface;
 use coverage::{coverage_collector, interface_definition};
 use custom_processing_unit::{apply_patch, lmfence, CustomProcessingUnit, FunctionResult};

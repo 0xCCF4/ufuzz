@@ -9,7 +9,7 @@ use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::arch::asm;
-use coverage::coverage_harness::CoverageHarness;
+use coverage::harness::coverage_harness::CoverageHarness;
 use coverage::interface::safe::ComInterface;
 use coverage::{coverage_collector, interface_definition};
 use custom_processing_unit::{

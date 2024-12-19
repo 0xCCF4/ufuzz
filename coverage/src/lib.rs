@@ -2,7 +2,7 @@
 
 mod patches;
 pub use patches::patch as coverage_collector;
-pub mod coverage_harness;
+pub mod harness;
 pub mod interface;
 pub mod interface_definition;
 

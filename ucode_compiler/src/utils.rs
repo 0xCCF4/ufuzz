@@ -1,6 +1,6 @@
-use core::fmt::{Display, Formatter};
 use crate::utils::instruction::Instruction;
 use crate::utils::sequence_word::SequenceWord;
+use core::fmt::{Display, Formatter};
 
 pub mod instruction;
 pub mod opcodes;
@@ -25,12 +25,10 @@ impl Triad {
 
 impl Display for Triad {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-        write!(f,
+        write!(
+            f,
             "{} {} {} {}",
-            self.instructions[0],
-            self.instructions[1],
-            self.instructions[2],
-            self.sequence_word
+            self.instructions[0], self.instructions[1], self.instructions[2], self.sequence_word
         )
     }
 }

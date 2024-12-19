@@ -5,7 +5,7 @@ extern crate alloc;
 
 use core::arch::asm;
 use core::fmt::Debug;
-use coverage::coverage_harness::CoverageHarness;
+use coverage::harness::coverage_harness::CoverageHarness;
 use coverage::interface::safe::ComInterface;
 use coverage::{coverage_collector, interface_definition};
 use custom_processing_unit::{

@@ -39,7 +39,11 @@ pub enum NotHookableReason {
     FeatureDisabled,
 }
 
-pub fn is_hookable(address: UCInstructionAddress, rom: &RomDump, mode: &ModificationEngineSettings) -> Result<(), NotHookableReason> {
+pub fn is_hookable(
+    address: UCInstructionAddress,
+    rom: &RomDump,
+    mode: &ModificationEngineSettings,
+) -> Result<(), NotHookableReason> {
     if address >= UCInstructionAddress::MSRAM_START {
         return Err(NotHookableReason::AddressNotInRom);
     }
@@ -65,7 +69,8 @@ pub fn is_hookable(address: UCInstructionAddress, rom: &RomDump, mode: &Modifica
     if mode.contains(ModificationEngineSettings::NoSUBR) {
         if instruction_pair
             .iter()
-            .any(|instruction| instruction.opcode().is_group_TESTUSTATE()) {
+            .any(|instruction| instruction.opcode().is_group_TESTUSTATE())
+        {
             return Err(NotHookableReason::FeatureDisabled);
         }
     }
@@ -77,7 +82,11 @@ pub fn is_hookable(address: UCInstructionAddress, rom: &RomDump, mode: &Modifica
     }
 
     if mode.contains(ModificationEngineSettings::NoSaveupIPSequenceWords) {
-        if sequence_word_view.control().map(|c| c.value.is_saveupip()).unwrap_or(false) {
+        if sequence_word_view
+            .control()
+            .map(|c| c.value.is_saveupip())
+            .unwrap_or(false)
+        {
             return Err(NotHookableReason::FeatureDisabled);
         }
     }
@@ -299,6 +308,12 @@ mod test {
             println!(" - {:?}: {}", key, value);
         }
 
-        println!("{}", modify_triad_for_hooking(0x19d4.into(), &rom).unwrap().map(|x| format!("{}", x)).join(" ; "));
+        println!(
+            "{}",
+            modify_triad_for_hooking(0x19d4.into(), &rom)
+                .unwrap()
+                .map(|x| format!("{}", x))
+                .join(" ; ")
+        );
     }
 }

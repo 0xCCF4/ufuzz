@@ -1,7 +1,6 @@
 mod modification_engine;
 
 use crate::coverage_collector;
-use crate::coverage_harness::modification_engine::{ModificationEngineSettings, NotHookableReason};
 use crate::interface::safe::ComInterface;
 use crate::interface_definition::{CoverageEntry, InstructionTableEntry};
 #[cfg(feature = "no_std")]
@@ -15,6 +14,7 @@ use data_types::addresses::UCInstructionAddress;
 use ucode_compiler::utils::instruction::Instruction;
 use ucode_compiler::utils::sequence_word::{DisassembleError, SequenceWord};
 use ucode_compiler::utils::Triad;
+use crate::harness::coverage_harness::modification_engine::{ModificationEngineSettings, NotHookableReason};
 // const COVERAGE_ENTRIES: usize = UCInstructionAddress::MAX.to_const();
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -135,46 +135,28 @@ impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
         self.pre_execution(&hooks)
     }
 
-    pub fn execute<T, R, F: FnOnce(T) -> R>(
-        &mut self,
-        hooks: &[UCInstructionAddress],
-        func: F,
-        param: T,
-    ) -> Result<ExecutionResult<R>, CoverageError> {
-        self.pre_execution(hooks)?;
-        enable_hooks();
-
-        lmfence();
-        let result = core::hint::black_box(func)(param);
-        lmfence();
-
-        disable_all_hooks();
-        let timing = self.post_execution(hooks);
-
-        Ok(ExecutionResult {
-            result,
-            hooks: timing,
-        })
-    }
-
     pub fn is_hookable(&self, address: UCInstructionAddress) -> Result<(), NotHookableReason> {
-        modification_engine::is_hookable(address, self.custom_processing_unit.rom(), &self.compile_mode)
+        modification_engine::is_hookable(
+            address,
+            self.custom_processing_unit.rom(),
+            &self.compile_mode,
+        )
     }
 
     fn modify_triad_for_hooking(
         &self,
         hooked_address: UCInstructionAddress,
-        mode: &ModificationEngineSettings
+        mode: &ModificationEngineSettings,
     ) -> Result<[InstructionTableEntry; 4], NotHookableReason> {
         let even = modification_engine::modify_triad_for_hooking(
             hooked_address.align_even(),
             self.custom_processing_unit.rom(),
-            mode
+            mode,
         )?;
         let odd = modification_engine::modify_triad_for_hooking(
             hooked_address.align_even() + 1,
             self.custom_processing_unit.rom(),
-            mode
+            mode,
         )?;
         Ok([
             even[0]
@@ -190,6 +172,28 @@ impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
                 .assemble()
                 .map_err(NotHookableReason::ModificationFailedSequenceWordBuild)?,
         ])
+    }
+
+    pub fn execute<FuncParam, FuncResult, F: FnOnce(FuncParam) -> FuncResult>(
+        &mut self,
+        hooks: &[UCInstructionAddress],
+        func: F,
+        param: FuncParam,
+    ) -> Result<ExecutionResult<FuncResult>, CoverageError> {
+        self.pre_execution(hooks)?;
+        enable_hooks();
+
+        lmfence();
+        let result = core::hint::black_box(func)(param);
+        lmfence();
+
+        disable_all_hooks();
+        let timing = self.post_execution(hooks);
+
+        Ok(ExecutionResult {
+            result,
+            hooks: timing,
+        })
     }
 }
 
@@ -260,6 +264,14 @@ pub struct ExecutionResult<R> {
     pub result: R,
     pub hooks: Vec<ExecutionResultEntry>,
 }
+
+impl<R: PartialEq> PartialEq for ExecutionResult<R> {
+    fn eq(&self, other: &Self) -> bool {
+        self.result == other.result && self.hooks == other.hooks
+    }
+}
+
+impl<R: Eq> Eq for ExecutionResult<R> {}
 
 impl<R: Clone> Clone for ExecutionResult<R> {
     fn clone(&self) -> Self {

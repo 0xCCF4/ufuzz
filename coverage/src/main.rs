@@ -3,7 +3,7 @@
 
 extern crate alloc;
 
-use coverage::coverage_harness::CoverageHarness;
+use coverage::harness::coverage_harness::CoverageHarness;
 use coverage::interface::safe::ComInterface;
 use coverage::interface_definition;
 use custom_processing_unit::CustomProcessingUnit;
