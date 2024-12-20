@@ -168,32 +168,32 @@ fn generate_interface_definitions<A: AsRef<Path>>(
     ));
     definitions.push((
         "table_length",
-        interface.max_number_of_hooks as usize,
+        interface.max_number_of_hooks,
         "number of entries in the tables",
     ));
     definitions.push((
         "table_size_jump",
-        interface.max_number_of_hooks as usize * size_of::<JumpTableEntry>(),
+        interface.max_number_of_hooks * size_of::<JumpTableEntry>(),
         "size of the jump table in bytes",
     ));
     definitions.push((
         "table_size_coverage",
-        interface.max_number_of_hooks as usize * size_of::<CoverageEntry>(),
+        interface.max_number_of_hooks * size_of::<CoverageEntry>(),
         "size of the coverage table in bytes",
     ));
     definitions.push((
         "table_size_instruction",
-        interface.max_number_of_hooks as usize * size_of::<InstructionTableEntry>(),
+        interface.max_number_of_hooks * size_of::<InstructionTableEntry>(),
         "size of the instruction table in bytes",
     ));
     definitions.push((
         "table_size_clock",
-        interface.max_number_of_hooks as usize * size_of::<ClockTableEntry>(),
+        interface.max_number_of_hooks * size_of::<ClockTableEntry>(),
         "size of the clock table in bytes",
     ));
     definitions.push((
         "table_size_clock_settings",
-        interface.max_number_of_hooks as usize * size_of::<ClockTableSettingsEntry>(),
+        interface.max_number_of_hooks * size_of::<ClockTableSettingsEntry>(),
         "size of the clock settings table in bytes",
     ));
     definitions.push((
@@ -338,7 +338,7 @@ fn generate_exits<A: AsRef<Path>>(
 
     content.push_str("NOPB # Align to 4\n\n");
 
-    for i in 0..interface.max_number_of_hooks as usize {
+    for i in 0..interface.max_number_of_hooks {
         content.push_str(
             format!(
                 "

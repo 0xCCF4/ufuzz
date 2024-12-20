@@ -54,6 +54,10 @@ impl HookableAddressIterator {
         self.addresses.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.addresses.is_empty()
+    }
+
     pub fn iter(&self) -> &[UCInstructionAddress] {
         &self.addresses
     }

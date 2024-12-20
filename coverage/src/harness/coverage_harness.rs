@@ -49,13 +49,13 @@ impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
             // coverage: [0; COVERAGE_ENTRIES],
             previous_hook_settings: Some(HookGuard::disable_all()),
             custom_processing_unit: cpu,
-            compile_mode: ModificationEngineSettings::empty(),
+            compile_mode: ModificationEngineSettings::default(),
         }
     }
 
     #[inline(always)]
     fn pre_execution(&mut self, hooks: &[UCInstructionAddress]) -> Result<(), CoverageError> {
-        if hooks.len() > self.interface.description().max_number_of_hooks as usize {
+        if hooks.len() > self.interface.description().max_number_of_hooks {
             return Err(CoverageError::TooManyHooks);
         }
 
@@ -133,7 +133,7 @@ impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
     }
 
     pub fn setup(&mut self, hooks: &[UCInstructionAddress]) -> Result<(), CoverageError> {
-        self.pre_execution(&hooks)
+        self.pre_execution(hooks)
     }
 
     pub fn is_hookable(&self, address: UCInstructionAddress) -> Result<(), NotHookableReason> {
@@ -197,7 +197,7 @@ impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
     }
 }
 
-impl<'a, 'b, 'c> Drop for CoverageHarness<'a, 'b, 'c> {
+impl Drop for CoverageHarness<'_, '_, '_> {
     fn drop(&mut self) {
         let _ = call_custom_ucode_function(coverage_collector::LABEL_FUNC_SETUP, [0, 0, 0]);
 

@@ -50,7 +50,7 @@ fn analyse_jumps(rom: &RomDump<'static, 'static>) {
 
             for capture in regex_find_address.captures_iter(&content_no_goto) {
                 let goto_address =
-                    usize::from_str_radix(&capture.get(1).unwrap().as_str(), 16).unwrap();
+                    usize::from_str_radix(capture.get(1).unwrap().as_str(), 16).unwrap();
                 jump_towards
                     .entry(UCInstructionAddress::from_const(goto_address))
                     .or_default()

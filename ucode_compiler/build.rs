@@ -109,9 +109,9 @@ fn generate_opcode_file<A: AsRef<Path>, B: AsRef<Path>>(opcodes: A, target_file:
         .for_each(|prefix| impl_prefix_func(&prefix, &definitions, &mut result));
 
     // is conditional jump
-    let conditional_jumps = definitions
-        .iter()
-        .filter(|(mm, _, _)| mm.contains("_NOTTAKEN") || mm.contains("_TAKEN"));
+    let conditional_jumps = definitions.iter().filter(|(mm, _, _)| {
+        mm.contains("_NOTTAKEN") || mm.contains("_TAKEN") || mm.contains("TESTUSTATE")
+    });
     result.push_str(
         format!(
             "pub const fn is_conditional_jump(&self) -> bool {{ matches!(self, {}) }}\n",

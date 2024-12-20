@@ -78,7 +78,6 @@ impl Mul<usize> for LinearAddress {
 impl Div<usize> for LinearAddress {
     type Output = Self;
     #[track_caller]
-
     fn div(self, other: usize) -> Self {
         LinearAddress::from_const(self.0 / other)
     }
@@ -225,7 +224,6 @@ impl From<UCInstructionAddress> for LinearAddress {
 impl Add<usize> for UCInstructionAddress {
     type Output = Self;
     #[track_caller]
-
     fn add(self, other: usize) -> Self {
         UCInstructionAddress::from_const(self.0 + other)
     }
@@ -233,7 +231,6 @@ impl Add<usize> for UCInstructionAddress {
 impl Sub<usize> for UCInstructionAddress {
     type Output = Self;
     #[track_caller]
-
     fn sub(self, other: usize) -> Self {
         UCInstructionAddress::from_const(self.0 - other)
     }
@@ -254,9 +251,6 @@ impl AsRef<UCInstructionAddress> for UCInstructionAddress {
 impl<T: Into<usize> + Copy> PartialEq<T> for UCInstructionAddress {
     fn eq(&self, other: &T) -> bool {
         self.0 == (*other).into()
-    }
-    fn ne(&self, other: &T) -> bool {
-        self.0 != (*other).into()
     }
 }
 
@@ -557,7 +551,6 @@ impl Add<usize> for MSRAMHookIndex {
 impl Sub<usize> for MSRAMHookIndex {
     type Output = Self;
     #[track_caller]
-
     fn sub(self, other: usize) -> Self {
         MSRAMHookIndex::from_const(self.0 - other)
     }

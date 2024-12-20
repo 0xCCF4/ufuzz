@@ -54,7 +54,7 @@ unsafe fn main() -> Status {
 
     let hookable_addresses = HookableAddressIterator::construct(
         cpu.rom(),
-        &ModificationEngineSettings::empty(),
+        &ModificationEngineSettings::default(),
         itd.max_number_of_hooks,
     );
 

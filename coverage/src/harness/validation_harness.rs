@@ -144,6 +144,7 @@ impl StateCapturer {
     }
 }
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone)]
 pub enum ValidationError<R: PartialEq + Eq> {
     StateMismatch {
@@ -177,9 +178,10 @@ impl<'a, 'b, 'c, 'd> ValidationHarness<'a, 'b, 'c, 'd> {
     }
 
     pub fn coverage_harness(&self) -> &CoverageHarness<'a, 'b, 'c> {
-        &self.coverage_harness
+        self.coverage_harness
     }
 
+    #[allow(clippy::result_large_err)]
     pub fn execute<FuncParam, FuncResult: PartialEq + Eq, F: Copy + Fn() -> FuncResult>(
         &mut self,
         hooks: &[UCInstructionAddress],

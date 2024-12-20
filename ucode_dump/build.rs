@@ -59,7 +59,7 @@ fn create_cpu_files() {
             ));
 
             module_file_contents.push_str(format!("#[allow(non_snake_case, non_upper_case_globals)] pub const ROM_{cpu_model_name}: RomDump<'static, 'static> = RomDump::new(&{cpu_model_name}::ROM_INSTRUCTION, &{cpu_model_name}::ROM_SEQUENCE, 0x{cpu_model});\n").as_str());
-            module_file_contents.push_str(format!("#[allow(non_snake_case, non_upper_case_globals)] pub const ROM_DISASM_{cpu_model_name}: RomDumpDissasembly<'static> = RomDumpDissasembly::new(&{cpu_model_name}::DISSASSEMBLY, 0x{cpu_model});\n").as_str());
+            module_file_contents.push_str(format!("#[allow(non_snake_case, non_upper_case_globals)] pub const ROM_DISASM_{cpu_model_name}: RomDumpDissasembly<'static> = RomDumpDissasembly::new({cpu_model_name}::DISSASSEMBLY, 0x{cpu_model});\n").as_str());
 
             array_dumps.push(cpu_model_name);
         }

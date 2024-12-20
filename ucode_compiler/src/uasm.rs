@@ -521,11 +521,7 @@ pub fn transform_h_patch_to_rs_patch<P: AsRef<Path>, Q: AsRef<Path>>(
                 name,
                 address,
                 other_address,
-                if other_address > address {
-                    other_address - address
-                } else {
-                    0
-                },
+                other_address.saturating_sub(address),
             )
         })
         .collect::<Vec<(&String, u64, u64, u64)>>();
@@ -548,7 +544,7 @@ pub fn transform_h_patch_to_rs_patch<P: AsRef<Path>, Q: AsRef<Path>>(
         space_requirement_analysis.push_str("/// ---------------------- \n");
     }
     space_requirement_analysis
-        .push_str(format!("/// Total: {:3}| {:3} of 128 triads\n", length * 4, length).as_str());
+        .push_str(format!("/// Total: {:3}| {:3} of 128 triads", length * 4, length).as_str());
 
     assert!(length <= 128, "Patch code is too large to fit in MSRAM");
 
@@ -563,8 +559,7 @@ pub fn transform_h_patch_to_rs_patch<P: AsRef<Path>, Q: AsRef<Path>>(
 
         const LABELS: [LabelMapping<'static>; {labels_count}] = [{labels_array}];
 
-        {space_requirement_analysis}
-        {allow_dead}
+        {allow_dead}{space_requirement_analysis}
         pub const PATCH: Patch<'static, 'static, 'static> = Patch {{
             addr: UCInstructionAddress::from_const({}),
             ucode_patch: &UCODE_PATCH_CONTENT,

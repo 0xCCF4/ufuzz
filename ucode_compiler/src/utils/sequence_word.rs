@@ -198,7 +198,6 @@ impl SequenceWord {
 
         let (tetrad_uidx, tetrad_address) = self
             .goto
-            .clone()
             .map(|value| {
                 (
                     value.apply_to_index.into(),
@@ -209,13 +208,11 @@ impl SequenceWord {
 
         let (sync_uidx, sync_ctrl) = self
             .sync
-            .clone()
             .map(|value| (value.apply_to_index.into(), value.value as u32))
             .unwrap_or((0x3u32, 0x0u32));
 
         let (uop_uidx, uop_ctrl) = self
             .control
-            .clone()
             .map(|value| (value.apply_to_index.into(), value.value as u32))
             .unwrap_or((0x0u32, 0x0u32));
 
@@ -355,7 +352,7 @@ impl SequenceWord {
 
         if let Some(control) = self.control() {
             let target = control.apply_to_index as i8 + amount;
-            if target < 0 || target > 2 {
+            if !(0..=2).contains(&target) {
                 self.no_control();
             } else {
                 self.set_control(target as u8, control.value);
@@ -364,7 +361,7 @@ impl SequenceWord {
 
         if let Some(sync) = self.sync() {
             let target = sync.apply_to_index as i8 + amount;
-            if target < 0 || target > 2 {
+            if !(0..=2).contains(&target) {
                 self.no_sync();
             } else {
                 self.set_sync(target as u8, sync.value);
@@ -373,7 +370,7 @@ impl SequenceWord {
 
         if let Some(goto) = self.goto() {
             let target = goto.apply_to_index as i8 + amount;
-            if target < 0 || target > 2 {
+            if !(0..=2).contains(&target) {
                 self.no_goto();
             } else {
                 self.set_goto(target as u8, goto.value);

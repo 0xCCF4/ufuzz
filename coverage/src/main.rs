@@ -65,7 +65,6 @@ unsafe fn main() -> Status {
 
     for chunk in (0..0x7c00)
         .filter(|i| (i % 2) == 0 && (i % 4) < 3)
-        .filter(|address| filter_blacklisted_instruction(*address))
         .chunks(hooks as usize)
         .into_iter()
     {
@@ -115,10 +114,4 @@ unsafe fn main() -> Status {
 
     println!("Goodbye!");
     Status::SUCCESS
-}
-
-#[rustfmt::skip]
-fn filter_blacklisted_instruction(address: usize) -> bool {
-    let blacklist = include!("blacklist.gen");
-    !blacklist.contains(&address)
 }

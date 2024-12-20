@@ -9,5 +9,5 @@ pub mod interface_definition;
 #[cfg(feature = "uefi")]
 pub mod page_allocation;
 
-#[cfg(feature = "no_std")]
+//#[cfg(feature = "no_std")]
 extern crate alloc;

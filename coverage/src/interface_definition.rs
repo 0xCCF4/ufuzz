@@ -36,23 +36,21 @@ impl ComInterfaceDescription {
 const MAX_NUMBER_OF_HOOKS: usize = 8;
 
 pub type CoverageEntry = u16;
-const COVERAGE_RESULT_TABLE_BYTE_SIZE: usize =
-    size_of::<CoverageEntry>() * MAX_NUMBER_OF_HOOKS as usize * 2;
+const COVERAGE_RESULT_TABLE_BYTE_SIZE: usize = size_of::<CoverageEntry>() * MAX_NUMBER_OF_HOOKS * 2;
 
 pub type JumpTableEntry = u16;
-const JUMP_TABLE_BYTE_SIZE: usize = size_of::<JumpTableEntry>() * MAX_NUMBER_OF_HOOKS as usize;
+const JUMP_TABLE_BYTE_SIZE: usize = size_of::<JumpTableEntry>() * MAX_NUMBER_OF_HOOKS;
 
 pub type InstructionTableEntry = [u64; 4];
 const INSTRUCTION_TABLE_BYTE_SIZE: usize =
-    size_of::<InstructionTableEntry>() * MAX_NUMBER_OF_HOOKS as usize * 4;
+    size_of::<InstructionTableEntry>() * MAX_NUMBER_OF_HOOKS * 4;
 
 pub type ClockTableEntry = u64;
-const CLOCK_TABLE_BYTE_SIZE: usize =
-    size_of::<ClockTableEntry>() * MAX_NUMBER_OF_HOOKS as usize * 2;
+const CLOCK_TABLE_BYTE_SIZE: usize = size_of::<ClockTableEntry>() * MAX_NUMBER_OF_HOOKS * 2;
 
 pub type ClockTableSettingsEntry = CoverageEntry;
 const CLOCK_TABLE_SETTINGS_BYTE_SIZE: usize =
-    size_of::<ClockTableSettingsEntry>() * MAX_NUMBER_OF_HOOKS as usize * 2;
+    size_of::<ClockTableSettingsEntry>() * MAX_NUMBER_OF_HOOKS * 2;
 
 pub const COM_INTERFACE_DESCRIPTION: ComInterfaceDescription = ComInterfaceDescription {
     base: 0x1000,

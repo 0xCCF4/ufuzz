@@ -36,7 +36,7 @@ pub mod raw {
         pub unsafe fn read_jump_table(&self) -> &[JumpTableEntry] {
             core::slice::from_raw_parts(
                 self.jump_table().as_ptr(),
-                self.description.max_number_of_hooks.into(),
+                self.description.max_number_of_hooks,
             )
         }
 
@@ -45,7 +45,7 @@ pub mod raw {
             index: usize,
             value: P,
         ) {
-            if index >= self.description.max_number_of_hooks.into() {
+            if index >= self.description.max_number_of_hooks {
                 return;
             }
             self.jump_table()
@@ -66,7 +66,7 @@ pub mod raw {
         }
 
         pub unsafe fn zero_jump_table(&mut self) {
-            for i in 0..self.description.max_number_of_hooks as usize {
+            for i in 0..self.description.max_number_of_hooks {
                 self.write_jump_table(i, UCInstructionAddress::ZERO);
             }
         }
@@ -78,7 +78,7 @@ pub mod raw {
         }
 
         pub unsafe fn read_coverage_table(&self, index: usize) -> CoverageEntry {
-            if index >= self.description.max_number_of_hooks as usize * 2 {
+            if index >= self.description.max_number_of_hooks * 2 {
                 return 0;
             }
 
@@ -86,7 +86,7 @@ pub mod raw {
         }
 
         pub unsafe fn write_coverage_table(&mut self, index: usize, value: CoverageEntry) {
-            if index >= self.description.max_number_of_hooks as usize * 2 {
+            if index >= self.description.max_number_of_hooks * 2 {
                 return;
             }
 
@@ -94,7 +94,7 @@ pub mod raw {
         }
 
         pub unsafe fn reset_coverage(&mut self) {
-            for index in 0..self.description.max_number_of_hooks as usize * 2 {
+            for index in 0..self.description.max_number_of_hooks * 2 {
                 self.write_coverage_table(index, 0);
             }
         }
@@ -106,7 +106,7 @@ pub mod raw {
         }
 
         pub fn read_instruction_table(&self, index: usize) -> InstructionTableEntry {
-            if index >= self.description.max_number_of_hooks as usize * 4 {
+            if index >= self.description.max_number_of_hooks * 4 {
                 return [0; 4];
             }
 
@@ -114,7 +114,7 @@ pub mod raw {
         }
 
         pub fn write_instruction_table(&mut self, index: usize, value: InstructionTableEntry) {
-            if index >= self.description.max_number_of_hooks as usize * 4 {
+            if index >= self.description.max_number_of_hooks * 4 {
                 return;
             }
 
@@ -144,7 +144,7 @@ pub mod raw {
         }
 
         pub unsafe fn write_clock_table(&mut self, index: usize, value: ClockTableEntry) {
-            if index >= self.description.max_number_of_hooks as usize * 2 {
+            if index >= self.description.max_number_of_hooks * 2 {
                 return;
             }
 
@@ -156,7 +156,7 @@ pub mod raw {
             index: usize,
             value: ClockTableSettingsEntry,
         ) {
-            if index >= self.description.max_number_of_hooks as usize * 2 {
+            if index >= self.description.max_number_of_hooks * 2 {
                 return;
             }
 
@@ -184,7 +184,7 @@ pub mod raw {
         }
 
         pub unsafe fn read_clock_table(&self, index: usize) -> ClockTableEntry {
-            if index >= self.description.max_number_of_hooks as usize * 2 {
+            if index >= self.description.max_number_of_hooks * 2 {
                 return 0;
             }
 
@@ -192,7 +192,7 @@ pub mod raw {
         }
 
         pub unsafe fn read_clock_table_settings(&self, index: usize) -> ClockTableSettingsEntry {
-            if index >= self.description.max_number_of_hooks as usize * 2 {
+            if index >= self.description.max_number_of_hooks * 2 {
                 return 0;
             }
 
@@ -200,13 +200,13 @@ pub mod raw {
         }
 
         pub unsafe fn zero_clock_table(&mut self) {
-            for i in 0..self.description.max_number_of_hooks as usize * 2 {
+            for i in 0..self.description.max_number_of_hooks * 2 {
                 self.write_clock_table(i, 0);
             }
         }
 
         pub unsafe fn zero_clock_table_settings(&mut self) {
-            for i in 0..self.description.max_number_of_hooks as usize * 2 {
+            for i in 0..self.description.max_number_of_hooks * 2 {
                 self.write_clock_table_settings(i, 0);
             }
         }
