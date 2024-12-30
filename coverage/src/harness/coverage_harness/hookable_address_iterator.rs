@@ -9,6 +9,7 @@ use ucode_dump::RomDump;
 #[derive(Debug, Clone)]
 pub struct HookableAddressIterator {
     addresses: Rc<Vec<UCInstructionAddress>>,
+    chunk_size: usize,
 }
 
 impl HookableAddressIterator {
@@ -47,6 +48,7 @@ impl HookableAddressIterator {
 
         HookableAddressIterator {
             addresses: Rc::new(result),
+            chunk_size,
         }
     }
 
@@ -56,6 +58,14 @@ impl HookableAddressIterator {
 
     pub fn is_empty(&self) -> bool {
         self.addresses.is_empty()
+    }
+
+    pub fn chunk_size(&self) -> usize {
+        self.chunk_size
+    }
+
+    pub fn number_of_chunks(&self) -> usize {
+        self.len().div_ceil(self.chunk_size())
     }
 
     pub fn iter(&self) -> &[UCInstructionAddress] {

@@ -1,6 +1,3 @@
-def [adr_stg_trace_result] = 0xba00;
-def [adr_ucode_rdrand] = 0x0428;
-
 def [adr_stg_r10] = 0xba40;
 def [adr_stg_r11] = 0xba80;
 def [adr_stg_r12] = 0xbac0;

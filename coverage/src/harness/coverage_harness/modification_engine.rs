@@ -25,7 +25,7 @@ bitflags::bitflags! {
 
 impl Default for ModificationEngineSettings {
     fn default() -> Self {
-        Self::empty()
+        Self::empty() | Self::NoUnknownInstructions
     }
 }
 
@@ -41,10 +41,10 @@ pub enum NotHookableReason {
     TodoSyncOp,
     TodoIndexNotZero,
     TodoJump,
-    LBSYNC, // TODO does this apply to all addresses?
+    BlacklistedInstruction(Opcode),
     TodoBlacklisted(UCInstructionAddress),
-    TESTUSTATE,
     FeatureDisabled(ModificationEngineSettings),
+    TodoNoConditionalMoves,
 }
 
 pub fn is_hookable(
@@ -61,6 +61,9 @@ pub fn is_hookable(
     let instruction_pair = rom
         .get_instruction_pair(address)
         .ok_or(NotHookableReason::AddressNotInRom)?;
+
+    let triad = Triad::try_from(rom.triad(address).ok_or(NotHookableReason::AddressNotInDump)?).map_err(NotHookableReason::ModificationFailedSequenceWordParse)?;
+
     let instruction_pair = [
         Instruction::disassemble(instruction_pair[0]),
         Instruction::disassemble(instruction_pair[1]),
@@ -77,7 +80,7 @@ pub fn is_hookable(
     if mode.contains(ModificationEngineSettings::NoSUBR)
         && instruction_pair
             .iter()
-            .any(|instruction| instruction.opcode().is_group_TESTUSTATE())
+            .any(|instruction| instruction.opcode().is_group_SUBR())
     {
         return Err(NotHookableReason::FeatureDisabled(
             ModificationEngineSettings::NoSUBR,
@@ -145,28 +148,76 @@ pub fn is_hookable(
         ));
     }
 
-    if instruction_pair
+    if let Some(instruction) = triad.instructions
         .iter()
-        .any(|instruction| instruction.opcode().is_group_TESTUSTATE())
+        .find(|instruction| instruction.opcode().is_group_TESTUSTATE())
     {
-        return Err(NotHookableReason::TESTUSTATE);
+        return Err(NotHookableReason::BlacklistedInstruction(
+            instruction.opcode(),
+        ));
     }
 
-    if instruction_pair
+    if let Some(instruction) = instruction_pair
         .iter()
-        .any(|instruction| instruction.opcode() == Opcode::LBSYNC)
+        // todo check if all LBSYNCs are bad
+        // when hooking unk118/222, CPU freezes, since behavior of unk118 not known, just accept this -> blacklist
+        .find(|instruction| {
+            matches!(
+                instruction.opcode(), // todo check 118/222
+                Opcode::LBSYNC | Opcode::UNKNOWN_118 | Opcode::UNKNOWN_222
+            )
+        })
     {
-        return Err(NotHookableReason::LBSYNC);
+        return Err(NotHookableReason::BlacklistedInstruction(
+            instruction.opcode(),
+        ));
     }
 
     let blacklist: &[usize] = &[
+        // when hooking one of those instructions, CPU freezes, unknown reasons, maybe investigate more?
+        // instructions seem very simple, cant come up with a reason why hooking does not work
+        // maybe some reorder/scheduling magic, when updating hooks?
+
         // is this lfence instruction?
-        0xd0,  // U00d0: 000000000000 NOP
-        0xd1,  // U00d1: 000000000000 LFNCEMARK-> NOP SEQW GOTO U008e
-        0x8e,  // LFNCEWAIT-> NOP SEQW UEND0
+        0xd0, // U00d0: 000000000000 NOP
+        0xd1, // U00d1: 000000000000 LFNCEMARK-> NOP SEQW GOTO U008e
+        0x8e, // LFNCEWAIT-> NOP SEQW UEND0
         0x3c8, // U03c8: 004100030001 tmp0:= OR_DSZ64(r64dst)
         0x3c9, // U03c9: 100800001042 r64dst:= ZEROEXT_DSZ32N(r64src, r64dst) !m1
         0x3ca, // U03ca: 1008000020b0 r64src:= ZEROEXT_DSZ32N(tmp0, r64src) !m1 SEQW UEND0
+        /*
+        0x3f0, // U03f0: 3c1a00e30144 tmp0:= LDTICKLE_DSZ32_ASZ32_SC1(r64base, DS, r64idx, IMM_MACRO_ALIAS_DISPLACEMENT, mode=0x18) !m0,m1,m2
+        0x3f1, // U03f1: 3c1800e01144 STAD_DSZ32_ASZ32_SC1(r64base, DS, r64idx, IMM_MACRO_ALIAS_DISPLACEMENT, mode=0x18, r64dst) !m0,m1,m2
+        0x3f2, // U03f2: 100800001070 r64dst:= ZEROEXT_DSZ32N(tmp0, r64dst) !m1 SEQW UEND0
+        0x434, 0x45c, 0x458, 0x460, 0x464, 0x468, 0x46e,
+        0x470, // U0470: 0c9a00e33144 tmp3:= LDTICKLE_DSZ16_ASZ32_SC1(r64base, DS, r64idx, IMM_MACRO_ALIAS_DISPLACEMENT, mode=0x18) !m0
+        0x471, // U0471: 00c800830008 tmp0:= ZEROEXT_DSZ8(IMM_MACRO_ALIAS_IMMEDIATE) !m0
+        0x472, // U0472: 000c7c940200 SAVEUIP( , 0x01, U057c) !m0 SEQW GOTO U0982
+        0x474, // U0474: 0001c8032c90 tmp2:= OR_DSZ32(0x00100000, tmp2)
+        0x475, // U0475: 000100032cb1 tmp2:= OR_DSZ32(tmp1, tmp2)
+        0x476,
+        0x478, // U0478: 0c9a00e33144 tmp3:= LDTICKLE_DSZ16_ASZ32_SC1(r64base, DS, r64idx, IMM_MACRO_ALIAS_DISPLACEMENT, mode=0x18) !m0
+        0x479, // U0479: 004100030021 tmp0:= OR_DSZ64(rcx)
+        0x47a, // U047a: 000c7c940200 SAVEUIP( , 0x01, U057c) !m0 SEQW GOTO U0982
+        // U047c: 200a24800200 TESTUSTATE( , VMX, !0x0024) !m0,m2 ? SEQW GOTO U57cd
+        // U047d: 0062bb1f3200 tmp3:= MOVEFROMCREG_DSZ64( , 0x7bb)
+        0x47e, // U047e: 186b119c02b3 BTUJNB_DIRECT_NOTTAKEN(tmp3, 0x0000000a, U2711) !m0,m1 SEQW URET1
+        0x480, // U0480: 0cd000e30144 tmp0:= LDZX_DSZ8_ASZ32_SC1(r64base, DS, r64idx, IMM_MACRO_ALIAS_DISPLACEMENT, mode=0x18) !m0
+        0x481, // U0481: 00ef00030030 tmp0:= unk_0ef(tmp0)
+        0x482, // U0482: 008800001070 r64dst:= ZEROEXT_DSZ16(tmp0, r64dst) SEQW UEND0
+        // todo investigate this, later instructions fails first
+        0x484, // U0484: 002406031231 tmp1:= SHL_DSZ32(tmp1, 0x00000006)
+        0x485, // U0485: 000704331231 tmp1:= NOTAND_DSZ32(tmp1, 0x00000c04)
+        0x486, // U0486: 004000035d71 tmp5:= ADD_DSZ64(tmp1, tmp5) SEQW GOTO U189a
+        // todo investigate this, later instructions fails first
+        0x488, // U0488: 2062fe1f5200 tmp5:= MOVEFROMCREG_DSZ64( , 0x7fe) !m2
+        0x489, // U0489: 000100135d48 tmp5:= OR_DSZ32(0x00000400, tmp5)
+        0x48a, // U048a: 2a62fe1c0335 SYNCFULL-> MOVETOCREG_BTR_DSZ64(tmp5, 0x00000010, 0x7fe) !m2 SEQW GOTO U221e
+        // todo investigate this
+        0x48c, // already blacklisted unk222
+        0x48d, // already blacklisted unk222
+        0x48e, // U048e: 0064ff7fdf5f tmp13:= SHL_DSZ64(0xffffffffffffffff, tmp13) SEQW GOTO U078d
+        */
     ];
 
     if blacklist

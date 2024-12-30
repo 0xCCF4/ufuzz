@@ -1,5 +1,5 @@
 use crate::utils::instruction::Instruction;
-use crate::utils::sequence_word::SequenceWord;
+use crate::utils::sequence_word::{DisassembleError, SequenceWord};
 use core::fmt::{Display, Formatter};
 
 pub mod instruction;
@@ -20,6 +20,20 @@ impl Triad {
             self.instructions[2].assemble(),
             self.sequence_word.assemble()? as u64,
         ])
+    }
+}
+
+impl TryFrom<data_types::patch::Triad> for Triad {
+    type Error = DisassembleError;
+    fn try_from(value: data_types::patch::Triad) -> Result<Self, Self::Error> {
+        Ok(Triad {
+            instructions: [
+                Instruction::disassemble(value.instructions[0]),
+                Instruction::disassemble(value.instructions[1]),
+                Instruction::disassemble(value.instructions[2]),
+            ],
+            sequence_word: SequenceWord::disassemble_no_crc_check(value.sequence_word)?,
+        })
     }
 }
 
