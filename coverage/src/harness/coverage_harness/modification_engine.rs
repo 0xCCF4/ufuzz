@@ -58,15 +58,15 @@ pub fn is_hookable(
 
     let address = address.align_even();
 
-    let instruction_pair = rom
-        .get_instruction_pair(address)
-        .ok_or(NotHookableReason::AddressNotInRom)?;
-
     let triad = Triad::try_from(rom.triad(address).ok_or(NotHookableReason::AddressNotInDump)?).map_err(NotHookableReason::ModificationFailedSequenceWordParse)?;
 
     let instruction_pair = [
-        Instruction::disassemble(instruction_pair[0]),
-        Instruction::disassemble(instruction_pair[1]),
+        triad.instructions[address.triad_offset() as usize+0],
+        if address.triad_offset() == 2 {
+            Instruction::NOP
+        } else {
+            triad.instructions[address.triad_offset() as usize+1]
+        },
     ];
     let [_this_instruction, _next_instruction] = &instruction_pair;
 

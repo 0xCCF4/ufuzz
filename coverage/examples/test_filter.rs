@@ -12,7 +12,9 @@ use core::fmt::Debug;
 use coverage::harness::coverage_harness::{CoverageError, CoverageHarness};
 use coverage::interface::safe::ComInterface;
 use coverage::{coverage_collector, interface_definition};
-use custom_processing_unit::{apply_patch, lmfence, CustomProcessingUnit, FunctionResult};
+use custom_processing_unit::{
+    apply_patch, lmfence, CpuidResult, CustomProcessingUnit, FunctionResult,
+};
 use data_types::addresses::{Address, UCInstructionAddress};
 use itertools::Itertools;
 use log::info;
@@ -21,7 +23,7 @@ use uefi::proto::media::file::{File, FileAttribute, FileMode};
 use uefi::runtime::ResetType;
 use uefi::{print, println, CString16};
 
-const WRITE_PROTECT: bool = true;
+const WRITE_PROTECT: bool = false;
 
 #[entry]
 unsafe fn main() -> Status {
@@ -165,7 +167,9 @@ unsafe fn main() -> Status {
                 continue;
             }
 
-            match harness.execute(&[addresses], || rdrand()) {
+            let no_coverage_expectance = collect_cpuids_all();
+
+            match harness.execute(&[addresses], || collect_cpuids_all()) {
                 Err(e) => {
                     //println!("Failed to execute harness: {:?}", e);
                     match e {
@@ -180,8 +184,8 @@ unsafe fn main() -> Status {
                     }
                 }
                 Ok(r) => {
-                    if !r.result.0 {
-                        println!("Failed: {:x?}", r.result);
+                    if r.result != no_coverage_expectance {
+                        println!("Value mismatch at {:04x}", chunk);
                         return Status::ABORTED;
                     }
                     for entry in r.hooks {
@@ -208,10 +212,10 @@ unsafe fn main() -> Status {
                     println!("Failed to write ok: {:?}", e);
                     return Status::ABORTED;
                 }
-                if let Err(e) = write_actually_works(chunk) {
+                /*if let Err(e) = write_actually_works(chunk) {
                     println!("Failed to write actually works: {:?}", e);
                     return Status::ABORTED;
-                }
+                }*/
             }
         }
     }
@@ -367,13 +371,16 @@ unsafe fn main() -> Status {
     let setups = core::hint::black_box(|| {
         let mut setups = 0usize;
         for address in 0..0x7c00 {
-            if address % 0x100 == 0 {
+            if address % 0x100 == 0 || true {
                 print!("\r{:04x}", address);
             }
             if address % 2 > 0 {
                 continue;
             }
-            let r = harness.execute(&[address.into()], || rdrand());
+            if blacklisted.contains(&address) {
+                continue;
+            }
+            let r = harness.execute(&[address.into()], || collect_cpuids_all());
             if matches!(r, Ok(_)) {
                 setups += 1;
             }
@@ -702,4 +709,17 @@ fn rdrand() -> (bool, FunctionResult) {
     }
     lmfence();
     (flags > 0, result)
+}
+
+fn collect_cpuids_all() -> Vec<(u32, CpuidResult)> {
+    let mut result = Vec::new();
+
+    for key in (0..0x20)
+        .into_iter()
+        .chain((0x80000000..80000008).into_iter().take(1))
+    {
+        result.push((key, CpuidResult::query(key, 0)));
+    }
+
+    result
 }
