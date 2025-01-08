@@ -7,11 +7,8 @@ use core::arch::asm;
 use core::fmt::Debug;
 use coverage::harness::coverage_harness::CoverageHarness;
 use coverage::interface::safe::ComInterface;
-use coverage::{coverage_collector, interface_definition};
-use custom_processing_unit::{
-    call_custom_ucode_function, lmfence, ms_patch_instruction_read, ms_seqw_read,
-    CustomProcessingUnit, FunctionResult,
-};
+use coverage::{coverage_collector, coverage_collector_debug_tools, interface_definition};
+use custom_processing_unit::{apply_patch, call_custom_ucode_function, lmfence, ms_patch_instruction_read, ms_seqw_read, CustomProcessingUnit, FunctionResult};
 use data_types::addresses::UCInstructionAddress;
 use log::info;
 use uefi::prelude::*;
@@ -66,6 +63,12 @@ unsafe fn main() -> Status {
     interface.reset_coverage();
 
     let mut harness = CoverageHarness::new(&mut interface, &cpu);
+
+    if coverage_collector::PATCH.addr + coverage_collector::PATCH.ucode_patch.len() * 4 >= coverage_collector_debug_tools::PATCH.addr {
+        println!("Patch too large. Cannot continue.");
+        return Status::ABORTED;
+    }
+    apply_patch(&coverage_collector_debug_tools::PATCH);
 
     print_status();
 
@@ -131,7 +134,7 @@ fn print_status() {
     print!("Hooks  : ");
     for i in 0..interface_definition::COM_INTERFACE_DESCRIPTION.max_number_of_hooks as usize {
         let hook =
-            call_custom_ucode_function(coverage_collector::LABEL_FUNC_LDAT_READ_HOOKS, [i, 0, 0])
+            call_custom_ucode_function(coverage_collector_debug_tools::LABEL_FUNC_LDAT_READ_HOOKS, [i, 0, 0])
                 .rax;
         print!("{:08x}, ", hook);
     }
@@ -140,19 +143,19 @@ fn print_status() {
     for i in 0..interface_definition::COM_INTERFACE_DESCRIPTION.max_number_of_hooks as usize {
         print!("EXIT {:02}: ", i);
         let seqw = ms_seqw_read(
-            coverage_collector::LABEL_FUNC_LDAT_READ,
+            coverage_collector_debug_tools::LABEL_FUNC_LDAT_READ,
             coverage_collector::LABEL_HOOK_EXIT_00 + i * 4,
         );
         print!("{:08x} -> ", seqw);
         for offset in 0..3 {
             let instruction = ms_patch_instruction_read(
-                coverage_collector::LABEL_FUNC_LDAT_READ,
+                coverage_collector_debug_tools::LABEL_FUNC_LDAT_READ,
                 coverage_collector::LABEL_HOOK_EXIT_00 + i * 4 + offset,
             );
             print!("{:012x} ", instruction);
         }
         let seqw = ms_seqw_read(
-            coverage_collector::LABEL_FUNC_LDAT_READ,
+            coverage_collector_debug_tools::LABEL_FUNC_LDAT_READ,
             coverage_collector::LABEL_HOOK_EXIT_00 + i * 4,
         );
         println!("-> {:08x}", seqw);

@@ -2,11 +2,12 @@
 #![no_std]
 
 use core::arch::asm;
-use custom_processing_unit::{apply_hook_patch_func, apply_patch, call_custom_ucode_function, hook, lmfence, CustomProcessingUnit, FunctionResult, HookGuard};
-use data_types::addresses::MSRAMHookIndex;
-use log::info;
-use uefi::{boot, entry, println, Status};
+use custom_processing_unit::{
+    apply_patch, lmfence, CustomProcessingUnit, FunctionResult, HookGuard,
+};
 use data_types::addresses::Address;
+use log::info;
+use uefi::{entry, println, Status};
 
 mod patch {
     use ucode_compiler_derive::patch;
@@ -89,7 +90,7 @@ unsafe fn main() -> Status {
         inout("rcx") 0xd8usize => result.rcx,
         inout("rdx") 0usize => result.rdx,
         count = in(reg) data.len() as u64,
-        dst = in(reg) data.as_ptr() as u64,
+        dst = in(reg) data.as_mut_ptr() as u64,
         out("rdi") _,
         out("rsi") _,
         offset = in(reg) offset*8,
@@ -100,7 +101,7 @@ unsafe fn main() -> Status {
     println!("Result: {:x?}", result);
 
     for i in 0..data.len() {
-        println!("Data[{}]: {:x?}", i as i64-offset, data[i]);
+        println!("Data[{}]: {:x?}", i as i64 - offset, data[i]);
     }
 
     println!("Success");

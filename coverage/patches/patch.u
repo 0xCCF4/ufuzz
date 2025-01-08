@@ -3,49 +3,17 @@
 <exit_trap>
 rcx := ZEROEXT_DSZ64(0x8787)
 rdx := ZEROEXT_DSZ64(0x8787)
-NOP
+# lock up processor
+# UJMP(<exit_trap>)
 NOP SEQW LFNCEWAIT, UEND0
 NOPB
 
 include <gen/interface_definition.up>
 include <variables.up>
 
-
-NOPB
-<func_hook>
-include <sys/func_hook.up>
-# marker for size analysis
-<func_hook_end>
-
-NOPB
-<func_ldat_read_hooks>
-include <sys/func_ldat_read_hooks.up>
-# marker for size analysis
-<func_ldat_read_hooks_end>
-
-NOPB
-<func_ldat_read>
-include <sys/func_ldat_read.up>
-# marker for size analysis
-<func_ldat_read_end>
-
-
-NOPB
-<handler>
-include <handler.up>
-# marker for size analysis
-<handler_end>
-
-
-# marker for size analysis
 <autogen>
-#---- auto generated entries and exits ----
-NOPB
-include <gen/entries.up>
-
-NOPB
-include <gen/exits.up>
-#---- auto generated entries and exits ----
+include <gen/patch.up>
+#---- auto generated handler functions ----
 # marker for size analysis
 <autogen_end>
 
@@ -58,8 +26,6 @@ func setup(tmp0, tmp10, tmp11, tmp12, tmp13, tmp14, tmp15, tmp9)
 rax := ZEROEXT_DSZ32(0x6642)
 rax := CONCAT_DSZ32(rax, 0x6642)
 
-NOP SEQW SYNCMARK
-NOPB
 NOP SEQW SYNCFULL
 
 NOPB

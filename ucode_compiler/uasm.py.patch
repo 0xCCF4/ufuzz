@@ -1,5 +1,5 @@
 diff --git a/uasm-lib/uasm.py b/uasm-lib/uasm.py
-index 8cb98cf..cfac070 100755
+index 8cb98cf..c0553ee 100755
 --- a/uasm-lib/uasm.py
 +++ b/uasm-lib/uasm.py
 @@ -1260,6 +1260,7 @@ def normalize(instruction):
@@ -18,7 +18,7 @@ index 8cb98cf..cfac070 100755
      if src0 in labels:
          src0_id = labels[src0]
          src0_is_imm = True
-@@ -1498,9 +1500,16 @@ def assemble_seqword(partial_seqwords, labels, is_last):
+@@ -1498,16 +1500,24 @@ def assemble_seqword(partial_seqwords, labels, is_last):
      oooe_sync_ctrls = {"SYNCFULL": 4, "SYNCWAIT": 5, "SYNCMARK": 6, "SYNCWTMRK": 7}
      sync_ctrls = {**lfence_sync_ctrls, **oooe_sync_ctrls}
  
@@ -29,14 +29,15 @@ index 8cb98cf..cfac070 100755
      for uidx, _seqw in enumerate(partial_seqwords):
          for seqw in _seqw.split(", "):
 -            if "GOTO" in seqw:
+-                if tetrad_ctrl_uidx != 0x03:
 +            if 'NOP' == seqw:
 +                force_nop = True
 +
 +            elif "GOTO" in seqw:
-                 if tetrad_ctrl_uidx != 0x03:
++                if (tetrad_ctrl_uidx != 0x03) and not ((uop_ctrl == 0x04 or uop_ctrl == 0x05) and uidx == tetrad_ctrl_uidx):
                      print(f'[ERROR] invalid seqws - cannot specify tetrad_ctrl twice: {", ".join(partial_seqwords)}')
                      exit(1)
-@@ -1508,6 +1517,7 @@ def assemble_seqword(partial_seqwords, labels, is_last):
+                 next_uaddr = seqw.replace("GOTO ", "").strip()
                  next_uaddr = labels[next_uaddr] if next_uaddr in labels else int(next_uaddr, 16)
                  tetrad_ctrl_uidx = uidx
                  tetrad_ctrl_next_uaddr = next_uaddr

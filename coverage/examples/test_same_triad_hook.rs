@@ -7,10 +7,8 @@ use alloc::string::String;
 use core::arch::asm;
 use coverage::harness::coverage_harness::CoverageHarness;
 use coverage::interface::safe::ComInterface;
-use coverage::{coverage_collector, interface_definition};
-use custom_processing_unit::{
-    call_custom_ucode_function, lmfence, ms_seqw_read, CustomProcessingUnit, FunctionResult,
-};
+use coverage::{coverage_collector, coverage_collector_debug_tools, interface_definition};
+use custom_processing_unit::{apply_patch, call_custom_ucode_function, lmfence, ms_seqw_read, CustomProcessingUnit, FunctionResult};
 use data_types::addresses::{Address, UCInstructionAddress};
 use itertools::Itertools;
 use log::info;
@@ -71,7 +69,7 @@ unsafe fn main() -> Status {
         print!("Hooks:    ");
         for i in 0..8 {
             let hook = call_custom_ucode_function(
-                coverage_collector::LABEL_FUNC_LDAT_READ_HOOKS,
+                coverage_collector_debug_tools::LABEL_FUNC_LDAT_READ_HOOKS,
                 [i, 0, 0],
             )
             .rax;
@@ -84,7 +82,7 @@ unsafe fn main() -> Status {
         print!("SEQW:     ");
         for i in 0..8 {
             let seqw = ms_seqw_read(
-                coverage_collector::LABEL_FUNC_LDAT_READ,
+                coverage_collector_debug_tools::LABEL_FUNC_LDAT_READ,
                 coverage_collector::LABEL_HOOK_EXIT_00 + i * 4,
             );
             print!("{:08x}, ", seqw);
@@ -93,6 +91,12 @@ unsafe fn main() -> Status {
     }
 
     let mut harness = CoverageHarness::new(&mut interface, &cpu);
+
+    if coverage_collector::PATCH.addr + coverage_collector::PATCH.ucode_patch.len() * 4 >= coverage_collector_debug_tools::PATCH.addr {
+        println!("Patch too large. Cannot continue.");
+        return Status::ABORTED;
+    }
+    apply_patch(&coverage_collector_debug_tools::PATCH);
 
     let loaded_image_proto: ScopedProtocol<LoadedImage> =
         match uefi::boot::open_protocol_exclusive(uefi::boot::image_handle()) {

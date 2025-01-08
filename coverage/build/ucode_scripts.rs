@@ -1,7 +1,6 @@
 use crate::interface_definition;
 use crate::interface_definition::{
-    ClockTableEntry, ClockTableSettingsEntry, ComInterfaceDescription, CoverageEntry,
-    InstructionTableEntry, JumpTableEntry,
+    ComInterfaceDescription, CoverageEntry, InstructionTableEntry, JumpTableEntry,
 };
 use std::path::Path;
 use ucode_compiler::uasm::{CompilerOptions, AUTOGEN};
@@ -13,19 +12,6 @@ pub fn build_ucode_scripts() -> ucode_compiler::uasm::Result<()> {
 
     if !std::fs::exists("patches/gen").expect("fs perm denied") {
         std::fs::create_dir("patches/gen").expect("dir creation failed")
-    }
-
-    #[track_caller]
-    fn extract_label_value(text: &str, label: &str) -> usize {
-        let regex = regex::Regex::new(format!(r"LABEL_{}:[^(]+\(0x([^)]+)\)", label).as_str())
-            .expect("regex failed");
-        let hook_entry = regex
-            .captures(text)
-            .expect("hook entry label not found")
-            .get(1)
-            .expect("hook entry not found")
-            .as_str();
-        usize::from_str_radix(hook_entry, 16).expect("hook entry not a number")
     }
 
     let options = CompilerOptions {
@@ -48,10 +34,7 @@ pub fn build_ucode_scripts() -> ucode_compiler::uasm::Result<()> {
 
     // STAGE 2
 
-    let data = Stage2Pass {
-        hook_entry_address: extract_label_value(result_text.as_str(), "HOOK_ENTRY_00"),
-        hook_exit_address: extract_label_value(result_text.as_str(), "HOOK_EXIT_00"),
-    };
+    let data = Stage2Pass::from(result_text.as_str());
 
     generate_ucode_files(
         "patches/gen",
@@ -101,14 +84,41 @@ impl Default for Stage2Pass {
     }
 }
 
+#[track_caller]
+fn extract_label_value(text: &str, label: &str) -> Option<usize> {
+    let regex = regex::Regex::new(format!(r"LABEL_{}:[^(]+\(0x([^)]+)\)", label).as_str())
+        .expect("regex failed");
+    let hook_entry = regex
+        .captures(text)?
+        .get(1)
+        .expect("hook entry not found")
+        .as_str();
+    Some(usize::from_str_radix(hook_entry, 16).expect("hook entry not a number"))
+}
+
+impl From<&str> for Stage2Pass {
+    fn from(value: &str) -> Self {
+        let hook_entry_address = extract_label_value(value, "HOOK_ENTRY_00")
+            .expect("hook entry label <hook_entry_00> missing");
+        let hook_exit_address = extract_label_value(value, "HOOK_EXIT_00")
+            .expect("hook exit label <hook_exit_00> missing");
+
+        Stage2Pass {
+            hook_entry_address,
+            hook_exit_address,
+        }
+    }
+}
+
 fn generate_ucode_files<A: AsRef<Path>>(
     path: A,
     pass1data: Option<Stage2Pass>,
     interface: &ComInterfaceDescription,
 ) {
     generate_interface_definitions(path.as_ref(), pass1data, interface);
-    generate_entries(path.as_ref(), interface);
-    generate_exits(path.as_ref(), interface, pass1data);
+    //generate_entries(path.as_ref(), interface);
+    //generate_exits(path.as_ref(), interface, pass1data);
+    generate_patch(path.as_ref(), interface);
 }
 
 #[allow(clippy::vec_init_then_push)]
@@ -157,16 +167,6 @@ fn generate_interface_definitions<A: AsRef<Path>>(
         "base address of the instruction table",
     ));
     definitions.push((
-        "address_clock_table_base",
-        interface.base as usize + interface.offset_clock_table,
-        "base address of the clock table",
-    ));
-    definitions.push((
-        "address_clock_settings_table_base",
-        interface.base as usize + interface.offset_clock_table_settings,
-        "base address of the clock settings table",
-    ));
-    definitions.push((
         "table_length",
         interface.max_number_of_hooks,
         "number of entries in the tables",
@@ -187,16 +187,6 @@ fn generate_interface_definitions<A: AsRef<Path>>(
         "size of the instruction table in bytes",
     ));
     definitions.push((
-        "table_size_clock",
-        interface.max_number_of_hooks * size_of::<ClockTableEntry>(),
-        "size of the clock table in bytes",
-    ));
-    definitions.push((
-        "table_size_clock_settings",
-        interface.max_number_of_hooks * size_of::<ClockTableSettingsEntry>(),
-        "size of the clock settings table in bytes",
-    ));
-    definitions.push((
         "size_jump_table_entry",
         size_of::<JumpTableEntry>(),
         "size of a jump table entry in bytes",
@@ -211,21 +201,9 @@ fn generate_interface_definitions<A: AsRef<Path>>(
         size_of::<InstructionTableEntry>(),
         "size of a instruction table entry in bytes",
     ));
-    definitions.push((
-        "size_clock_table_entry",
-        size_of::<ClockTableEntry>(),
-        "size of a clock table entry in bytes",
-    ));
-    definitions.push((
-        "size_clock_table_settings_entry",
-        size_of::<ClockTableSettingsEntry>(),
-        "size of a clock settings table entry in bytes",
-    ));
     assert!(size_of::<JumpTableEntry>().is_power_of_two());
     assert!(size_of::<CoverageEntry>().is_power_of_two());
     assert!(size_of::<InstructionTableEntry>().is_power_of_two());
-    assert!(size_of::<ClockTableEntry>().is_power_of_two());
-    assert!(size_of::<ClockTableSettingsEntry>().is_power_of_two());
     definitions.push((
         "convert_index_to_jump_table_offset",
         size_of::<JumpTableEntry>().ilog2() as usize,
@@ -241,21 +219,7 @@ fn generate_interface_definitions<A: AsRef<Path>>(
         size_of::<InstructionTableEntry>().ilog2() as usize,
         "shift by this amount to get the offset in the instruction table",
     ));
-    definitions.push((
-        "convert_index_to_clock_table_offset",
-        size_of::<ClockTableEntry>().ilog2() as usize,
-        "shift by this amount to get the offset in the clock table",
-    ));
-    definitions.push((
-        "convert_index_to_clock_settings_table_offset",
-        size_of::<ClockTableSettingsEntry>().ilog2() as usize,
-        "shift by this amount to get the offset in the clock settings table",
-    ));
-    //assert!(interface.offset_timing_table > interface.offset_coverage_result_table);
-    //assert!(interface.offset_jump_back_table > interface.offset_timing_table);
     assert!(interface.offset_jump_back_table > interface.offset_coverage_result_table);
-    // definitions.push(("offset_cov2time_table", u16_to_u8_addr(interface.offset_timing_table - interface.offset_coverage_result_table), "offset between the coverage and timing tables"));
-    // definitions.push(("offset_time2jump_table", u16_to_u8_addr(interface.offset_jump_back_table - interface.offset_timing_table), "offset between the timing and jump tables"));
     definitions.push((
         "offset_cov2jump_table",
         interface.offset_jump_back_table - interface.offset_coverage_result_table,
@@ -291,6 +255,70 @@ fn generate_interface_definitions<A: AsRef<Path>>(
     std::fs::write(file, format!("# {AUTOGEN}\n\n{definitions}").as_str()).expect("write failed");
 }
 
+fn generate_patch<A: AsRef<Path>>(path: A, interface: &ComInterfaceDescription) {
+    let file = path.as_ref().join("patch.up");
+    let mut content = "".to_string();
+    content.push_str("# ");
+    content.push_str(AUTOGEN);
+
+    let mut entries = String::new();
+    let mut exits = String::new();
+    let mut handlers = String::new();
+
+    for i in 0..interface.max_number_of_hooks {
+        let even_index = i * 2;
+        let odd_index = even_index + 1;
+        entries.push_str(
+            format!(
+                "
+NOPB # Align to 4
+<hook_entry_{i:02}>
+UJMP(,<hook_handler_{i:02}_even>)
+UJMP(,<hook_handler_{i:02}_odd>)
+UJMP(,<hook_handler_{i:02}_triplet>) # not necessary? otherwise just NOP, since we need to align to 4
+"
+            )
+            .as_str(),
+        );
+        handlers.push_str(
+            format!(
+                "
+<hook_handler_{i:02}_even>
+func record_coverage_no_state_change({even_index:02x})
+UJMP(,<hook_exit_{i:02}_even>)
+
+<hook_handler_{i:02}_odd>
+func record_coverage_no_state_change({odd_index:02x})
+UJMP(,<hook_exit_{i:02}_odd>)
+"
+            )
+            .as_str(),
+        );
+        exits.push_str(
+            format!(
+                "
+NOPB # Align to 4
+<hook_exit_{i:02}>
+<hook_exit_{i:02}_even>
+NOP
+<hook_exit_{i:02}_odd>
+NOP
+<hook_handler_{i:02}_triplet>
+NOP SEQW NOP
+"
+            )
+            .as_str(),
+        )
+    }
+
+    content.push_str(entries.as_str());
+    content.push_str(handlers.as_str());
+    content.push_str(exits.as_str());
+
+    std::fs::write(file, content).expect("write failed");
+}
+
+#[allow(dead_code)]
 fn generate_entries<A: AsRef<Path>>(path: A, interface: &ComInterfaceDescription) {
     let file = path.as_ref().join("entries.up");
     let mut content = "".to_string();
@@ -325,6 +353,7 @@ NOP
     std::fs::write(file, content).expect("write failed");
 }
 
+#[allow(dead_code)]
 fn generate_exits<A: AsRef<Path>>(
     path: A,
     interface: &ComInterfaceDescription,

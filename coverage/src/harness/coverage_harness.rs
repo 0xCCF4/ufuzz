@@ -6,7 +6,7 @@ use crate::harness::coverage_harness::modification_engine::{
     ModificationEngineSettings, NotHookableReason,
 };
 use crate::interface::safe::ComInterface;
-use crate::interface_definition::{CoverageEntry, InstructionTableEntry};
+use crate::interface_definition::CoverageCount;
 #[cfg(feature = "no_std")]
 use alloc::vec::Vec;
 use core::fmt::Debug;
@@ -16,6 +16,7 @@ use custom_processing_unit::{
 };
 use data_types::addresses::UCInstructionAddress;
 use ucode_compiler::utils::sequence_word::DisassembleError;
+use ucode_compiler::utils::Triad;
 // const COVERAGE_ENTRIES: usize = UCInstructionAddress::MAX.to_const();
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -41,8 +42,6 @@ impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
     ) -> CoverageHarness<'a, 'b, 'c> {
         apply_patch(&coverage_collector::PATCH);
         interface.zero_jump_table();
-        interface.zero_clock_table();
-        interface.zero_clock_table_settings();
 
         CoverageHarness {
             interface,
@@ -77,13 +76,16 @@ impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
                 return Err(CoverageError::AddressNotHookable(hook, err));
             }
 
-            let triads = self
+            let triad = self
                 .modify_triad_for_hooking(hook, &self.compile_mode)
                 .map_err(|err| CoverageError::AddressNotHookable(hook, err))?;
 
-            for triad in triads.into_iter() {
-                instructions.push(triad);
-            }
+            instructions.push([triad.assemble().map_err(|err| {
+                CoverageError::AddressNotHookable(
+                    hook,
+                    NotHookableReason::ModificationFailedSequenceWordBuild(err),
+                )
+            })?]);
         }
 
         self.interface.write_jump_table_all(hooks);
@@ -106,28 +108,20 @@ impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
         for (index, address) in hooks.iter().enumerate() {
             let address = address.align_even();
 
-            let covered_even = self.interface.read_coverage_table(index << 1);
-            let covered_odd = self.interface.read_coverage_table((index << 1) + 1);
+            let covered = self.interface.read_coverage_table(index);
 
-            result.push(if covered_even > 0 {
-                ExecutionResultEntry::Covered {
-                    address,
-                    count: covered_even,
-                }
-            } else {
-                ExecutionResultEntry::NotCovered { address }
-            });
-
-            result.push(if covered_odd > 0 {
-                ExecutionResultEntry::Covered {
-                    address: address + 1,
-                    count: covered_odd,
-                }
-            } else {
-                ExecutionResultEntry::NotCovered {
-                    address: address + 1,
-                }
-            });
+            for (offset, count) in covered.into_iter().enumerate() {
+                result.push(if count > 0 {
+                    ExecutionResultEntry::Covered {
+                        address: address + offset,
+                        count,
+                    }
+                } else {
+                    ExecutionResultEntry::NotCovered {
+                        address: address + offset,
+                    }
+                });
+            }
         }
         result
     }
@@ -148,31 +142,12 @@ impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
         &self,
         hooked_address: UCInstructionAddress,
         mode: &ModificationEngineSettings,
-    ) -> Result<[InstructionTableEntry; 4], NotHookableReason> {
-        let even = modification_engine::modify_triad_for_hooking(
+    ) -> Result<Triad, NotHookableReason> {
+        modification_engine::modify_triad_for_hooking(
             hooked_address.align_even(),
             self.custom_processing_unit.rom(),
             mode,
-        )?;
-        let odd = modification_engine::modify_triad_for_hooking(
-            hooked_address.align_even() + 1,
-            self.custom_processing_unit.rom(),
-            mode,
-        )?;
-        Ok([
-            even[0]
-                .assemble()
-                .map_err(NotHookableReason::ModificationFailedSequenceWordBuild)?,
-            even[1]
-                .assemble()
-                .map_err(NotHookableReason::ModificationFailedSequenceWordBuild)?,
-            odd[0]
-                .assemble()
-                .map_err(NotHookableReason::ModificationFailedSequenceWordBuild)?,
-            odd[1]
-                .assemble()
-                .map_err(NotHookableReason::ModificationFailedSequenceWordBuild)?,
-        ])
+        )
     }
 
     pub fn execute<FuncResult, F: FnOnce() -> FuncResult>(
@@ -213,7 +188,7 @@ pub enum ExecutionResultEntry {
     },
     Covered {
         address: UCInstructionAddress,
-        count: CoverageEntry,
+        count: CoverageCount,
     },
 }
 
@@ -225,7 +200,7 @@ impl ExecutionResultEntry {
         }
     }
 
-    pub fn coverage(&self) -> CoverageEntry {
+    pub fn coverage(&self) -> CoverageCount {
         match self {
             ExecutionResultEntry::Covered { count, .. } => *count,
             ExecutionResultEntry::NotCovered { .. } => 0,

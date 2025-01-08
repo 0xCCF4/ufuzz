@@ -1,0 +1,21 @@
+.org 0x7db0
+
+NOPB
+<func_hook>
+include <sys/func_hook.up>
+# marker for size analysis
+<func_hook_end>
+
+NOPB
+<func_ldat_read_hooks>
+include <sys/func_ldat_read_hooks.up>
+# marker for size analysis
+<func_ldat_read_hooks_end>
+
+NOPB
+<func_ldat_read>
+include <sys/func_ldat_read.up>
+# marker for size analysis
+<func_ldat_read_end>
+
+NOP

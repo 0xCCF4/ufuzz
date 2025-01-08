@@ -520,8 +520,14 @@ pub fn calculate_hook_value(
             "patch uop address must be even and >0x7c00".to_string(),
         ));
     }
+    let redirect_to_addr = redirect_to_addr.address();
+    if redirect_to_addr < 0x7c00 {
+        return Err(Error::HookFailed(
+            "hook redirect address must be >0x7c00".to_string(),
+        ));
+    }
 
-    let poff = (redirect_to_addr.address() - 0x7c00) / 2;
+    let poff = (redirect_to_addr - 0x7c00) / 2;
     let patch_value =
         0x3e000000 | (poff << 16) | to_hook_ucode_addr.address() | if enabled { 1 } else { 0 };
 

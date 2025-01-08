@@ -396,9 +396,9 @@ unsafe fn main() -> Status {
         }
     };
 
-    let difference = (after.hour() as i16 - before.hour() as i16) as usize * 3600
-        + (after.minute() as i16 - before.minute() as i16) as usize * 60
-        + (after.second() as i16 - before.second() as i16) as usize;
+    let before = before.hour() as u32 * 3600 + before.minute() as u32 * 60 + before.second() as u32;
+    let after = after.hour() as u32 * 3600 + after.minute() as u32 * 60 + after.second() as u32;
+    let difference = after - before;
     let diff_per_setup = difference as f64 / setups as f64;
 
     println!(
@@ -585,6 +585,7 @@ fn write_blacklisted(new_address: usize) -> uefi::Result<()> {
     append_address_to_file(new_address, "blacklist.txt", "")
 }
 
+#[allow(dead_code)]
 fn write_actually_works(new_address: usize) -> uefi::Result<()> {
     append_address_to_file(new_address, "actually_works.txt", "")
 }
@@ -689,6 +690,7 @@ fn read_actually_works() -> uefi::Result<Vec<usize>> {
         .collect_vec())
 }
 
+#[allow(dead_code)]
 fn rdrand() -> (bool, FunctionResult) {
     let mut result = FunctionResult::default();
     let flags: u8;

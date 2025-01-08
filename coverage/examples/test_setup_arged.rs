@@ -11,11 +11,8 @@ use alloc::vec::Vec;
 use core::arch::asm;
 use coverage::harness::coverage_harness::CoverageHarness;
 use coverage::interface::safe::ComInterface;
-use coverage::{coverage_collector, interface_definition};
-use custom_processing_unit::{
-    call_custom_ucode_function, lmfence, ms_patch_instruction_read, ms_seqw_read,
-    CustomProcessingUnit, FunctionResult, HookGuard,
-};
+use coverage::{coverage_collector, coverage_collector_debug_tools, interface_definition};
+use custom_processing_unit::{apply_patch, call_custom_ucode_function, lmfence, ms_patch_instruction_read, ms_seqw_read, CustomProcessingUnit, FunctionResult, HookGuard};
 use data_types::addresses::UCInstructionAddress;
 use itertools::Itertools;
 use log::info;
@@ -63,6 +60,12 @@ unsafe fn main() -> Status {
 
     println!("Init harness");
     let mut harness = CoverageHarness::new(&mut interface, &cpu);
+
+    if coverage_collector::PATCH.addr + coverage_collector::PATCH.ucode_patch.len() * 4 >= coverage_collector_debug_tools::PATCH.addr {
+        println!("Patch too large. Cannot continue.");
+        return Status::ABORTED;
+    }
+    apply_patch(&coverage_collector_debug_tools::PATCH);
 
     // println!(" ---- NORMAL ---- ");
     // print_status(addresses.len(), &addresses);
@@ -174,30 +177,27 @@ fn print_status(max_count: usize, hooks: &[UCInstructionAddress]) {
         .min(interface_definition::COM_INTERFACE_DESCRIPTION.max_number_of_hooks as usize)
     {
         let hook =
-            call_custom_ucode_function(coverage_collector::LABEL_FUNC_LDAT_READ_HOOKS, [i, 0, 0])
+            call_custom_ucode_function(coverage_collector_debug_tools::LABEL_FUNC_LDAT_READ_HOOKS, [i, 0, 0])
                 .rax;
         print!("{:08x}, ", hook);
     }
     println!();
 
-    for index in 0..4 * max_count
+    for index in 0..max_count
         .min(interface_definition::COM_INTERFACE_DESCRIPTION.max_number_of_hooks as usize)
     {
         print!(
-            "EXIT {index:02}_{even_odd}: {address}: ",
-            index = index / 4,
-            even_odd = (index % 4),
-            address = hooks[index / 4].align_even() + (index % 4) / 2
+            "EXIT {index:02}: {address}: ",
+            address = hooks[index].align_even()
         );
         for offset in 0..3 {
             let instruction = ms_patch_instruction_read(
-                coverage_collector::LABEL_FUNC_LDAT_READ,
+                coverage_collector_debug_tools::LABEL_FUNC_LDAT_READ,
                 coverage_collector::LABEL_HOOK_EXIT_00 + index * 4 + offset,
             );
             let instruction = Instruction::disassemble(instruction as u64);
 
             let ins_str = match instruction {
-                x if x.assemble() == 0x6e75406aa00d => "RESTORE".to_string(),
                 x if x.assemble_no_crc() == 0 => "NOP".to_string(),
                 x => x.opcode().to_string(),
             };
@@ -206,7 +206,7 @@ fn print_status(max_count: usize, hooks: &[UCInstructionAddress]) {
         }
 
         let seqw = ms_seqw_read(
-            coverage_collector::LABEL_FUNC_LDAT_READ,
+            coverage_collector_debug_tools::LABEL_FUNC_LDAT_READ,
             coverage_collector::LABEL_HOOK_EXIT_00 + index * 4,
         );
         println!(

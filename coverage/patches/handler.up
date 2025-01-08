@@ -1,30 +1,31 @@
 # save remaining context
-STADSTGBUF_DSZ64_ASZ16_SC1([adr_stg_r11], , r11) !m2 # save original value of r11
-STADSTGBUF_DSZ64_ASZ16_SC1([adr_stg_r12], , r12) !m2 # save original value of r12
-STADSTGBUF_DSZ64_ASZ16_SC1([adr_stg_r13], , r13) !m2 # save original value of r13
+#STADSTGBUF_DSZ64_ASZ16_SC1([adr_stg_r11], , r11) !m2 # save original value of r11
+#STADSTGBUF_DSZ64_ASZ16_SC1([adr_stg_r12], , r12) !m2 # save original value of r12
+#STADSTGBUF_DSZ64_ASZ16_SC1([adr_stg_r13], , r13) !m2 # save original value of r13
+
+#NOP SEQW SYNCMARK
+#NOPB
+#NOP SEQW SYNCWAIT
 
 NOP SEQW LFNCEMARK
 NOPB
 NOP SEQW LFNCEWAIT
 
 #                                      |--  tmp  --|
-func record_coverage([in_hook_offset], r11, r12, r13)
+#func record_coverage([in_hook_offset], r11, r12, r13)
 
 # restore context
 # r10 := LDSTGBUF_DSZ64_ASZ16_SC1([adr_stg_r10]) !m2
-r11 := LDSTGBUF_DSZ64_ASZ16_SC1([adr_stg_r11]) !m2
-r12 := LDSTGBUF_DSZ64_ASZ16_SC1([adr_stg_r12]) !m2
-r13 := LDSTGBUF_DSZ64_ASZ16_SC1([adr_stg_r13]) !m2
-
-#rdx := ZEROEXT_DSZ64(r10)
+#r11 := LDSTGBUF_DSZ64_ASZ16_SC1([adr_stg_r11]) !m2
+#r12 := LDSTGBUF_DSZ64_ASZ16_SC1([adr_stg_r12]) !m2
+#r13 := LDSTGBUF_DSZ64_ASZ16_SC1([adr_stg_r13]) !m2
 
 r10 := SHL_DSZ32(r10, 0x3) # index * 8
 r10 := ADD_DSZ32(r10, <hook_exit_00>)
 
-#rax := ZEROEXT_DSZ32(r10)
-#r10 := LDSTGBUF_DSZ64_ASZ16_SC1([adr_stg_r10]) !m2
-#NOP SEQW LFNCEWAIT, UEND0
+#NOP SEQW SYNCMARK
 #NOPB
+#NOP SEQW SYNCWAIT
 
 NOP SEQW LFNCEMARK
 NOPB

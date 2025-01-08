@@ -7,8 +7,6 @@ use ucode_compiler::utils::sequence_word::{
 use ucode_compiler::utils::Triad;
 use ucode_dump::RomDump;
 
-const RESTORE_CONTEXT: u64 = 0x6e75406aa00d; // LDSTGBUF_DSZ64_ASZ16_SC1(0xba40) !m2
-
 bitflags::bitflags! {
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
     pub struct ModificationEngineSettings: u64 {
@@ -58,14 +56,18 @@ pub fn is_hookable(
 
     let address = address.align_even();
 
-    let triad = Triad::try_from(rom.triad(address).ok_or(NotHookableReason::AddressNotInDump)?).map_err(NotHookableReason::ModificationFailedSequenceWordParse)?;
+    let triad = Triad::try_from(
+        rom.triad(address)
+            .ok_or(NotHookableReason::AddressNotInDump)?,
+    )
+    .map_err(NotHookableReason::ModificationFailedSequenceWordParse)?;
 
     let instruction_pair = [
-        triad.instructions[address.triad_offset() as usize+0],
+        triad.instructions[address.triad_offset() as usize + 0],
         if address.triad_offset() == 2 {
             Instruction::NOP
         } else {
-            triad.instructions[address.triad_offset() as usize+1]
+            triad.instructions[address.triad_offset() as usize + 1]
         },
     ];
     let [_this_instruction, _next_instruction] = &instruction_pair;
@@ -125,7 +127,8 @@ pub fn is_hookable(
     }
 
     if mode.contains(ModificationEngineSettings::NoUnknownInstructions)
-        && instruction_pair
+        && triad
+            .instructions
             .iter()
             .any(|instruction| instruction.opcode().is_group_UNKNOWN())
     {
@@ -148,7 +151,8 @@ pub fn is_hookable(
         ));
     }
 
-    if let Some(instruction) = triad.instructions
+    if let Some(instruction) = triad
+        .instructions
         .iter()
         .find(|instruction| instruction.opcode().is_group_TESTUSTATE())
     {
@@ -179,17 +183,17 @@ pub fn is_hookable(
         // maybe some reorder/scheduling magic, when updating hooks?
 
         // is this lfence instruction?
-        0xd0, // U00d0: 000000000000 NOP
-        0xd1, // U00d1: 000000000000 LFNCEMARK-> NOP SEQW GOTO U008e
-        0x8e, // LFNCEWAIT-> NOP SEQW UEND0
+        0xd0,  // U00d0: 000000000000 NOP
+        0xd1,  // U00d1: 000000000000 LFNCEMARK-> NOP SEQW GOTO U008e
+        0x8e,  // LFNCEWAIT-> NOP SEQW UEND0
         0x3c8, // U03c8: 004100030001 tmp0:= OR_DSZ64(r64dst)
         0x3c9, // U03c9: 100800001042 r64dst:= ZEROEXT_DSZ32N(r64src, r64dst) !m1
         0x3ca, // U03ca: 1008000020b0 r64src:= ZEROEXT_DSZ32N(tmp0, r64src) !m1 SEQW UEND0
-        /*
         0x3f0, // U03f0: 3c1a00e30144 tmp0:= LDTICKLE_DSZ32_ASZ32_SC1(r64base, DS, r64idx, IMM_MACRO_ALIAS_DISPLACEMENT, mode=0x18) !m0,m1,m2
         0x3f1, // U03f1: 3c1800e01144 STAD_DSZ32_ASZ32_SC1(r64base, DS, r64idx, IMM_MACRO_ALIAS_DISPLACEMENT, mode=0x18, r64dst) !m0,m1,m2
         0x3f2, // U03f2: 100800001070 r64dst:= ZEROEXT_DSZ32N(tmp0, r64dst) !m1 SEQW UEND0
-        0x434, 0x45c, 0x458, 0x460, 0x464, 0x468, 0x46e,
+        0x434, 0x442, 0x446, 0x44a, 0x452, 0x45c, 0x458, 0x45a, 0x45e, 0x460, 0x462, 0x464, 0x466,
+        0x468, 0x46e, 0x46c, 0x46a,
         0x470, // U0470: 0c9a00e33144 tmp3:= LDTICKLE_DSZ16_ASZ32_SC1(r64base, DS, r64idx, IMM_MACRO_ALIAS_DISPLACEMENT, mode=0x18) !m0
         0x471, // U0471: 00c800830008 tmp0:= ZEROEXT_DSZ8(IMM_MACRO_ALIAS_IMMEDIATE) !m0
         0x472, // U0472: 000c7c940200 SAVEUIP( , 0x01, U057c) !m0 SEQW GOTO U0982
@@ -217,7 +221,8 @@ pub fn is_hookable(
         0x48c, // already blacklisted unk222
         0x48d, // already blacklisted unk222
         0x48e, // U048e: 0064ff7fdf5f tmp13:= SHL_DSZ64(0xffffffffffffffff, tmp13) SEQW GOTO U078d
-        */
+        0x68e, // todo generalize?
+        0x9dc, 0x9de,
     ];
 
     if blacklist
@@ -235,38 +240,35 @@ pub fn modify_triad_for_hooking(
     address: UCInstructionAddress,
     rom: &RomDump,
     mode: &ModificationEngineSettings,
-) -> Result<[Triad; 2], NotHookableReason> {
+) -> Result<Triad, NotHookableReason> {
     is_hookable(address, rom, mode)?;
+    let address = address.align_even();
 
-    let triad = rom
-        .triad(address)
-        .ok_or(NotHookableReason::AddressNotInDump)?;
+    let triad = Triad::try_from(
+        rom.triad(address)
+            .ok_or(NotHookableReason::AddressNotInDump)?,
+    )
+    .map_err(NotHookableReason::ModificationFailedSequenceWordParse)?;
 
-    let instruction = Instruction::disassemble(
-        *triad
-            .instructions
-            .get(address.triad_offset() as usize)
-            .unwrap_or(&0u64),
-    );
+    let sequence_word = triad.sequence_word;
 
-    let sequence_word = SequenceWord::disassemble_no_crc_check(triad.sequence_word)
-        .map_err(NotHookableReason::ModificationFailedSequenceWordParse)?;
-
-    let mut result_triad = Triad {
+    let result_triad = Triad {
         instructions: [
-            Instruction::disassemble(RESTORE_CONTEXT),
-            instruction,
-            Instruction::NOP,
+            *triad
+                .instructions
+                .get(address.triad_offset() as usize + 0)
+                .unwrap(),
+            if address.triad_offset() == 2 {
+                Instruction::NOP
+            } else {
+                *triad
+                    .instructions
+                    .get(address.triad_offset() as usize + 1)
+                    .unwrap()
+            },
+            Instruction::UJMP(address.next_even_address()),
         ],
-        sequence_word: sequence_word
-            .apply_view(address.triad_offset(), 1)
-            .apply()
-            .apply_shift(1),
-    };
-
-    let next_triad = Triad {
-        instructions: [Instruction::NOP, Instruction::NOP, Instruction::NOP],
-        sequence_word: SequenceWord::new().apply_goto(0, address.next_address()), // when using SEQW SAVEUIP or SAVEUIP_REGOVR() this will restore the control flow
+        sequence_word: sequence_word.apply_view(address.triad_offset(), 2).apply(),
     };
 
     if let Some(control) = result_triad.sequence_word.control() {
@@ -278,34 +280,11 @@ pub fn modify_triad_for_hooking(
         }
     }
 
-    match result_triad.sequence_word.goto() {
-        Some(_goto) => {
-            // do nothing, since jump will be automatically taken
-        }
-        None => {
-            let terminator = if let Some(control) = result_triad.sequence_word.control() {
-                control.value.is_terminator()
-            } else {
-                false
-            };
-
-            if !terminator {
-                result_triad
-                    .sequence_word
-                    .set_goto(1, address.next_address());
-            }
-        }
-    }
-
     let _ = result_triad
         .sequence_word
         .assemble()
         .map_err(NotHookableReason::ModificationFailedSequenceWordBuild)?;
-    let _ = next_triad
-        .sequence_word
-        .assemble()
-        .map_err(NotHookableReason::ModificationFailedSequenceWordBuild)?;
-    Ok([result_triad, next_triad])
+    Ok(result_triad)
 }
 
 #[cfg(test)]

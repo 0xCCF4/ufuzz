@@ -1,8 +1,7 @@
 #[allow(clippy::missing_safety_doc)] // todo: remove this and write safety docs
 pub mod raw {
     use crate::interface_definition::{
-        ClockTableEntry, ClockTableSettingsEntry, ComInterfaceDescription, CoverageEntry,
-        InstructionTableEntry, JumpTableEntry,
+        ComInterfaceDescription, CoverageEntry, InstructionTableEntry, JumpTableEntry,
     };
     use core::ptr::NonNull;
     use data_types::addresses::{Address, UCInstructionAddress};
@@ -48,6 +47,7 @@ pub mod raw {
             if index >= self.description.max_number_of_hooks {
                 return;
             }
+
             self.jump_table()
                 .add(index)
                 .write_volatile(value.into().address() as JumpTableEntry);
@@ -78,15 +78,15 @@ pub mod raw {
         }
 
         pub unsafe fn read_coverage_table(&self, index: usize) -> CoverageEntry {
-            if index >= self.description.max_number_of_hooks * 2 {
-                return 0;
+            if index >= self.description.max_number_of_hooks {
+                return CoverageEntry::default();
             }
 
             self.coverage_table().add(index).read_volatile()
         }
 
         pub unsafe fn write_coverage_table(&mut self, index: usize, value: CoverageEntry) {
-            if index >= self.description.max_number_of_hooks * 2 {
+            if index >= self.description.max_number_of_hooks {
                 return;
             }
 
@@ -95,7 +95,7 @@ pub mod raw {
 
         pub unsafe fn reset_coverage(&mut self) {
             for index in 0..self.description.max_number_of_hooks * 2 {
-                self.write_coverage_table(index, 0);
+                self.write_coverage_table(index, CoverageEntry::default());
             }
         }
 
@@ -106,15 +106,15 @@ pub mod raw {
         }
 
         pub fn read_instruction_table(&self, index: usize) -> InstructionTableEntry {
-            if index >= self.description.max_number_of_hooks * 4 {
-                return [0; 4];
+            if index >= self.description.max_number_of_hooks {
+                return InstructionTableEntry::default();
             }
 
             unsafe { self.instruction_table().add(index).read_volatile() }
         }
 
         pub fn write_instruction_table(&mut self, index: usize, value: InstructionTableEntry) {
-            if index >= self.description.max_number_of_hooks * 4 {
+            if index >= self.description.max_number_of_hooks {
                 return;
             }
 
@@ -130,84 +130,6 @@ pub mod raw {
         ) {
             for (index, value) in values.into_iter().enumerate() {
                 self.write_instruction_table(index, value.into());
-            }
-        }
-
-        unsafe fn clock_table(&self) -> NonNull<ClockTableEntry> {
-            self.base.add(self.description.offset_clock_table).cast()
-        }
-
-        unsafe fn clock_table_settings(&self) -> NonNull<ClockTableSettingsEntry> {
-            self.base
-                .add(self.description.offset_clock_table_settings)
-                .cast()
-        }
-
-        pub unsafe fn write_clock_table(&mut self, index: usize, value: ClockTableEntry) {
-            if index >= self.description.max_number_of_hooks * 2 {
-                return;
-            }
-
-            self.clock_table().add(index).write_volatile(value);
-        }
-
-        pub unsafe fn write_clock_table_settings(
-            &mut self,
-            index: usize,
-            value: ClockTableSettingsEntry,
-        ) {
-            if index >= self.description.max_number_of_hooks * 2 {
-                return;
-            }
-
-            self.clock_table_settings().add(index).write_volatile(value);
-        }
-
-        pub unsafe fn write_clock_table_all<T: IntoIterator<Item = ClockTableEntry>>(
-            &mut self,
-            values: T,
-        ) {
-            for (index, value) in values.into_iter().enumerate() {
-                self.write_clock_table(index, value);
-            }
-        }
-
-        pub unsafe fn write_clock_table_settings_all<
-            T: IntoIterator<Item = ClockTableSettingsEntry>,
-        >(
-            &mut self,
-            values: T,
-        ) {
-            for (index, value) in values.into_iter().enumerate() {
-                self.write_clock_table_settings(index, value);
-            }
-        }
-
-        pub unsafe fn read_clock_table(&self, index: usize) -> ClockTableEntry {
-            if index >= self.description.max_number_of_hooks * 2 {
-                return 0;
-            }
-
-            self.clock_table().add(index).read_volatile()
-        }
-
-        pub unsafe fn read_clock_table_settings(&self, index: usize) -> ClockTableSettingsEntry {
-            if index >= self.description.max_number_of_hooks * 2 {
-                return 0;
-            }
-
-            self.clock_table_settings().add(index).read_volatile()
-        }
-
-        pub unsafe fn zero_clock_table(&mut self) {
-            for i in 0..self.description.max_number_of_hooks * 2 {
-                self.write_clock_table(i, 0);
-            }
-        }
-
-        pub unsafe fn zero_clock_table_settings(&mut self) {
-            for i in 0..self.description.max_number_of_hooks * 2 {
-                self.write_clock_table_settings(i, 0);
             }
         }
     }
@@ -253,14 +175,17 @@ pub mod safe {
             self.base.description
         }
 
+        #[track_caller]
         pub fn read_jump_table(&self) -> &[JumpTableEntry] {
             unsafe { self.base.read_jump_table() }
         }
 
+        #[track_caller]
         pub fn write_jump_table<P: Into<UCInstructionAddress>>(&mut self, index: usize, value: P) {
             unsafe { self.base.write_jump_table(index, value) }
         }
 
+        #[track_caller]
         pub fn write_jump_table_all<P: Into<UCInstructionAddress>, T: IntoIterator<Item = P>>(
             &mut self,
             values: T,
@@ -268,42 +193,50 @@ pub mod safe {
             unsafe { self.base.write_jump_table_all(values) }
         }
 
+        #[track_caller]
         pub fn zero_jump_table(&mut self) {
             unsafe { self.base.zero_jump_table() }
         }
 
+        #[track_caller]
         pub fn read_coverage_table(&self, index: usize) -> CoverageEntry {
             unsafe { self.base.read_coverage_table(index) }
         }
 
+        #[track_caller]
         pub fn write_coverage_table(&mut self, index: usize, value: CoverageEntry) {
             unsafe { self.base.write_coverage_table(index, value) }
         }
 
+        #[track_caller]
         pub fn reset_coverage(&mut self) {
             unsafe { self.base.reset_coverage() }
         }
 
+        #[track_caller]
         pub fn read_instruction_table(&self, index: usize) -> InstructionTableEntry {
             self.base.read_instruction_table(index)
         }
 
+        #[track_caller]
         pub fn write_instruction_table(&mut self, index: usize, value: InstructionTableEntry) {
             self.base.write_instruction_table(index, value)
         }
 
+        #[track_caller]
         pub fn write_instruction_table_triad(&mut self, index: usize, value: Triad) {
             self.write_instruction_table(
                 index,
-                [
+                [[
                     value.instructions[0],
                     value.instructions[1],
                     value.instructions[2],
                     value.sequence_word as u64,
-                ],
+                ]],
             )
         }
 
+        #[track_caller]
         pub fn write_instruction_table_all<
             P: Into<InstructionTableEntry>,
             T: IntoIterator<Item = P>,
@@ -312,38 +245,6 @@ pub mod safe {
             values: T,
         ) {
             unsafe { self.base.write_instruction_table_all(values) }
-        }
-
-        pub fn write_clock_table(&mut self, index: usize, value: u64) {
-            unsafe { self.base.write_clock_table(index, value) }
-        }
-
-        pub fn write_clock_table_settings(&mut self, index: usize, value: u16) {
-            unsafe { self.base.write_clock_table_settings(index, value) }
-        }
-
-        pub fn write_clock_table_all<T: IntoIterator<Item = u64>>(&mut self, values: T) {
-            unsafe { self.base.write_clock_table_all(values) }
-        }
-
-        pub fn write_clock_table_settings_all<T: IntoIterator<Item = u16>>(&mut self, values: T) {
-            unsafe { self.base.write_clock_table_settings_all(values) }
-        }
-
-        pub fn read_clock_table(&self, index: usize) -> u64 {
-            unsafe { self.base.read_clock_table(index) }
-        }
-
-        pub fn read_clock_table_settings(&self, index: usize) -> u16 {
-            unsafe { self.base.read_clock_table_settings(index) }
-        }
-
-        pub fn zero_clock_table(&mut self) {
-            unsafe { self.base.zero_clock_table() }
-        }
-
-        pub fn zero_clock_table_settings(&mut self) {
-            unsafe { self.base.zero_clock_table_settings() }
         }
     }
 }

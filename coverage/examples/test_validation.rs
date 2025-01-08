@@ -15,7 +15,7 @@ use coverage::harness::coverage_harness::CoverageHarness;
 use coverage::harness::iteration_harness::IterationHarness;
 use coverage::interface::safe::ComInterface;
 use coverage::interface_definition;
-use coverage::interface_definition::CoverageEntry;
+use coverage::interface_definition::CoverageCount;
 use custom_processing_unit::{lmfence, CpuidResult, CustomProcessingUnit, FunctionResult};
 use data_types::addresses::{Address, UCInstructionAddress};
 use itertools::Itertools;
@@ -146,9 +146,9 @@ unsafe fn main() -> Status {
 fn collect_coverage<R, F: FnMut() -> R>(
     iteration_harness: &IterationHarness,
     coverage_harness: &mut CoverageHarness,
-    baseline: Option<&BTreeMap<UCInstructionAddress, CoverageEntry>>,
+    baseline: Option<&BTreeMap<UCInstructionAddress, CoverageCount>>,
     mut func: F,
-) -> BTreeMap<UCInstructionAddress, CoverageEntry> {
+) -> BTreeMap<UCInstructionAddress, CoverageCount> {
     let results = iteration_harness.execute(|chunk| coverage_harness.execute(chunk, || func()));
 
     let mut coverage = BTreeMap::new();
@@ -174,7 +174,7 @@ fn collect_coverage<R, F: FnMut() -> R>(
     coverage
 }
 
-fn print_coverage(coverage: &BTreeMap<UCInstructionAddress, CoverageEntry>) {
+fn print_coverage(coverage: &BTreeMap<UCInstructionAddress, CoverageCount>) {
     for chunk in coverage
         .iter()
         .sorted_by_key(|(key, _)| **key)
@@ -189,8 +189,8 @@ fn print_coverage(coverage: &BTreeMap<UCInstructionAddress, CoverageEntry>) {
 }
 
 fn remove_baseline_from_coverage(
-    baseline: Option<&BTreeMap<UCInstructionAddress, CoverageEntry>>,
-    coverage: &mut BTreeMap<UCInstructionAddress, CoverageEntry>,
+    baseline: Option<&BTreeMap<UCInstructionAddress, CoverageCount>>,
+    coverage: &mut BTreeMap<UCInstructionAddress, CoverageCount>,
 ) {
     if let Some(baseline) = baseline {
         for (address, value) in coverage.iter_mut() {
@@ -236,11 +236,11 @@ fn rdrand() -> (bool, FunctionResult) {
 fn test_cpuid(
     iteration_harness: &IterationHarness,
     coverage_harness: &mut CoverageHarness,
-    baseline: Option<&BTreeMap<UCInstructionAddress, CoverageEntry>>,
+    baseline: Option<&BTreeMap<UCInstructionAddress, CoverageCount>>,
 ) -> BTreeMap<UCInstructionAddress, u16> {
     print!(" Collecting samples...");
-    let pass1 = collect_cpuids_all::<Vec<u32>>(None);
-    let pass2 = collect_cpuids_all::<Vec<u32>>(None);
+    let pass1 = collect_cpuids_all::<&Vec<u32>>(None);
+    let pass2 = collect_cpuids_all::<&Vec<u32>>(None);
     println!("OK");
 
     let mut stable = Vec::with_capacity(pass1.len());
@@ -255,7 +255,7 @@ fn test_cpuid(
         }
     }
 
-    let no_coverage_comparison_value = collect_cpuids_all(Some(stable.clone()));
+    let no_coverage_comparison_value = collect_cpuids_all(Some(&stable));
 
     let mut coverage_map = BTreeMap::new();
 
@@ -273,8 +273,8 @@ fn test_cpuid(
             None
         } else {
             Some(coverage_harness.execute(chunk, || {
-                println!("\r{:04x?}", chunk);
-                collect_cpuids_all(Some(stable.clone()))
+                print!("\r{:04x?}", chunk);
+                collect_cpuids_all(Some(&stable))
             }))
         }
     }) {
@@ -308,19 +308,21 @@ fn test_cpuid(
     coverage_map
 }
 
-fn collect_cpuids_all<I: IntoIterator<Item = u32>>(keys: Option<I>) -> Vec<(u32, CpuidResult)> {
+fn collect_cpuids_all<'a, I: IntoIterator<Item = &'a u32>>(
+    keys: Option<I>,
+) -> Vec<(u32, CpuidResult)> {
     let mut result = Vec::new();
 
     match keys {
         Some(keys) => {
             for key in keys {
-                result.push((key, CpuidResult::query(key, 0)));
+                result.push((*key, CpuidResult::query(*key, 0)));
             }
         }
         None => {
             for key in (0..0x20)
                 .into_iter()
-                .chain((0x80000000..80000008).into_iter().take(1))
+                .chain((0x80000000..80000008).into_iter())
             {
                 result.push((key, CpuidResult::query(key, 0)));
             }

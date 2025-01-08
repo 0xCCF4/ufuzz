@@ -7,7 +7,7 @@ extern crate alloc;
 
 use coverage::interface::safe::ComInterface;
 use coverage::interface_definition::InstructionTableEntry;
-use coverage::{coverage_collector, interface_definition};
+use coverage::{coverage_collector, coverage_collector_debug_tools, interface_definition};
 use custom_processing_unit::{
     apply_patch, call_custom_ucode_function, disable_all_hooks, ms_patch_instruction_read,
     ms_seqw_read, CustomProcessingUnit,
@@ -66,12 +66,17 @@ unsafe fn main() -> Status {
     interface.reset_coverage();
 
     apply_patch(&coverage_collector::PATCH);
+    if coverage_collector::PATCH.addr + coverage_collector::PATCH.ucode_patch.len() * 4 >= coverage_collector_debug_tools::PATCH.addr {
+        println!("Patch too large. Cannot continue.");
+        return Status::ABORTED;
+    }
+    apply_patch(&coverage_collector_debug_tools::PATCH);
 
     fn print_status() {
         print!("Hooks  : ");
         for i in 0..interface_definition::COM_INTERFACE_DESCRIPTION.max_number_of_hooks as usize {
             let hook = call_custom_ucode_function(
-                coverage_collector::LABEL_FUNC_LDAT_READ_HOOKS,
+                coverage_collector_debug_tools::LABEL_FUNC_LDAT_READ_HOOKS,
                 [i, 0, 0],
             )
             .rax;
@@ -80,23 +85,18 @@ unsafe fn main() -> Status {
         println!();
 
         for i in 0..(8)
-            .min(4 * interface_definition::COM_INTERFACE_DESCRIPTION.max_number_of_hooks as usize)
+            .min(1 * interface_definition::COM_INTERFACE_DESCRIPTION.max_number_of_hooks as usize)
         {
             print!("EXIT {:02}: ", i / 4);
-            let seqw = ms_seqw_read(
-                coverage_collector::LABEL_FUNC_LDAT_READ,
-                coverage_collector::LABEL_HOOK_EXIT_00 + i * 4,
-            );
-            print!("{:08x} -> ", seqw);
             for offset in 0..3 {
                 let instruction = ms_patch_instruction_read(
-                    coverage_collector::LABEL_FUNC_LDAT_READ,
+                    coverage_collector_debug_tools::LABEL_FUNC_LDAT_READ,
                     coverage_collector::LABEL_HOOK_EXIT_00 + i * 4 + offset,
                 );
                 print!("{:08x} ", instruction);
             }
             let seqw = ms_seqw_read(
-                coverage_collector::LABEL_FUNC_LDAT_READ,
+                coverage_collector_debug_tools::LABEL_FUNC_LDAT_READ,
                 coverage_collector::LABEL_HOOK_EXIT_00 + i * 4,
             );
             println!("-> {:08x}", seqw);
@@ -109,7 +109,7 @@ unsafe fn main() -> Status {
         instructions: &[InstructionTableEntry],
         printing: bool,
     ) {
-        assert_eq!(addresses.len() * 4, instructions.len());
+        assert_eq!(addresses.len() * 1, instructions.len());
         interface.write_jump_table_all(addresses);
         interface.write_instruction_table_all(instructions.iter().cloned().into_iter());
 
@@ -138,16 +138,12 @@ unsafe fn main() -> Status {
     let addr = [
         UCInstructionAddress::from_const(0x428),
         UCInstructionAddress::from_const(0x42a),
+        UCInstructionAddress::from_const(0x222),
     ];
-    let instructions: [InstructionTableEntry; 8] = [
-        [0x01, 0x02, 0x03, 0x04],
-        [0x11, 0x12, 0x13, 0x14],
-        [0x21, 0x22, 0x23, 0x24],
-        [0x31, 0x32, 0x33, 0x34],
-        [0x41, 0x42, 0x43, 0x44],
-        [0x51, 0x52, 0x53, 0x54],
-        [0x61, 0x62, 0x63, 0x64],
-        [0x71, 0x72, 0x73, 0x74],
+    let instructions: [InstructionTableEntry; 3] = [
+        [[0x01, 0x02, 0x03, 0x04]],
+        [[0x11, 0x12, 0x13, 0x14]],
+        [[0x21, 0x22, 0x23, 0x24]],
     ];
 
     setup_hooks(&mut interface, &addr, &instructions, true);
@@ -187,12 +183,9 @@ unsafe fn main() -> Status {
         }
     };
 
-    println!("Before: {:?}", before);
-    println!("After: {:?}", after);
-
-    let difference = (after.hour() as i16 - before.hour() as i16) as usize * 3600
-        + (after.minute() as i16 - before.minute() as i16) as usize * 60
-        + (after.second() as i16 - before.second() as i16) as usize;
+    let before = before.hour() as u32 * 3600 + before.minute() as u32 * 60 + before.second() as u32;
+    let after = after.hour() as u32 * 3600 + after.minute() as u32 * 60 + after.second() as u32;
+    let difference = after - before;
 
     println!("For {} iterations: {}s", count, difference);
     println!(
