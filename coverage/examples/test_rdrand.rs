@@ -8,7 +8,10 @@ use core::fmt::Debug;
 use coverage::harness::coverage_harness::CoverageHarness;
 use coverage::interface::safe::ComInterface;
 use coverage::{coverage_collector, coverage_collector_debug_tools, interface_definition};
-use custom_processing_unit::{apply_patch, call_custom_ucode_function, lmfence, ms_patch_instruction_read, ms_seqw_read, CustomProcessingUnit, FunctionResult};
+use custom_processing_unit::{
+    apply_patch, call_custom_ucode_function, lmfence, ms_patch_instruction_read, ms_seqw_read,
+    CustomProcessingUnit, FunctionResult,
+};
 use data_types::addresses::UCInstructionAddress;
 use log::info;
 use uefi::prelude::*;
@@ -62,13 +65,24 @@ unsafe fn main() -> Status {
 
     interface.reset_coverage();
 
-    let mut harness = CoverageHarness::new(&mut interface, &cpu);
+    let mut harness = match CoverageHarness::new(&mut interface, &cpu) {
+        Ok(harness) => harness,
+        Err(e) => {
+            info!("Failed to initiate harness {:?}", e);
+            return Status::ABORTED;
+        }
+    };
 
-    if coverage_collector::PATCH.addr + coverage_collector::PATCH.ucode_patch.len() * 4 >= coverage_collector_debug_tools::PATCH.addr {
+    if coverage_collector::PATCH.addr + coverage_collector::PATCH.ucode_patch.len() * 4
+        >= coverage_collector_debug_tools::PATCH.addr
+    {
         println!("Patch too large. Cannot continue.");
         return Status::ABORTED;
     }
-    apply_patch(&coverage_collector_debug_tools::PATCH);
+    if let Err(err) = apply_patch(&coverage_collector_debug_tools::PATCH) {
+        println!("Failed to apply patch: {:?}", err);
+        return Status::ABORTED;
+    }
 
     print_status();
 
@@ -133,9 +147,11 @@ fn execute<R: Debug, F: FnOnce() -> R>(
 fn print_status() {
     print!("Hooks  : ");
     for i in 0..interface_definition::COM_INTERFACE_DESCRIPTION.max_number_of_hooks as usize {
-        let hook =
-            call_custom_ucode_function(coverage_collector_debug_tools::LABEL_FUNC_LDAT_READ_HOOKS, [i, 0, 0])
-                .rax;
+        let hook = call_custom_ucode_function(
+            coverage_collector_debug_tools::LABEL_FUNC_LDAT_READ_HOOKS,
+            [i, 0, 0],
+        )
+        .rax;
         print!("{:08x}, ", hook);
     }
     println!();

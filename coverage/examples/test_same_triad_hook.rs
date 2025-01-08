@@ -8,7 +8,10 @@ use core::arch::asm;
 use coverage::harness::coverage_harness::CoverageHarness;
 use coverage::interface::safe::ComInterface;
 use coverage::{coverage_collector, coverage_collector_debug_tools, interface_definition};
-use custom_processing_unit::{apply_patch, call_custom_ucode_function, lmfence, ms_seqw_read, CustomProcessingUnit, FunctionResult};
+use custom_processing_unit::{
+    apply_patch, call_custom_ucode_function, lmfence, ms_seqw_read, CustomProcessingUnit,
+    FunctionResult,
+};
 use data_types::addresses::{Address, UCInstructionAddress};
 use itertools::Itertools;
 use log::info;
@@ -90,13 +93,24 @@ unsafe fn main() -> Status {
         println!();
     }
 
-    let mut harness = CoverageHarness::new(&mut interface, &cpu);
+    let mut harness = match CoverageHarness::new(&mut interface, &cpu) {
+        Ok(harness) => harness,
+        Err(e) => {
+            info!("Failed to initiate harness {:?}", e);
+            return Status::ABORTED;
+        }
+    };
 
-    if coverage_collector::PATCH.addr + coverage_collector::PATCH.ucode_patch.len() * 4 >= coverage_collector_debug_tools::PATCH.addr {
+    if coverage_collector::PATCH.addr + coverage_collector::PATCH.ucode_patch.len() * 4
+        >= coverage_collector_debug_tools::PATCH.addr
+    {
         println!("Patch too large. Cannot continue.");
         return Status::ABORTED;
     }
-    apply_patch(&coverage_collector_debug_tools::PATCH);
+    if let Err(err) = apply_patch(&coverage_collector_debug_tools::PATCH) {
+        println!("Failed to apply patch: {:?}", err);
+        return Status::ABORTED;
+    }
 
     let loaded_image_proto: ScopedProtocol<LoadedImage> =
         match uefi::boot::open_protocol_exclusive(uefi::boot::image_handle()) {

@@ -50,7 +50,10 @@ unsafe fn main() -> Status {
         return Status::ABORTED;
     }
 
-    apply_patch(&patch::PATCH);
+    if let Err(err) = apply_patch(&patch::PATCH) {
+        println!("Failed to apply patch: {:?}", err);
+        return Status::ABORTED;
+    }
 
     let last_ok = match read_ok() {
         Ok(last_ok) => last_ok,

@@ -11,10 +11,8 @@ use core::arch::asm;
 use core::fmt::Debug;
 use coverage::harness::coverage_harness::{CoverageError, CoverageHarness};
 use coverage::interface::safe::ComInterface;
-use coverage::{coverage_collector, interface_definition};
-use custom_processing_unit::{
-    apply_patch, lmfence, CpuidResult, CustomProcessingUnit, FunctionResult,
-};
+use coverage::interface_definition;
+use custom_processing_unit::{lmfence, CpuidResult, CustomProcessingUnit, FunctionResult};
 use data_types::addresses::{Address, UCInstructionAddress};
 use itertools::Itertools;
 use log::info;
@@ -73,11 +71,13 @@ unsafe fn main() -> Status {
 
     interface.reset_coverage();
 
-    apply_patch(&coverage_collector::PATCH);
-
-    interface.reset_coverage();
-
-    let mut harness = CoverageHarness::new(&mut interface, &cpu);
+    let mut harness = match CoverageHarness::new(&mut interface, &cpu) {
+        Ok(harness) => harness,
+        Err(e) => {
+            info!("Failed to initiate harness {:?}", e);
+            return Status::ABORTED;
+        }
+    };
 
     let last_ok = match read_ok() {
         Ok(last_ok) => last_ok,

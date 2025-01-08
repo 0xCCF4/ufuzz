@@ -1,6 +1,7 @@
-def [adr_stg_r10] = 0xba40;
-def [adr_stg_r11] = 0xba80;
-def [adr_stg_r12] = 0xbac0;
-def [adr_stg_r13] = 0xbb00;
+def [adr_stg_r10] = 0xba00;
+def [adr_stg_r11] = 0xba40;
+def [adr_stg_r12] = 0xba80;
+def [adr_stg_r13] = 0xbac0;
+def [adr_stg_r14] = 0xbb00;
 
-def [in_hook_offset] = r10;
+#def [in_hook_offset] = r10;

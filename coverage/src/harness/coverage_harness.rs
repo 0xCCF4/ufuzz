@@ -12,7 +12,7 @@ use alloc::vec::Vec;
 use core::fmt::Debug;
 use custom_processing_unit::{
     apply_patch, call_custom_ucode_function, disable_all_hooks, enable_hooks, lmfence,
-    CustomProcessingUnit, FunctionResult, HookGuard,
+    CustomProcessingUnit, FunctionResult, HookGuard, PatchError,
 };
 use data_types::addresses::UCInstructionAddress;
 use ucode_compiler::utils::sequence_word::DisassembleError;
@@ -39,17 +39,17 @@ impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
     pub fn new(
         interface: &'a mut ComInterface<'b>,
         cpu: &'c CustomProcessingUnit,
-    ) -> CoverageHarness<'a, 'b, 'c> {
-        apply_patch(&coverage_collector::PATCH);
+    ) -> Result<CoverageHarness<'a, 'b, 'c>, PatchError> {
+        apply_patch(&coverage_collector::PATCH)?;
         interface.zero_jump_table();
 
-        CoverageHarness {
+        Ok(CoverageHarness {
             interface,
             // coverage: [0; COVERAGE_ENTRIES],
             previous_hook_settings: Some(HookGuard::disable_all()),
             custom_processing_unit: cpu,
             compile_mode: ModificationEngineSettings::default(),
-        }
+        })
     }
 
     #[inline(always)]

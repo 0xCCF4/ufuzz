@@ -41,7 +41,10 @@ unsafe fn main() -> Status {
         return Status::ABORTED;
     }
 
-    apply_patch(&patch::PATCH);
+    if let Err(err) = apply_patch(&patch::PATCH) {
+        println!("Failed to apply patch: {:?}", err);
+        return Status::ABORTED;
+    }
 
     println!("Testing sequence words");
     let mut diff = -1;

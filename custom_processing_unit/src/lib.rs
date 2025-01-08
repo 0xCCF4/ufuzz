@@ -19,6 +19,7 @@ pub enum Error {
     InvalidProcessor(String),
     InitMatchAndPatchFailed(String),
     HookFailed(String),
+    PatchError(PatchError),
 }
 
 impl core::fmt::Display for Error {
@@ -29,6 +30,7 @@ impl core::fmt::Display for Error {
                 write!(f, "Failed to initialize match and patch: '{}'", t)
             }
             Error::HookFailed(t) => write!(f, "Failed to setup ucode hook: {}", t),
+            Error::PatchError(t) => write!(f, "Failed to patch ucode: {:?}", t),
         }
     }
 }
@@ -74,31 +76,32 @@ impl CustomProcessingUnit {
         Ok(())
     }
 
-    pub fn apply_existing_patches(&mut self) {
+    pub fn apply_existing_patches(&mut self) -> Result<()> {
         if self.current_glm_version == GLM_OLD {
             // Move the patch at U7c5c to U7dfc, since it seems important for the CPU
             const EXISTING_PATCH: [UcodePatchEntry; 1] = [
                 // U7dfc: WRITEURAM(tmp5, 0x0037, 32) m2=1, NOP, NOP, SEQ_GOTO U60d2
                 [0xa04337080235, 0, 0, 0x2460d200],
             ];
-            patch_ucode(0x7dfc, &EXISTING_PATCH);
+            patch_ucode(0x7dfc, &EXISTING_PATCH).map_err(Error::PatchError)?;
         }
+        Ok(())
     }
 
     pub fn apply_zero_hook_func(&mut self) -> Result<UCInstructionAddress> {
         if self.current_glm_version == GLM_OLD {
-            self.apply_existing_patches();
+            self.apply_existing_patches()?;
 
             // write and execute the patch that will zero out match&patch moving
             // the 0xc entry to last entry, which will make the hook call our moved patch
             let init_patch = patches::func_init::PATCH;
-            patch_ucode(init_patch.addr, init_patch.ucode_patch);
+            patch_ucode(init_patch.addr, init_patch.ucode_patch).map_err(Error::PatchError)?;
 
             Ok(init_patch.addr)
         } else if self.current_glm_version == GLM_NEW {
             // write and execute the patch that will zero out match&patch
             let init_patch = patches::func_init_glm_new::PATCH;
-            patch_ucode(init_patch.addr, init_patch.ucode_patch);
+            patch_ucode(init_patch.addr, init_patch.ucode_patch).map_err(Error::PatchError)?;
 
             Ok(init_patch.addr)
         } else {

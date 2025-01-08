@@ -5,6 +5,8 @@ use alloc::format;
 #[cfg(feature = "no_std")]
 use alloc::string::ToString;
 use core::arch::asm;
+use core::fmt;
+use core::fmt::{Display, Formatter};
 use data_types::addresses::{
     Address, MSRAMAddress, MSRAMHookIndex, MSRAMInstructionPartReadAddress,
     MSRAMInstructionPartWriteAddress, MSRAMSequenceWordAddress, UCInstructionAddress,
@@ -22,6 +24,18 @@ pub enum StagingBufferAddress {
     RegTmp1 = 0xb840,
     RegTmp2 = 0xb880,
     // todo: check further values
+}
+
+impl Address for StagingBufferAddress {
+    fn address(&self) -> usize {
+        *self as usize
+    }
+}
+
+impl Display for StagingBufferAddress {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
 }
 
 #[inline(always)]
@@ -468,7 +482,15 @@ pub fn detect_glm_version() -> u32 {
     CpuidResult::query(0x1, 0).eax
 }
 
-pub fn patch_ucode<A: Into<UCInstructionAddress>>(addr: A, ucode_patch: &UcodePatchBlob) {
+#[derive(Debug)]
+pub enum PatchError {
+    PatchToLarge,
+}
+
+pub fn patch_ucode<A: Into<UCInstructionAddress>>(
+    addr: A,
+    ucode_patch: &UcodePatchBlob,
+) -> Result<(), PatchError> {
     // format: uop0, uop1, uop2, seqword
     // uop3 is fixed to a nop and cannot be overridden
 
@@ -476,6 +498,10 @@ pub fn patch_ucode<A: Into<UCInstructionAddress>>(addr: A, ucode_patch: &UcodePa
 
     if cfg!(feature = "emulation") {
         trace!("Writing ucode patch to {}", addr);
+    }
+
+    if (UCInstructionAddress::MAX - addr) < ucode_patch.len() * 4 {
+        return Err(PatchError::PatchToLarge);
     }
 
     let seqw: MSRAMSequenceWordAddress = addr.into();
@@ -489,6 +515,8 @@ pub fn patch_ucode<A: Into<UCInstructionAddress>>(addr: A, ucode_patch: &UcodePa
         // patch seqword
         ms_seqw_write(seqw + i, row[3]);
     }
+
+    Ok(())
 }
 
 pub fn read_patch(
@@ -556,19 +584,19 @@ pub fn hook<A: Into<UCInstructionAddress>, B: Into<UCInstructionAddress>>(
     Ok(())
 }
 
-pub fn apply_patch(patch: &Patch) {
-    patch_ucode(patch.addr, patch.ucode_patch);
+pub fn apply_patch(patch: &Patch) -> Result<(), PatchError> {
+    patch_ucode(patch.addr, patch.ucode_patch)
 }
 
 pub fn apply_hook_patch_func() -> UCInstructionAddress {
     let patch = crate::patches::func_hook::PATCH;
-    apply_patch(&patch);
+    apply_patch(&patch).unwrap();
     patch.addr
 }
 
 pub fn apply_ldat_read_func() -> UCInstructionAddress {
     let patch = crate::patches::func_ldat_read::PATCH;
-    apply_patch(&patch);
+    apply_patch(&patch).unwrap();
     patch.addr
 }
 

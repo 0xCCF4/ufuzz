@@ -116,7 +116,7 @@ impl UCInstructionAddress {
 
     /// Returns the MSRAMInstructionPartAddress for a given offset. Offsets are [0,1,2,3,...] mapping to
     /// addresses self+[0,1,2, 4,5,6, 8,9,a]
-    /// #[track_caller]
+    #[track_caller]
     pub fn patch_offset(&self, offset: usize) -> UCInstructionAddress {
         if (self.0 & 3) > 0 {
             panic!("Origin address must be a multiple of 4. {offset:04x} is not %mod4=0")
@@ -233,6 +233,21 @@ impl Sub<usize> for UCInstructionAddress {
     #[track_caller]
     fn sub(self, other: usize) -> Self {
         UCInstructionAddress::from_const(self.0 - other)
+    }
+}
+
+impl Add<UCInstructionAddress> for UCInstructionAddress {
+    type Output = Self;
+    #[track_caller]
+    fn add(self, other: UCInstructionAddress) -> Self {
+        UCInstructionAddress::from_const(self.0 + other.0)
+    }
+}
+impl Sub<UCInstructionAddress> for UCInstructionAddress {
+    type Output = Self;
+    #[track_caller]
+    fn sub(self, other: UCInstructionAddress) -> Self {
+        UCInstructionAddress::from_const(self.0 - other.0)
     }
 }
 

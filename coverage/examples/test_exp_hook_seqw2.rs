@@ -73,7 +73,10 @@ unsafe fn main() -> Status {
         return Status::ABORTED;
     }
 
-    apply_patch(&patch::PATCH);
+    if let Err(err) = apply_patch(&patch::PATCH) {
+        println!("Failed to apply patch: {:?}", err);
+        return Status::ABORTED;
+    }
     let patch_func = apply_hook_patch_func();
 
     // this was also tested with different orderings and indexes

@@ -65,7 +65,10 @@ unsafe fn main() -> Status {
 
     let _guard = HookGuard::disable_all(); // will be dropped on end of method
 
-    apply_patch(&patch::PATCH);
+    if let Err(err) = apply_patch(&patch::PATCH) {
+        println!("Failed to apply patch: {:?}", err);
+        return Status::ABORTED;
+    }
 
     // let result = core::hint::black_box(call_custom_ucode_function)(patch::LABEL_ENTRY, [0, 0, 0]);
 

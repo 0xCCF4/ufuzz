@@ -64,7 +64,13 @@ unsafe fn main() -> Status {
 
     println!("Hookable addresses: {:04x}", hookable_addresses.len() * 2);
 
-    let mut coverage_harness = CoverageHarness::new(&mut interface, &cpu);
+    let mut coverage_harness = match CoverageHarness::new(&mut interface, &cpu) {
+        Ok(harness) => harness,
+        Err(e) => {
+            info!("Failed to initiate harness {:?}", e);
+            return Status::ABORTED;
+        }
+    };
     //let validation_harness = ValidationHarness::new(&mut coverage_harness);
     let iteration_harness = IterationHarness::new(hookable_addresses);
 

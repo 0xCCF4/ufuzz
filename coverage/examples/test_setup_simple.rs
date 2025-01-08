@@ -65,12 +65,20 @@ unsafe fn main() -> Status {
 
     interface.reset_coverage();
 
-    apply_patch(&coverage_collector::PATCH);
-    if coverage_collector::PATCH.addr + coverage_collector::PATCH.ucode_patch.len() * 4 >= coverage_collector_debug_tools::PATCH.addr {
+    if let Err(err) = apply_patch(&coverage_collector::PATCH) {
+        println!("Failed to apply patch: {:?}", err);
+        return Status::ABORTED;
+    }
+    if coverage_collector::PATCH.addr + coverage_collector::PATCH.ucode_patch.len() * 4
+        >= coverage_collector_debug_tools::PATCH.addr
+    {
         println!("Patch too large. Cannot continue.");
         return Status::ABORTED;
     }
-    apply_patch(&coverage_collector_debug_tools::PATCH);
+    if let Err(err) = apply_patch(&coverage_collector_debug_tools::PATCH) {
+        println!("Failed to apply patch: {:?}", err);
+        return Status::ABORTED;
+    }
 
     fn print_status() {
         print!("Hooks  : ");
@@ -127,7 +135,10 @@ unsafe fn main() -> Status {
         }
     }
 
-    apply_patch(&coverage_collector::PATCH); // todo: remove
+    if let Err(err) = apply_patch(&coverage_collector::PATCH) {
+        println!("Failed to apply patch: {:?}", err);
+        return Status::ABORTED;
+    }
     interface.reset_coverage();
     disable_all_hooks();
 

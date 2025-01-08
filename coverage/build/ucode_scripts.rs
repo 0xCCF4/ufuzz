@@ -268,6 +268,7 @@ fn generate_patch<A: AsRef<Path>>(path: A, interface: &ComInterfaceDescription) 
     for i in 0..interface.max_number_of_hooks {
         let even_index = i * 2;
         let odd_index = even_index + 1;
+
         entries.push_str(
             format!(
                 "
@@ -284,11 +285,11 @@ UJMP(,<hook_handler_{i:02}_triplet>) # not necessary? otherwise just NOP, since 
             format!(
                 "
 <hook_handler_{i:02}_even>
-func record_coverage_no_state_change({even_index:02x})
+func handler_inst(0x{even_index:02x}, hook_handler_{i:02}_even)
 UJMP(,<hook_exit_{i:02}_even>)
 
 <hook_handler_{i:02}_odd>
-func record_coverage_no_state_change({odd_index:02x})
+func handler_inst(0x{odd_index:02x}, hook_handler_{i:02}_odd)
 UJMP(,<hook_exit_{i:02}_odd>)
 "
             )

@@ -11,6 +11,10 @@ NOPB
 include <gen/interface_definition.up>
 include <variables.up>
 
+<handler>
+include <handler.up>
+<handler_end>
+
 <autogen>
 include <gen/patch.up>
 #---- auto generated handler functions ----
