@@ -199,12 +199,14 @@ fn print_status(max_count: usize, hooks: &[UCInstructionAddress]) {
     }
     println!();
 
-    for index in 0..max_count
-        .min(interface_definition::COM_INTERFACE_DESCRIPTION.max_number_of_hooks as usize)
+    for index in 0..2*max_count
+        .min(2*interface_definition::COM_INTERFACE_DESCRIPTION.max_number_of_hooks as usize)
     {
         print!(
-            "EXIT {index:02}: {address}: ",
-            address = hooks[index].align_even()
+            "EXIT {:02}-{}: {address}: ",
+            index/2,
+            index%2,
+            address = hooks[index/2].align_even() + index%2
         );
         for offset in 0..3 {
             let instruction = ms_patch_instruction_read(

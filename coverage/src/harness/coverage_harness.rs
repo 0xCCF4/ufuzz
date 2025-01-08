@@ -6,7 +6,7 @@ use crate::harness::coverage_harness::modification_engine::{
     ModificationEngineSettings, NotHookableReason,
 };
 use crate::interface::safe::ComInterface;
-use crate::interface_definition::CoverageCount;
+use crate::interface_definition::{CoverageCount, InstructionTableEntry};
 #[cfg(feature = "no_std")]
 use alloc::vec::Vec;
 use core::fmt::Debug;
@@ -58,7 +58,7 @@ impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
             return Err(CoverageError::TooManyHooks);
         }
 
-        let mut instructions = Vec::with_capacity(hooks.len());
+        let mut instructions: Vec<InstructionTableEntry> = Vec::with_capacity(hooks.len());
         for hook in hooks.iter().copied() {
             if hooks
                 .iter()
@@ -80,12 +80,14 @@ impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
                 .modify_triad_for_hooking(hook, &self.compile_mode)
                 .map_err(|err| CoverageError::AddressNotHookable(hook, err))?;
 
-            instructions.push([triad.assemble().map_err(|err| {
+            let mut assembled_triad = triad.into_iter().map(|triad| triad.assemble().map_err(|err| {
                 CoverageError::AddressNotHookable(
                     hook,
                     NotHookableReason::ModificationFailedSequenceWordBuild(err),
                 )
-            })?]);
+            }));
+
+            instructions.push([assembled_triad.next().unwrap()?, assembled_triad.next().unwrap()?]);
         }
 
         self.interface.write_jump_table_all(hooks);
@@ -142,12 +144,19 @@ impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
         &self,
         hooked_address: UCInstructionAddress,
         mode: &ModificationEngineSettings,
-    ) -> Result<Triad, NotHookableReason> {
-        modification_engine::modify_triad_for_hooking(
-            hooked_address.align_even(),
-            self.custom_processing_unit.rom(),
-            mode,
-        )
+    ) -> Result<[Triad; 2], NotHookableReason> {
+        Ok([
+            modification_engine::modify_triad_for_hooking(
+                hooked_address.align_even(),
+                self.custom_processing_unit.rom(),
+                mode,
+            )?,
+            modification_engine::modify_triad_for_hooking(
+                hooked_address.align_even() + 1,
+                self.custom_processing_unit.rom(),
+                mode,
+            )?,
+        ])
     }
 
     pub fn execute<FuncResult, F: FnOnce() -> FuncResult>(

@@ -206,17 +206,17 @@ fn generate_interface_definitions<A: AsRef<Path>>(
     assert!(size_of::<InstructionTableEntry>().is_power_of_two());
     definitions.push((
         "convert_index_to_jump_table_offset",
-        size_of::<JumpTableEntry>().ilog2() as usize,
+        size_of::<JumpTableEntry>().ilog2() as usize - 1, // since two entries, make it prettier later
         "shift by this amount to get the offset in the jump table",
     ));
     definitions.push((
         "convert_index_to_coverage_table_offset",
-        size_of::<CoverageEntry>().ilog2() as usize,
+        size_of::<CoverageEntry>().ilog2() as usize - 1, // since two entries, make it prettier later
         "shift by this amount to get the offset in the coverage table",
     ));
     definitions.push((
         "convert_index_to_instruction_table_offset",
-        size_of::<InstructionTableEntry>().ilog2() as usize,
+        size_of::<InstructionTableEntry>().ilog2() as usize - 1, // since two entries, make it prettier later
         "shift by this amount to get the offset in the instruction table",
     ));
     assert!(interface.offset_jump_back_table > interface.offset_coverage_result_table);
@@ -276,7 +276,7 @@ NOPB # Align to 4
 <hook_entry_{i:02}>
 UJMP(,<hook_handler_{i:02}_even>)
 UJMP(,<hook_handler_{i:02}_odd>)
-UJMP(,<hook_handler_{i:02}_triplet>) # not necessary? otherwise just NOP, since we need to align to 4
+UJMP(,<exit_trap>) # not necessary? otherwise just NOP, since we need to align to 4
 "
             )
             .as_str(),
@@ -302,9 +302,12 @@ NOPB # Align to 4
 <hook_exit_{i:02}>
 <hook_exit_{i:02}_even>
 NOP
+NOP
+NOP SEQW NOP
+
 <hook_exit_{i:02}_odd>
 NOP
-<hook_handler_{i:02}_triplet>
+NOP
 NOP SEQW NOP
 "
             )

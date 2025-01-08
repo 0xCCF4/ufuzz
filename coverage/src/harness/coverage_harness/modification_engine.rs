@@ -242,7 +242,6 @@ pub fn modify_triad_for_hooking(
     mode: &ModificationEngineSettings,
 ) -> Result<Triad, NotHookableReason> {
     is_hookable(address, rom, mode)?;
-    let address = address.align_even();
 
     let triad = Triad::try_from(
         rom.triad(address)
@@ -250,25 +249,20 @@ pub fn modify_triad_for_hooking(
     )
     .map_err(NotHookableReason::ModificationFailedSequenceWordParse)?;
 
+    let instruction = *triad
+        .instructions
+        .get(address.triad_offset() as usize)
+        .unwrap_or(&Instruction::NOP);
+
     let sequence_word = triad.sequence_word;
 
     let result_triad = Triad {
         instructions: [
-            *triad
-                .instructions
-                .get(address.triad_offset() as usize + 0)
-                .unwrap(),
-            if address.triad_offset() == 2 {
-                Instruction::NOP
-            } else {
-                *triad
-                    .instructions
-                    .get(address.triad_offset() as usize + 1)
-                    .unwrap()
-            },
-            Instruction::UJMP(address.next_even_address()),
+            instruction,
+            Instruction::UJMP(address.next_address()),
+            Instruction::NOP,
         ],
-        sequence_word: sequence_word.apply_view(address.triad_offset(), 2).apply(),
+        sequence_word: sequence_word.apply_view(address.triad_offset(), 1).apply(),
     };
 
     if let Some(control) = result_triad.sequence_word.control() {

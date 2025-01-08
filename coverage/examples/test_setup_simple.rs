@@ -5,6 +5,9 @@
 
 extern crate alloc;
 
+use core::ops::Deref;
+use core::ptr::NonNull;
+use itertools::Itertools;
 use coverage::interface::safe::ComInterface;
 use coverage::interface_definition::InstructionTableEntry;
 use coverage::{coverage_collector, coverage_collector_debug_tools, interface_definition};
@@ -16,6 +19,7 @@ use data_types::addresses::UCInstructionAddress;
 use log::info;
 use uefi::prelude::*;
 use uefi::{print, println};
+use coverage::interface::raw;
 
 #[entry]
 unsafe fn main() -> Status {
@@ -80,61 +84,6 @@ unsafe fn main() -> Status {
         return Status::ABORTED;
     }
 
-    fn print_status() {
-        print!("Hooks  : ");
-        for i in 0..interface_definition::COM_INTERFACE_DESCRIPTION.max_number_of_hooks as usize {
-            let hook = call_custom_ucode_function(
-                coverage_collector_debug_tools::LABEL_FUNC_LDAT_READ_HOOKS,
-                [i, 0, 0],
-            )
-            .rax;
-            print!("{:08x}, ", hook);
-        }
-        println!();
-
-        for i in 0..(8)
-            .min(1 * interface_definition::COM_INTERFACE_DESCRIPTION.max_number_of_hooks as usize)
-        {
-            print!("EXIT {:02}: ", i / 4);
-            for offset in 0..3 {
-                let instruction = ms_patch_instruction_read(
-                    coverage_collector_debug_tools::LABEL_FUNC_LDAT_READ,
-                    coverage_collector::LABEL_HOOK_EXIT_00 + i * 4 + offset,
-                );
-                print!("{:08x} ", instruction);
-            }
-            let seqw = ms_seqw_read(
-                coverage_collector_debug_tools::LABEL_FUNC_LDAT_READ,
-                coverage_collector::LABEL_HOOK_EXIT_00 + i * 4,
-            );
-            println!("-> {:08x}", seqw);
-        }
-    }
-
-    unsafe fn setup_hooks(
-        interface: &mut ComInterface,
-        addresses: &[UCInstructionAddress],
-        instructions: &[InstructionTableEntry],
-        printing: bool,
-    ) {
-        assert_eq!(addresses.len() * 1, instructions.len());
-        interface.write_jump_table_all(addresses);
-        interface.write_instruction_table_all(instructions.iter().cloned().into_iter());
-
-        let result = call_custom_ucode_function(
-            coverage_collector::LABEL_FUNC_SETUP,
-            [addresses.len(), 0, 0],
-        );
-
-        if printing {
-            println!("Setup: {:x?}", result);
-        }
-
-        if result.rax != 0x664200006642 {
-            println!("Failed to setup");
-        }
-    }
-
     if let Err(err) = apply_patch(&coverage_collector::PATCH) {
         println!("Failed to apply patch: {:?}", err);
         return Status::ABORTED;
@@ -152,9 +101,9 @@ unsafe fn main() -> Status {
         UCInstructionAddress::from_const(0x222),
     ];
     let instructions: [InstructionTableEntry; 3] = [
-        [[0x01, 0x02, 0x03, 0x04]],
-        [[0x11, 0x12, 0x13, 0x14]],
-        [[0x21, 0x22, 0x23, 0x24]],
+        [[0x01, 0x02, 0x03, 0x04], [0x05, 0x06, 0x07, 0x08]],
+        [[0x11, 0x12, 0x13, 0x14], [0x15, 0x16, 0x17, 0x18]],
+        [[0x21, 0x22, 0x23, 0x24], [0x25, 0x26, 0x27, 0x28]],
     ];
 
     setup_hooks(&mut interface, &addr, &instructions, true);
@@ -210,4 +159,59 @@ unsafe fn main() -> Status {
     cpu.cleanup();
 
     Status::SUCCESS
+}
+
+fn print_status() {
+    print!("Hooks  : ");
+    for i in 0..interface_definition::COM_INTERFACE_DESCRIPTION.max_number_of_hooks as usize {
+        let hook = call_custom_ucode_function(
+            coverage_collector_debug_tools::LABEL_FUNC_LDAT_READ_HOOKS,
+            [i, 0, 0],
+        )
+            .rax;
+        print!("{:08x}, ", hook);
+    }
+    println!();
+
+    for i in 0..(8)
+        .min(2 * interface_definition::COM_INTERFACE_DESCRIPTION.max_number_of_hooks as usize)
+    {
+        print!("EXIT {:02}-{}: ", i / 2, i % 2);
+        for offset in 0..3 {
+            let instruction = ms_patch_instruction_read(
+                coverage_collector_debug_tools::LABEL_FUNC_LDAT_READ,
+                coverage_collector::LABEL_HOOK_EXIT_00 + i * 4 + offset,
+            );
+            print!("{:08x} ", instruction);
+        }
+        let seqw = ms_seqw_read(
+            coverage_collector_debug_tools::LABEL_FUNC_LDAT_READ,
+            coverage_collector::LABEL_HOOK_EXIT_00 + i * 4,
+        );
+        println!("-> {:08x}", seqw);
+    }
+}
+
+unsafe fn setup_hooks(
+    interface: &mut ComInterface,
+    addresses: &[UCInstructionAddress],
+    instructions: &[InstructionTableEntry],
+    printing: bool,
+) {
+    assert_eq!(addresses.len() * 1, instructions.len());
+    interface.write_jump_table_all(addresses);
+    interface.write_instruction_table_all(instructions.iter().cloned().into_iter());
+
+    let result = call_custom_ucode_function(
+        coverage_collector::LABEL_FUNC_SETUP,
+        [addresses.len(), 0, 0],
+    );
+
+    if printing {
+        println!("Setup: {:x?}", result);
+    }
+
+    if result.rax != 0x664200006642 {
+        println!("Failed to setup");
+    }
 }

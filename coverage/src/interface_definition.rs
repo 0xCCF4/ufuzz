@@ -34,7 +34,7 @@ const COVERAGE_RESULT_TABLE_BYTE_SIZE: usize = size_of::<CoverageEntry>() * MAX_
 pub type JumpTableEntry = u16;
 const JUMP_TABLE_BYTE_SIZE: usize = size_of::<JumpTableEntry>() * MAX_NUMBER_OF_HOOKS;
 
-pub type InstructionTableEntry = [[u64; 4]; 1];
+pub type InstructionTableEntry = [[u64; 4]; 2];
 const INSTRUCTION_TABLE_BYTE_SIZE: usize = size_of::<InstructionTableEntry>() * MAX_NUMBER_OF_HOOKS;
 
 pub const COM_INTERFACE_DESCRIPTION: ComInterfaceDescription = ComInterfaceDescription {
