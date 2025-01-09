@@ -216,13 +216,14 @@ pub fn is_hookable(
         // todo investigate this, later instructions fails first
         0x488, // U0488: 2062fe1f5200 tmp5:= MOVEFROMCREG_DSZ64( , 0x7fe) !m2
         0x489, // U0489: 000100135d48 tmp5:= OR_DSZ32(0x00000400, tmp5)
+        0x490,
         0x48a, // U048a: 2a62fe1c0335 SYNCFULL-> MOVETOCREG_BTR_DSZ64(tmp5, 0x00000010, 0x7fe) !m2 SEQW GOTO U221e
         // todo investigate this
         0x48c, // already blacklisted unk222
         0x48d, // already blacklisted unk222
         0x48e, // U048e: 0064ff7fdf5f tmp13:= SHL_DSZ64(0xffffffffffffffff, tmp13) SEQW GOTO U078d
         0x68e, // todo generalize?
-        0x9dc, 0x9de,
+        0x9b6, 0x9dc, 0x9de, 0x3b58, 0x48b0, 0x63d8, 0x6452,
     ];
 
     if blacklist

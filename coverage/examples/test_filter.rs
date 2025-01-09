@@ -21,7 +21,7 @@ use uefi::proto::media::file::{File, FileAttribute, FileMode};
 use uefi::runtime::ResetType;
 use uefi::{print, println, CString16};
 
-const WRITE_PROTECT: bool = false;
+const WRITE_PROTECT: bool = true;
 
 #[entry]
 unsafe fn main() -> Status {
@@ -718,7 +718,7 @@ fn collect_cpuids_all() -> Vec<(u32, CpuidResult)> {
 
     for key in (0..0x20)
         .into_iter()
-        .chain((0x80000000..80000008).into_iter().take(1))
+        .chain((0x80000000..80000008).into_iter())
     {
         result.push((key, CpuidResult::query(key, 0)));
     }

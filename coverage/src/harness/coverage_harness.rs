@@ -80,14 +80,19 @@ impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
                 .modify_triad_for_hooking(hook, &self.compile_mode)
                 .map_err(|err| CoverageError::AddressNotHookable(hook, err))?;
 
-            let mut assembled_triad = triad.into_iter().map(|triad| triad.assemble().map_err(|err| {
-                CoverageError::AddressNotHookable(
-                    hook,
-                    NotHookableReason::ModificationFailedSequenceWordBuild(err),
-                )
-            }));
+            let mut assembled_triad = triad.into_iter().map(|triad| {
+                triad.assemble().map_err(|err| {
+                    CoverageError::AddressNotHookable(
+                        hook,
+                        NotHookableReason::ModificationFailedSequenceWordBuild(err),
+                    )
+                })
+            });
 
-            instructions.push([assembled_triad.next().unwrap()?, assembled_triad.next().unwrap()?]);
+            instructions.push([
+                assembled_triad.next().unwrap()?,
+                assembled_triad.next().unwrap()?,
+            ]);
         }
 
         self.interface.write_jump_table_all(hooks);

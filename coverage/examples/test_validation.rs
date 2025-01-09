@@ -181,16 +181,22 @@ fn collect_coverage<R, F: FnMut() -> R>(
 }
 
 fn print_coverage(coverage: &BTreeMap<UCInstructionAddress, CoverageCount>) {
+    let padding = coverage.values().max().unwrap_or(&1).ilog10() + 1;
     for chunk in coverage
         .iter()
         .sorted_by_key(|(key, _)| **key)
         .collect_vec()
-        .chunks(12)
+        .chunks((100 / (padding + 8)) as usize)
     {
         for (address, value) in chunk {
-            print!("{address}:{} ", value)
+            print!(
+                "{}: {:padding$} ",
+                address,
+                value,
+                padding = padding as usize
+            );
         }
-        println!()
+        println!();
     }
 }
 
@@ -278,10 +284,7 @@ fn test_cpuid(
         {
             None
         } else {
-            Some(coverage_harness.execute(chunk, || {
-                print!("\r{:04x?}", chunk);
-                collect_cpuids_all(Some(&stable))
-            }))
+            Some(coverage_harness.execute(chunk, || collect_cpuids_all(Some(&stable))))
         }
     }) {
         match result {

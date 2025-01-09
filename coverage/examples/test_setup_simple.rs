@@ -5,9 +5,6 @@
 
 extern crate alloc;
 
-use core::ops::Deref;
-use core::ptr::NonNull;
-use itertools::Itertools;
 use coverage::interface::safe::ComInterface;
 use coverage::interface_definition::InstructionTableEntry;
 use coverage::{coverage_collector, coverage_collector_debug_tools, interface_definition};
@@ -19,7 +16,6 @@ use data_types::addresses::UCInstructionAddress;
 use log::info;
 use uefi::prelude::*;
 use uefi::{print, println};
-use coverage::interface::raw;
 
 #[entry]
 unsafe fn main() -> Status {
@@ -168,13 +164,13 @@ fn print_status() {
             coverage_collector_debug_tools::LABEL_FUNC_LDAT_READ_HOOKS,
             [i, 0, 0],
         )
-            .rax;
+        .rax;
         print!("{:08x}, ", hook);
     }
     println!();
 
-    for i in 0..(8)
-        .min(2 * interface_definition::COM_INTERFACE_DESCRIPTION.max_number_of_hooks as usize)
+    for i in
+        0..(8).min(2 * interface_definition::COM_INTERFACE_DESCRIPTION.max_number_of_hooks as usize)
     {
         print!("EXIT {:02}-{}: ", i / 2, i % 2);
         for offset in 0..3 {
