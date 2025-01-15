@@ -1,0 +1,16 @@
+[package]
+name = "hypervisor"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+#bit_field = "0.10.2"
+#bitfield = "0.17.0"
+log = "0.4.25"
+#thiserror-no-std = "2.0.2"
+#x86 = "0.52.0"
+#x86_64 = "0.15.2"
+#static_assertions = "1.1.0"
+uefi = { version = "0.33.0", features = ["logger", "panic_handler", "alloc", "global_allocator"] }
+itertools = "0.14.0"
+
