@@ -13,6 +13,7 @@ use std::{
 
 pub(crate) struct Bochs {
     pub(crate) cpu: Cpu,
+    pub(crate) port: Option<u16>,
 }
 
 pub struct BochsEnviroment {
@@ -100,7 +101,7 @@ impl VM for Bochs {
             return Err("mcopy hypervisor.efi failed".into());
         }
 
-        let port = rand::thread_rng().gen_range(1024..65535);
+        let port = self.port.unwrap_or(rand::thread_rng().gen_range(1024..65535));
 
         let data = config_directory
             .as_ref()
@@ -121,6 +122,20 @@ impl VM for Bochs {
 
         std::fs::write(&config, data).map_err(|_| "write bxrc failed")?;
 
+        // copy bios to working directory
+        if !Command::new("cp")
+            .args([
+                "-r",
+                config_directory.as_ref().join("bios").to_str().unwrap(),
+                working_directory.as_ref().to_str().unwrap(),
+            ])
+            .status()
+            .map_err(|_| "cp bios failed")?
+            .success()
+        {
+            return Err("cp bios failed".into());
+        }
+
         Ok(BochsEnviroment {
             config_directory: config_directory.as_ref().to_path_buf(),
             working_directory: working_directory.as_ref().to_path_buf(),
@@ -131,28 +146,30 @@ impl VM for Bochs {
     fn run(&self, environment: Self::T) -> Result<(), DynError> {
         // Start a threads that tries to connect to Bochs in an infinite loop.
         let port = environment.port;
-        let _unused = thread::spawn(move || loop {
-            thread::sleep(Duration::from_secs(4));
+        if self.port.is_none() {
+            let _unused = thread::spawn(move || loop {
+                thread::sleep(Duration::from_secs(4));
 
-            let output = Command::new("telnet")
-                .args(["localhost", port.to_string().as_str()])
-                .stdout(Stdio::piped())
-                .stdin(Stdio::piped())
-                .spawn()
-                .expect("telnet connection");
+                let output = Command::new("telnet")
+                    .args(["localhost", port.to_string().as_str()])
+                    .stdout(Stdio::piped())
+                    .stdin(Stdio::piped())
+                    .spawn()
+                    .expect("telnet connection");
 
-            let now = SystemTime::now();
+                let now = SystemTime::now();
 
-            let reader = BufReader::new(output.stdout.unwrap());
-            reader.lines().map_while(Result::ok).for_each(|line| {
-                println!(
-                    "{:>4}: {line}\r",
-                    now.elapsed().unwrap_or_default().as_secs()
-                );
+                let reader = BufReader::new(output.stdout.unwrap());
+                reader.lines().map_while(Result::ok).for_each(|line| {
+                    println!(
+                        "{:>4}: {line}\r",
+                        now.elapsed().unwrap_or_default().as_secs()
+                    );
+                });
+
+                thread::sleep(Duration::from_secs(1));
             });
-
-            thread::sleep(Duration::from_secs(1));
-        });
+        }
 
         let (tx, rx) = channel();
         let tx2 = tx.clone();
@@ -162,20 +179,28 @@ impl VM for Bochs {
         let bochs = thread::spawn(move || {
             let bxrc =
                 std::fs::canonicalize(environment.working_directory.join("config.bxrc")).unwrap();
-            let output = Command::new("bochs")
+
+            let bochs = std::env::var("BOCHS").unwrap_or("bochs".to_string());
+
+            let mut output = Command::new(bochs);
+            output
                 .args([
                     "-q",
                     "-unlock",
-                    "-rc",
+                    /*"-rc",
                     std::fs::canonicalize(environment.config_directory.join("dbg_command.txt"))
                         .unwrap()
                         .to_str()
-                        .unwrap(),
+                        .unwrap(),*/
                     "-f",
                     &bxrc.to_str().unwrap(),
                 ])
                 .current_dir(environment.working_directory)
-                .stdout(Stdio::piped())
+                .stdout(Stdio::piped());
+
+            println!("Starting bochs with command: {:?}", output);
+
+            let output = output
                 .spawn()
                 .expect("bochs run failed");
 
