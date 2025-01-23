@@ -1,8 +1,9 @@
 //! The module containing the [`Vm`] type.
 
+use crate::error::HypervisorError;
 use crate::{
     hardware_vt::{
-         vmx::Vmx, HardwareVt, NestedPagingStructure, NestedPagingStructureEntry,
+        vmx::Vmx, HardwareVt, NestedPagingStructure, NestedPagingStructureEntry,
         NestedPagingStructureEntryType,
     },
     Page,
@@ -10,8 +11,6 @@ use crate::{
 use alloc::boxed::Box;
 use core::ptr::addr_of;
 use log::trace;
-use uefi::println;
-use crate::error::HypervisorError;
 
 /// The representation of a virtual machine, made up of collection of registers,
 /// which is managed through [`HardwareVt`], preallocated
@@ -77,7 +76,10 @@ impl Vm {
     /// This function does so by walking through whole PML4 -> PDPT -> PD -> PT
     /// as a processor does, and allocating tables and initializing table
     /// entries as needed.
-    pub fn get_translation<'a>(&'a mut self, gpa: usize) -> crate::Result<&'a mut NestedPagingStructureEntry> {
+    pub fn get_translation(
+        &mut self,
+        gpa: usize,
+    ) -> crate::Result<&mut NestedPagingStructureEntry> {
         let pml4i = (gpa >> 39) & 0b1_1111_1111;
         let pdpti = (gpa >> 30) & 0b1_1111_1111;
         let pdi = (gpa >> 21) & 0b1_1111_1111;
@@ -139,11 +141,14 @@ impl Vm {
     /// as a processor does, and allocating tables and initializing table
     /// entries as needed.
     #[allow(clippy::similar_names)]
-    pub fn build_translation(&mut self, gpa: usize, pa: *const Page, entry_type: NestedPagingStructureEntryType) -> crate::Result<()> {
+    pub fn build_translation(
+        &mut self,
+        gpa: usize,
+        pa: *const Page,
+        entry_type: NestedPagingStructureEntryType,
+    ) -> crate::Result<()> {
         // Make it non-writable so that copy-on-write is done for dirty pages.
-        let flags = self
-            .vt
-            .nps_entry_flags(entry_type);
+        let flags = self.vt.nps_entry_flags(entry_type);
 
         let pte = self.get_translation(gpa)?;
         pte.set_translation(pa as u64, flags);

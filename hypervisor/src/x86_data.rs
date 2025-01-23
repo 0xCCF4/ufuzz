@@ -1,5 +1,3 @@
-use bitfield::bitfield;
-
 #[derive(derivative::Derivative, Default, Clone)]
 #[derivative(Debug)]
 #[repr(C, packed)]
@@ -30,5 +28,3 @@ pub struct TSS {
 }
 
 const _: () = assert!(core::mem::size_of::<TSS>() == 104);
-
-

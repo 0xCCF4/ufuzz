@@ -34,5 +34,5 @@ pub struct VmStateExtendedRegisters {
     pub es_base: u64,
     pub cs_base: u64,
     pub ss_base: u64,
-    pub ds_base: u64
+    pub ds_base: u64,
 }

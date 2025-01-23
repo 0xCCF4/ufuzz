@@ -14,6 +14,7 @@ serde_json = { version = "1.0", default-features = false, features = ["alloc"] }
 spin = "0.9"
 x86 = "0.52"
 thiserror-no-std = "2.0.2"
+iced-x86 = { version = "1.21.0", default-features = false, features = ["decoder", "encoder", "block_encoder", "op_code_info", "instr_info", "gas", "intel", "masm", "nasm", "fast_fmt", "code_asm", "no_std"] }
 
 [features]
 __disabled = []

@@ -10,8 +10,15 @@
 //! Revision 78 (December 2022) at <https://www.intel.com/sdm/> unless otherwise
 //! stated.
 
-use super::{get_segment_descriptor_value, get_segment_limit, GuestRegisters, NestedPagingStructureEntryFlags, NestedPagingStructureEntryType, VmExitReason};
-use crate::{hardware_vt::{self, ExceptionQualification, GuestException, NestedPageFaultQualification}, x86_instructions::{cr0, cr0_write, cr3, cr4, cr4_write, rdmsr, sgdt, sidt, wrmsr}};
+use super::{
+    get_segment_descriptor_value, get_segment_limit, GuestRegisters,
+    NestedPagingStructureEntryFlags, NestedPagingStructureEntryType, VmExitReason,
+};
+use crate::state::VmState;
+use crate::{
+    hardware_vt::{self, ExceptionQualification, GuestException, NestedPageFaultQualification},
+    x86_instructions::{cr0, cr0_write, cr3, cr4, cr4_write, rdmsr, sgdt, sidt, wrmsr},
+};
 use alloc::{
     boxed::Box,
     format,
@@ -23,12 +30,11 @@ use core::{
     arch::{asm, global_asm},
     fmt,
 };
-use core::mem::transmute;
 use log::{debug, warn};
-use uefi::{print, println};
+use uefi::println;
 use x86::{
     controlregs::{Cr0, Cr4},
-    current::{rflags::RFlags},
+    current::rflags::RFlags,
     dtables::DescriptorTablePointer,
     irq,
     segmentation::{
@@ -36,9 +42,6 @@ use x86::{
     },
     vmx::vmcs,
 };
-use x86::bits64::segmentation::Descriptor64;
-use x86::segmentation::SystemDescriptorTypes64;
-use crate::state::VmState;
 
 /// VMX-specific data to represent a guest.
 #[derive(derivative::Derivative)]
@@ -110,7 +113,6 @@ impl hardware_vt::HardwareVt for Vmx {
         const IA32_VMX_PROCBASED_CTLS_ACTIVATE_SECONDARY_CONTROLS_FLAG: u64 = 1 << 31;
         const IA32_VMX_EXIT_CTLS_HOST_ADDRESS_SPACE_SIZE_FLAG: u64 = 1 << 9;
         const IA32_VMX_ENTRY_CTLS_IA32E_MODE_GUEST_FLAG: u64 = 1 << 9;
-        const IA32_VMX_PROCBASED_CTLS2_ENABLE_EPT_FLAG: u64 = 1 << 1;
         const EPT_POINTER_MEMORY_TYPE_WRITE_BACK: u64 = 6 /* << 0 */;
         const EPT_POINTER_PAGE_WALK_LENGTH_4: u64 = 3 << 3;
 
@@ -238,14 +240,15 @@ impl hardware_vt::HardwareVt for Vmx {
             vmcs::control::SECONDARY_PROCBASED_EXEC_CONTROLS,
             adjust_vmx_control(
                 VmxControl::ProcessorBased2,
-                (vmcs::control::SecondaryControls::ENABLE_EPT | vmcs::control::SecondaryControls::UNRESTRICTED_GUEST).bits() as u64,
+                (vmcs::control::SecondaryControls::ENABLE_EPT
+                    | vmcs::control::SecondaryControls::UNRESTRICTED_GUEST)
+                    .bits() as u64,
             ),
         );
         vmwrite(
             vmcs::control::EPTP_FULL,
             nested_pml4_addr | EPT_POINTER_PAGE_WALK_LENGTH_4 | EPT_POINTER_MEMORY_TYPE_WRITE_BACK,
         );
-
 
         // Intercept #BP, #UD, #PF.
         // See: 25.6.3 Exception Bitmap
@@ -285,26 +288,71 @@ impl hardware_vt::HardwareVt for Vmx {
         vmwrite(vmcs::guest::TR_SELECTOR, extended_registers.tr);
         vmwrite(vmcs::guest::LDTR_SELECTOR, extended_registers.ldtr);
 
-        vmwrite(vmcs::guest::CS_ACCESS_RIGHTS, get_segment_access_right(guest_gdt, extended_registers.cs));
-        vmwrite(vmcs::guest::SS_ACCESS_RIGHTS, get_segment_access_right(guest_gdt, extended_registers.ss));
-        vmwrite(vmcs::guest::ES_ACCESS_RIGHTS, get_segment_access_right(guest_gdt, extended_registers.es));
-        vmwrite(vmcs::guest::DS_ACCESS_RIGHTS, get_segment_access_right(guest_gdt, extended_registers.ds));
-        vmwrite(vmcs::guest::FS_ACCESS_RIGHTS, get_segment_access_right(guest_gdt, extended_registers.fs));
-        vmwrite(vmcs::guest::GS_ACCESS_RIGHTS, get_segment_access_right(guest_gdt, extended_registers.gs));
-        vmwrite(vmcs::guest::TR_ACCESS_RIGHTS, get_segment_access_right(guest_gdt, extended_registers.tr));
+        vmwrite(
+            vmcs::guest::CS_ACCESS_RIGHTS,
+            get_segment_access_right(guest_gdt, extended_registers.cs),
+        );
+        vmwrite(
+            vmcs::guest::SS_ACCESS_RIGHTS,
+            get_segment_access_right(guest_gdt, extended_registers.ss),
+        );
+        vmwrite(
+            vmcs::guest::ES_ACCESS_RIGHTS,
+            get_segment_access_right(guest_gdt, extended_registers.es),
+        );
+        vmwrite(
+            vmcs::guest::DS_ACCESS_RIGHTS,
+            get_segment_access_right(guest_gdt, extended_registers.ds),
+        );
+        vmwrite(
+            vmcs::guest::FS_ACCESS_RIGHTS,
+            get_segment_access_right(guest_gdt, extended_registers.fs),
+        );
+        vmwrite(
+            vmcs::guest::GS_ACCESS_RIGHTS,
+            get_segment_access_right(guest_gdt, extended_registers.gs),
+        );
+        vmwrite(
+            vmcs::guest::TR_ACCESS_RIGHTS,
+            get_segment_access_right(guest_gdt, extended_registers.tr),
+        );
         vmwrite(
             vmcs::guest::LDTR_ACCESS_RIGHTS,
             get_segment_access_right(guest_gdt, extended_registers.ldtr),
         );
 
-        vmwrite(vmcs::guest::ES_LIMIT, get_segment_limit(guest_gdt, extended_registers.es));
-        vmwrite(vmcs::guest::CS_LIMIT, get_segment_limit(guest_gdt, extended_registers.cs));
-        vmwrite(vmcs::guest::SS_LIMIT, get_segment_limit(guest_gdt, extended_registers.ss));
-        vmwrite(vmcs::guest::DS_LIMIT, get_segment_limit(guest_gdt, extended_registers.ds));
-        vmwrite(vmcs::guest::FS_LIMIT, get_segment_limit(guest_gdt, extended_registers.fs));
-        vmwrite(vmcs::guest::GS_LIMIT, get_segment_limit(guest_gdt, extended_registers.gs));
-        vmwrite(vmcs::guest::TR_LIMIT, get_segment_limit(guest_gdt, extended_registers.tr));
-        vmwrite(vmcs::guest::LDTR_LIMIT, get_segment_limit(guest_gdt, extended_registers.ldtr));
+        vmwrite(
+            vmcs::guest::ES_LIMIT,
+            get_segment_limit(guest_gdt, extended_registers.es),
+        );
+        vmwrite(
+            vmcs::guest::CS_LIMIT,
+            get_segment_limit(guest_gdt, extended_registers.cs),
+        );
+        vmwrite(
+            vmcs::guest::SS_LIMIT,
+            get_segment_limit(guest_gdt, extended_registers.ss),
+        );
+        vmwrite(
+            vmcs::guest::DS_LIMIT,
+            get_segment_limit(guest_gdt, extended_registers.ds),
+        );
+        vmwrite(
+            vmcs::guest::FS_LIMIT,
+            get_segment_limit(guest_gdt, extended_registers.fs),
+        );
+        vmwrite(
+            vmcs::guest::GS_LIMIT,
+            get_segment_limit(guest_gdt, extended_registers.gs),
+        );
+        vmwrite(
+            vmcs::guest::TR_LIMIT,
+            get_segment_limit(guest_gdt, extended_registers.tr),
+        );
+        vmwrite(
+            vmcs::guest::LDTR_LIMIT,
+            get_segment_limit(guest_gdt, extended_registers.ldtr),
+        );
 
         vmwrite(vmcs::guest::ES_BASE, extended_registers.es_base);
         vmwrite(vmcs::guest::CS_BASE, extended_registers.cs_base);
@@ -320,9 +368,18 @@ impl hardware_vt::HardwareVt for Vmx {
         vmwrite(vmcs::guest::IDTR_BASE, extended_registers.idtr.base as u64);
         vmwrite(vmcs::guest::IDTR_LIMIT, extended_registers.idtr.limit);
 
-        vmwrite(vmcs::guest::IA32_SYSENTER_CS, extended_registers.sysenter_cs);
-        vmwrite(vmcs::guest::IA32_SYSENTER_ESP, extended_registers.sysenter_esp);
-        vmwrite(vmcs::guest::IA32_SYSENTER_EIP, extended_registers.sysenter_eip);
+        vmwrite(
+            vmcs::guest::IA32_SYSENTER_CS,
+            extended_registers.sysenter_cs,
+        );
+        vmwrite(
+            vmcs::guest::IA32_SYSENTER_ESP,
+            extended_registers.sysenter_esp,
+        );
+        vmwrite(
+            vmcs::guest::IA32_SYSENTER_EIP,
+            extended_registers.sysenter_eip,
+        );
         vmwrite(vmcs::guest::IA32_EFER_FULL, extended_registers.efer);
 
         let cr0 = Cr0::from_bits_truncate(extended_registers.cr0 as usize);
@@ -331,12 +388,16 @@ impl hardware_vt::HardwareVt for Vmx {
         // "Later processors support a VM-execution control called “unrestricted guest” (see Section 26.6.2).
         // If this control is 1, CR0.PE and CR0.PG may be 0 in VMX non-root operation (even if the capability
         // MSR IA32_VMX_CR0_FIXED0 reports otherwise)"
-        let mut cr0_adjusted = adjust_cr0(cr0) & !(Cr0::CR0_ENABLE_PAGING | Cr0::CR0_PROTECTED_MODE);
+        let mut cr0_adjusted =
+            adjust_cr0(cr0) & !(Cr0::CR0_ENABLE_PAGING | Cr0::CR0_PROTECTED_MODE);
         cr0_adjusted |= cr0 & (Cr0::CR0_ENABLE_PAGING | Cr0::CR0_PROTECTED_MODE);
 
         vmwrite(vmcs::guest::CR0, cr0_adjusted.bits() as u64);
         vmwrite(vmcs::guest::CR3, extended_registers.cr3);
-        vmwrite(vmcs::guest::CR4, adjust_cr4(Cr4::from_bits_truncate(extended_registers.cr4 as usize)).bits() as u64);
+        vmwrite(
+            vmcs::guest::CR4,
+            adjust_cr4(Cr4::from_bits_truncate(extended_registers.cr4 as usize)).bits() as u64,
+        );
         vmwrite(vmcs::guest::DR7, extended_registers.dr7);
         vmwrite(vmcs::guest::RSP, registers.rsp);
         vmwrite(vmcs::guest::RIP, registers.rip);
@@ -382,7 +443,7 @@ impl hardware_vt::HardwareVt for Vmx {
         self.registers.xmm15 = registers.xmm15;
     }
 
-    fn save_state(&self, state: &mut VmState) {
+    fn save_state(&self, _state: &mut VmState) {
         todo!("not implemented yet");
     }
 
@@ -404,7 +465,7 @@ impl hardware_vt::HardwareVt for Vmx {
         self.registers.rsp = vmread(vmcs::guest::RSP);
         self.registers.rflags = vmread(vmcs::guest::RFLAGS);
 
-        println!("{:#?}", self);
+        println!("{:#x?}", self);
 
         // Handle VM-exit by translating it to the `VmExitReason` type.
         //
@@ -430,12 +491,11 @@ impl hardware_vt::HardwareVt for Vmx {
             //      Table 28-7. Exit Qualification for EPT Violations
             VMX_EXIT_REASON_EPT_VIOLATION => {
                 let qualification = vmread(vmcs::ro::EXIT_QUALIFICATION);
-                VmExitReason::NestedPageFault(NestedPageFaultQualification {
-                    rip: self.registers.rip,
-                    gpa: vmread(vmcs::ro::GUEST_PHYSICAL_ADDR_FULL),
-                    missing_translation: (qualification & 0b11_1000) == 0,
-                    write_access: (qualification & 0b10) != 0,
-                })
+                VmExitReason::NestedPageFault(NestedPageFaultQualification::from(
+                    qualification,
+                    self.registers.rip as usize,
+                    vmread(vmcs::ro::GUEST_PHYSICAL_ADDR_FULL) as usize,
+                ))
             }
             // See: 26.5.1 VMX-Preemption Timer
             VMX_EXIT_REASON_VMX_PREEMPTION_TIMER => VmExitReason::TimerExpiration,
@@ -463,6 +523,12 @@ impl hardware_vt::HardwareVt for Vmx {
     ) -> NestedPagingStructureEntryFlags {
         // See: Table 29-6. Format of an EPT Page-Table Entry that Maps a 4-KByte Page
         match entry_type {
+            // None,
+            NestedPagingStructureEntryType::None => NestedPagingStructureEntryFlags {
+                permission: 0,
+                memory_type: 0,
+            },
+
             // R
             NestedPagingStructureEntryType::R => NestedPagingStructureEntryFlags {
                 permission: 0b001,
@@ -475,7 +541,7 @@ impl hardware_vt::HardwareVt for Vmx {
             },
             // RX
             NestedPagingStructureEntryType::Rx => NestedPagingStructureEntryFlags {
-                permission: 0b101,
+                permission: 0b_101,
                 memory_type: 0,
             },
             // RWX
@@ -770,7 +836,7 @@ fn adjust_cr0(cr0: Cr0) -> Cr0 {
 
     let fixed0_cr0 = Cr0::from_bits_truncate(rdmsr(x86::msr::IA32_VMX_CR0_FIXED0) as usize);
     let fixed1_cr0 = Cr0::from_bits_truncate(rdmsr(x86::msr::IA32_VMX_CR0_FIXED1) as usize);
-    let mut new_cr0 = (cr0 & fixed1_cr0) | fixed0_cr0;
+    let new_cr0 = (cr0 & fixed1_cr0) | fixed0_cr0;
 
     new_cr0
 }

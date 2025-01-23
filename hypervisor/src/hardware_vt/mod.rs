@@ -4,13 +4,13 @@
 //pub mod svm;
 pub mod vmx;
 
+use crate::state::VmState;
 use bitfield::bitfield;
 use core::fmt;
 use x86::{
     current::paging::{BASE_PAGE_SHIFT, PAGE_SIZE_ENTRIES},
     irq,
 };
-use crate::state::VmState;
 
 /// This trait represents an interface to enable HW VT, setup and run a single
 /// virtual machine instance on the current processor.
@@ -55,7 +55,7 @@ pub trait HardwareVt: fmt::Debug {
 /// Reasons of VM exit.
 #[derive(Debug)]
 pub enum VmExitReason {
-    /// An address translation failure with nested paging. Contains a guest
+    /// An address translation failure with nested paging. GPA->LA. Contains a guest
     /// physical address that failed translation and whether the access was
     /// write access.
     NestedPageFault(NestedPageFaultQualification),
@@ -80,11 +80,39 @@ pub enum VmExitReason {
 /// Details of the cause of nested page fault.
 #[derive(Debug)]
 pub struct NestedPageFaultQualification {
-    #[allow(unused)]
-    pub rip: u64,
-    pub gpa: u64,
-    pub missing_translation: bool,
-    pub write_access: bool,
+    pub rip: usize,
+    pub gpa: usize,
+    pub data_read: bool,
+    pub data_write: bool,
+    pub instruction_fetch: bool,
+    pub was_readable: bool,
+    pub was_writable: bool,
+    pub was_executable_user: bool,
+    pub was_executable_supervisor: bool,
+    pub gla_valid: bool,
+    pub nmi_unblocking: bool,
+    pub shadow_stack_access: bool,
+    pub guest_paging_verification: bool,
+}
+
+impl NestedPageFaultQualification {
+    pub fn from(qualification: u64, rip: usize, gpa: usize) -> Self {
+        NestedPageFaultQualification {
+            data_read: (qualification & (1 << 0)) != 0,
+            data_write: (qualification & (1 << 1)) != 0,
+            instruction_fetch: (qualification & (1 << 2)) != 0,
+            was_readable: (qualification & (1 << 3)) != 0,
+            was_writable: (qualification & (1 << 4)) != 0,
+            was_executable_supervisor: (qualification & (1 << 5)) != 0,
+            was_executable_user: (qualification & (1 << 6)) != 0,
+            gla_valid: (qualification & (1 << 7)) != 0,
+            nmi_unblocking: (qualification & (1 << 12)) != 0,
+            shadow_stack_access: (qualification & (1 << 13)) != 0,
+            guest_paging_verification: (qualification & (1 << 15)) != 0,
+            rip,
+            gpa,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -117,6 +145,9 @@ impl TryFrom<u8> for GuestException {
 /// Permissions and memory types to be specified for nested paging structure
 /// entries.
 pub enum NestedPagingStructureEntryType {
+    /// None
+    None,
+
     /// Read, execute
     Rx,
 

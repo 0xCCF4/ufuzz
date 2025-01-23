@@ -24,7 +24,7 @@ pub mod vm;
 pub mod error;
 
 pub use error::HypervisorError as Error;
-pub use error::Result as Result;
+pub use error::Result;
 
 pub mod hypervisor;
 
@@ -41,11 +41,11 @@ pub mod x86_data;
 pub struct Page([u8; BASE_PAGE_SIZE]);
 
 impl Page {
-    pub unsafe fn as_slice_mut(&mut self) -> &mut [u8] {
+    pub fn as_slice_mut(&mut self) -> &mut [u8] {
         &mut self.0
     }
 
-    pub unsafe fn as_slice(&self) -> &[u8] {
+    pub fn as_slice(&self) -> &[u8] {
         &self.0
     }
 

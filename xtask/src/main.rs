@@ -44,8 +44,20 @@ enum Commands {
 fn main() {
     let cli = Cli::parse();
     let result = match &cli.command {
-        Commands::BochsIntel => start_vm(Bochs { cpu: Cpu::Intel, port: cli.port }, cli.release),
-        Commands::BochsAmd => start_vm(Bochs { cpu: Cpu::Amd, port: cli.port }, cli.release),
+        Commands::BochsIntel => start_vm(
+            Bochs {
+                cpu: Cpu::Intel,
+                port: cli.port,
+            },
+            cli.release,
+        ),
+        Commands::BochsAmd => start_vm(
+            Bochs {
+                cpu: Cpu::Amd,
+                port: cli.port,
+            },
+            cli.release,
+        ),
     };
     if let Err(e) = result {
         eprintln!("{e}");
@@ -91,11 +103,21 @@ fn build_hypervisor_app(release: bool) -> Result<PathBuf, DynError> {
         status.args(["--release"]);
     }
 
-    let build_folder = env::var("CARGO_TARGET_DIR").map(PathBuf::from).unwrap_or_else(|_| PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_|"xtask".to_string())).parent().unwrap().join("target"));
+    let build_folder = env::var("CARGO_TARGET_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| {
+            PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| "xtask".to_string()))
+                .parent()
+                .unwrap()
+                .join("target")
+        });
 
     match status.status() {
         Ok(status) if !status.success() => Err("Failed to build the hypervisor")?,
         Err(_) => Err("Failed to build the hypervisor")?,
-        Ok(_) => Ok(PathBuf::from(build_folder).join("x86_64-unknown-uefi").join("debug").join("hypervisor.efi")),
+        Ok(_) => Ok(build_folder
+            .join("x86_64-unknown-uefi")
+            .join("debug")
+            .join("hypervisor.efi")),
     }
 }

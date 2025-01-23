@@ -6,25 +6,26 @@ extern crate alloc;
 
 use alloc::boxed::Box;
 use alloc::vec::Vec;
-use core::alloc::Layout;
-use core::ffi::c_void;
-use log::{debug, error, info};
-use uefi::boot::image_handle;
+use hypervisor::hardware_vt::{GuestRegisters, NestedPagingStructureEntryType};
+use hypervisor::state::{VmState, VmStateExtendedRegisters};
+use hypervisor::vm::Vm;
+use hypervisor::Page;
+use iced_x86::code_asm::*;
+use iced_x86::code_asm::{rax, CodeAssembler};
+use iced_x86::OpKind::Register;
+use log::{error, info};
 use uefi::proto::pi::mp::MpServices;
 use uefi::runtime::ResetType;
-use uefi::{boot, entry, print, println, proto, Status};
-use x86::bits64::rflags;
-use x86::controlregs::{cr0, cr4, Cr0, Cr4};
+use uefi::{boot, entry, println, Status};
+use x86::controlregs::{Cr0, Cr4};
 use x86::current::paging::BASE_PAGE_SHIFT;
 use x86::current::rflags::RFlags;
 use x86::dtables::{sgdt, DescriptorTablePointer};
+use x86::segmentation::{
+    BuildDescriptor, CodeSegmentType, DataSegmentType, Descriptor, DescriptorBuilder,
+    GateDescriptorBuilder, SegmentDescriptorBuilder, SegmentSelector,
+};
 use x86::Ring;
-use x86::segmentation::{cs, ds, ss, BuildDescriptor, CodeSegmentType, DataSegmentType, Descriptor, DescriptorBuilder, GateDescriptorBuilder, SegmentDescriptorBuilder, SegmentSelector};
-use hypervisor::hardware_vt::{GuestRegisters, NestedPagingStructureEntryType};
-use hypervisor::Page;
-use hypervisor::state::{VmState, VmStateExtendedRegisters};
-use hypervisor::vm::Vm;
-use hypervisor::x86_data::TSS;
 
 #[entry]
 unsafe fn main() -> Status {
@@ -69,20 +70,7 @@ unsafe fn main() -> Status {
     const GDT_PAGE_INDEX: usize = 2;
     const TSS_PAGE_INDEX: usize = 3;
 
-
     let mut guest_memory = Box::<[Page]>::new_zeroed_slice(10).assume_init();
-
-    let mut code_page = guest_memory[CODE_PAGE_INDEX].as_slice_mut();
-
-    code_page[0] = 0xF4; // hlt
-
-    //code_page[0] = 0x0F;
-    //code_page[1] = 0x0B; // ud2
-
-    code_page[0] = 0xCC; // int3
-
-    //code_page[0] = 0xCD; // int5
-    //code_page[1] = 0x05;
 
     let mut descriptors = Vec::new();
     descriptors.push(Descriptor::NULL);
@@ -105,7 +93,12 @@ unsafe fn main() -> Status {
     let stack_index = data_index;
     descriptors.push(data);
 
-    let tss_descriptor: Descriptor = <DescriptorBuilder as GateDescriptorBuilder<u32>>::tss_descriptor(2 << BASE_PAGE_SHIFT, 100, false)
+    let tss_descriptor: Descriptor =
+        <DescriptorBuilder as GateDescriptorBuilder<u32>>::tss_descriptor(
+            2 << BASE_PAGE_SHIFT,
+            100,
+            false,
+        )
         .present()
         .dpl(Ring::Ring0)
         .finish();
@@ -114,7 +107,7 @@ unsafe fn main() -> Status {
     descriptors.push(tss_descriptor);
     descriptors.push(Descriptor::NULL); // 64bit mode
 
-    let mut descriptor_page = guest_memory[GDT_PAGE_INDEX].as_slice_mut();
+    let descriptor_page = guest_memory[GDT_PAGE_INDEX].as_slice_mut();
     for (i, descriptor) in descriptors.into_iter().enumerate() {
         let descriptor_ptr = descriptor_page.as_mut_ptr().cast::<u64>().add(i);
         core::ptr::write(descriptor_ptr, descriptor.as_u64());
@@ -122,8 +115,10 @@ unsafe fn main() -> Status {
 
     let mut standard_registers = GuestRegisters::default();
     standard_registers.rip = (CODE_PAGE_INDEX as u64) << BASE_PAGE_SHIFT;
-    standard_registers.rsp = ((STACK_PAGE_INDEX as u64+1) << BASE_PAGE_SHIFT)-1;
-    standard_registers.rflags = (RFlags::FLAGS_A1 | RFlags::FLAGS_ID | RFlags::FLAGS_IF | RFlags::FLAGS_IOPL0).bits() as u64;
+    standard_registers.rsp = ((STACK_PAGE_INDEX as u64 + 1) << BASE_PAGE_SHIFT) - 8;
+    standard_registers.rflags =
+        (RFlags::FLAGS_A1 | RFlags::FLAGS_ID | RFlags::FLAGS_IF | RFlags::FLAGS_IOPL0).bits()
+            as u64;
 
     let extended_registers = VmStateExtendedRegisters {
         gdtr: DescriptorTablePointer {
@@ -157,12 +152,38 @@ unsafe fn main() -> Status {
         dr7: 0,
     };
 
-    let state = VmState {
+    let mut state = VmState {
         standard_registers,
         extended_registers,
     };
 
-    guest_memory[0].as_slice_mut()[0] = /* int3 */ 0xcc;
+    let code_page = guest_memory[CODE_PAGE_INDEX].as_slice_mut();
+
+    //code_page[0] = 0xF4; // hlt
+
+    //code_page[0] = 0x0F;
+    //code_page[1] = 0x0B; // ud2
+
+    //code_page[0] = 0xCC; // int3
+
+    //code_page[0] = 0xCD; // int5
+    //code_page[1] = 0x05;
+
+    let mut assembler = CodeAssembler::new(64).unwrap();
+
+    assembler.push(rax).unwrap();
+    assembler.mov(rax, dword_ptr(0x00)).unwrap();
+    assembler.hlt().unwrap();
+
+    let bytes = assembler
+        .assemble((CODE_PAGE_INDEX << BASE_PAGE_SHIFT) as u64)
+        .unwrap();
+    for (src, dst) in bytes
+        .iter()
+        .zip(guest_memory[CODE_PAGE_INDEX].as_slice_mut().iter_mut())
+    {
+        *dst = *src;
+    }
 
     let mut gdt: DescriptorTablePointer<Descriptor> = DescriptorTablePointer::default();
     sgdt(&mut gdt);
@@ -172,11 +193,27 @@ unsafe fn main() -> Status {
     vm.initialize();
 
     let translations = [
-        vm.build_translation(CODE_PAGE_INDEX << BASE_PAGE_SHIFT, guest_memory[CODE_PAGE_INDEX].as_ptr(), NestedPagingStructureEntryType::Rx),
-        vm.build_translation(STACK_PAGE_INDEX << BASE_PAGE_SHIFT, guest_memory[STACK_PAGE_INDEX].as_ptr(), NestedPagingStructureEntryType::Rw),
-        vm.build_translation(GDT_PAGE_INDEX << BASE_PAGE_SHIFT, guest_memory[GDT_PAGE_INDEX].as_ptr(), NestedPagingStructureEntryType::R),
-        vm.build_translation(TSS_PAGE_INDEX << BASE_PAGE_SHIFT, guest_memory[TSS_PAGE_INDEX].as_ptr(), NestedPagingStructureEntryType::R),
-        ];
+        vm.build_translation(
+            CODE_PAGE_INDEX << BASE_PAGE_SHIFT,
+            guest_memory[CODE_PAGE_INDEX].as_ptr(),
+            NestedPagingStructureEntryType::Rx,
+        ),
+        vm.build_translation(
+            STACK_PAGE_INDEX << BASE_PAGE_SHIFT,
+            guest_memory[STACK_PAGE_INDEX].as_ptr(),
+            NestedPagingStructureEntryType::Rw,
+        ),
+        vm.build_translation(
+            GDT_PAGE_INDEX << BASE_PAGE_SHIFT,
+            guest_memory[GDT_PAGE_INDEX].as_ptr(),
+            NestedPagingStructureEntryType::R,
+        ),
+        vm.build_translation(
+            TSS_PAGE_INDEX << BASE_PAGE_SHIFT,
+            guest_memory[TSS_PAGE_INDEX].as_ptr(),
+            NestedPagingStructureEntryType::R,
+        ),
+    ];
 
     for t in translations.into_iter() {
         if let Err(err) = t {
@@ -192,9 +229,11 @@ unsafe fn main() -> Status {
 
     let exit_reason = vm.vt.run();
 
-    println!("Exit reason: {:?}", exit_reason);
+    println!("Exit reason: {:#x?}", exit_reason);
+    vm.vt.save_state(&mut state);
+    println!("Rax: {:x?}", state.standard_registers.rax);
 
     println!("Goodbye!");
     uefi::runtime::reset(ResetType::SHUTDOWN, Status::SUCCESS, None);
-    Status::SUCCESS
+    // Status::SUCCESS
 }

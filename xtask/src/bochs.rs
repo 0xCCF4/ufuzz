@@ -17,7 +17,6 @@ pub(crate) struct Bochs {
 }
 
 pub struct BochsEnviroment {
-    config_directory: PathBuf,
     working_directory: PathBuf,
     port: u16,
 }
@@ -101,7 +100,9 @@ impl VM for Bochs {
             return Err("mcopy hypervisor.efi failed".into());
         }
 
-        let port = self.port.unwrap_or(rand::thread_rng().gen_range(1024..65535));
+        let port = self
+            .port
+            .unwrap_or(rand::thread_rng().gen_range(1024..65535));
 
         let data = config_directory
             .as_ref()
@@ -137,7 +138,7 @@ impl VM for Bochs {
         }
 
         Ok(BochsEnviroment {
-            config_directory: config_directory.as_ref().to_path_buf(),
+            // config_directory: config_directory.as_ref().to_path_buf(),
             working_directory: working_directory.as_ref().to_path_buf(),
             port,
         })
@@ -200,9 +201,7 @@ impl VM for Bochs {
 
             println!("Starting bochs with command: {:?}", output);
 
-            let output = output
-                .spawn()
-                .expect("bochs run failed");
+            let output = output.spawn().expect("bochs run failed");
 
             bochs_cmd_sender.send(output.id()).unwrap();
 
