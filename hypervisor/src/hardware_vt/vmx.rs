@@ -16,7 +16,7 @@ use super::{
 };
 use crate::state::VmState;
 use crate::{
-    hardware_vt::{self, ExceptionQualification, GuestException, NestedPageFaultQualification},
+    hardware_vt::{self, ExceptionQualification, GuestException, EPTPageFaultQualification},
     x86_instructions::{cr0, cr0_write, cr3, cr4, cr4_write, rdmsr, sgdt, sidt, wrmsr},
 };
 use alloc::{
@@ -443,8 +443,55 @@ impl hardware_vt::HardwareVt for Vmx {
         self.registers.xmm15 = registers.xmm15;
     }
 
-    fn save_state(&self, _state: &mut VmState) {
-        todo!("not implemented yet");
+    fn save_state(&self, state: &mut VmState) {
+        state.standard_registers.rax = self.registers.rax;
+        state.standard_registers.rbx = self.registers.rbx;
+        state.standard_registers.rcx = self.registers.rcx;
+        state.standard_registers.rdx = self.registers.rdx;
+        state.standard_registers.rdi = self.registers.rdi;
+        state.standard_registers.rsi = self.registers.rsi;
+        state.standard_registers.rbp = self.registers.rbp;
+        state.standard_registers.r8 = self.registers.r8;
+        state.standard_registers.r9 = self.registers.r9;
+        state.standard_registers.r10 = self.registers.r10;
+        state.standard_registers.r11 = self.registers.r11;
+        state.standard_registers.r12 = self.registers.r12;
+        state.standard_registers.r13 = self.registers.r13;
+        state.standard_registers.r14 = self.registers.r14;
+        state.standard_registers.r15 = self.registers.r15;
+
+        state.standard_registers.rflags = self.registers.rflags;
+
+        state.standard_registers.xmm0 = self.registers.xmm0;
+        state.standard_registers.xmm1 = self.registers.xmm1;
+        state.standard_registers.xmm2 = self.registers.xmm2;
+        state.standard_registers.xmm3 = self.registers.xmm3;
+        state.standard_registers.xmm4 = self.registers.xmm4;
+        state.standard_registers.xmm5 = self.registers.xmm5;
+        state.standard_registers.xmm6 = self.registers.xmm6;
+        state.standard_registers.xmm7 = self.registers.xmm7;
+        state.standard_registers.xmm8 = self.registers.xmm8;
+        state.standard_registers.xmm9 = self.registers.xmm9;
+        state.standard_registers.xmm10 = self.registers.xmm10;
+        state.standard_registers.xmm11 = self.registers.xmm11;
+        state.standard_registers.xmm12 = self.registers.xmm12;
+        state.standard_registers.xmm13 = self.registers.xmm13;
+        state.standard_registers.xmm14 = self.registers.xmm14;
+        state.standard_registers.xmm15 = self.registers.xmm15;
+
+        state.standard_registers.rsp = self.registers.rsp;
+        state.standard_registers.rip = self.registers.rip;
+
+        // todo base, limits, ar
+
+        state.extended_registers.sysenter_cs = vmread(vmcs::guest::IA32_SYSENTER_CS);
+        state.extended_registers.sysenter_esp = vmread(vmcs::guest::IA32_SYSENTER_ESP);
+        state.extended_registers.sysenter_eip = vmread(vmcs::guest::IA32_SYSENTER_EIP);
+        state.extended_registers.efer = vmread(vmcs::guest::IA32_EFER_FULL);
+        state.extended_registers.cr0 = vmread(vmcs::guest::CR0);
+        state.extended_registers.cr3 = vmread(vmcs::guest::CR3);
+        state.extended_registers.cr4 = vmread(vmcs::guest::CR4);
+        state.extended_registers.dr7 = vmread(vmcs::guest::DR7);
     }
 
     /// Executes the guest until it triggers VM-exit.
@@ -491,7 +538,7 @@ impl hardware_vt::HardwareVt for Vmx {
             //      Table 28-7. Exit Qualification for EPT Violations
             VMX_EXIT_REASON_EPT_VIOLATION => {
                 let qualification = vmread(vmcs::ro::EXIT_QUALIFICATION);
-                VmExitReason::NestedPageFault(NestedPageFaultQualification::from(
+                VmExitReason::EPTPageFault(EPTPageFaultQualification::from(
                     qualification,
                     self.registers.rip as usize,
                     vmread(vmcs::ro::GUEST_PHYSICAL_ADDR_FULL) as usize,

@@ -23,14 +23,6 @@ pub trait HardwareVt: fmt::Debug {
     /// interception.
     fn initialize(&mut self, nested_pml4_addr: u64);
 
-    /// Configures the guest states based on the snapshot.
-    #[cfg(feature = "__disabled")]
-    fn revert_registers(&mut self, snapshot: &Snapshot);
-
-    /// Updates the guest states to make the guest use input data.
-    #[cfg(feature = "__disabled")]
-    fn adjust_registers(&mut self, input_addr: u64, input_size: u64);
-
     /// Load the guest state.
     fn load_state(&mut self, state: &VmState);
 
@@ -58,7 +50,7 @@ pub enum VmExitReason {
     /// An address translation failure with nested paging. GPA->LA. Contains a guest
     /// physical address that failed translation and whether the access was
     /// write access.
-    NestedPageFault(NestedPageFaultQualification),
+    EPTPageFault(EPTPageFaultQualification),
 
     /// An exception happened. Contains an exception code.
     Exception(ExceptionQualification),
@@ -79,7 +71,7 @@ pub enum VmExitReason {
 
 /// Details of the cause of nested page fault.
 #[derive(Debug)]
-pub struct NestedPageFaultQualification {
+pub struct EPTPageFaultQualification {
     pub rip: usize,
     pub gpa: usize,
     pub data_read: bool,
@@ -95,9 +87,9 @@ pub struct NestedPageFaultQualification {
     pub guest_paging_verification: bool,
 }
 
-impl NestedPageFaultQualification {
+impl EPTPageFaultQualification {
     pub fn from(qualification: u64, rip: usize, gpa: usize) -> Self {
-        NestedPageFaultQualification {
+        EPTPageFaultQualification {
             data_read: (qualification & (1 << 0)) != 0,
             data_write: (qualification & (1 << 1)) != 0,
             instruction_fetch: (qualification & (1 << 2)) != 0,
