@@ -5,28 +5,34 @@
 extern crate alloc;
 
 use alloc::boxed::Box;
+use alloc::string::String;
+use alloc::vec;
 use alloc::vec::Vec;
-use hypervisor::hardware_vt::{GuestRegisters, NestedPagingStructureEntryType};
+use hypervisor::hardware_vt::{GuestRegisters, NestedPagingStructureEntryType, VmExitReason};
 use hypervisor::state::{VmState, VmStateExtendedRegisters};
 use hypervisor::vm::Vm;
+use hypervisor::x86_instructions::{hlt, rdmsr};
 use hypervisor::Page;
 use iced_x86::code_asm::*;
 use iced_x86::code_asm::{rax, CodeAssembler};
-use iced_x86::OpKind::Register;
+use iced_x86::{Decoder, DecoderOptions, Formatter, Instruction, NasmFormatter};
 use log::{error, info};
 use uefi::proto::pi::mp::MpServices;
 use uefi::runtime::ResetType;
-use uefi::{boot, entry, println, Status};
+use uefi::{boot, entry, print, println, Status};
 use x86::controlregs::{Cr0, Cr4};
-use x86::current::paging::BASE_PAGE_SHIFT;
+use x86::current::paging::{PAddr, PDPTEntry, PDPTFlags, PML4Entry, PML4Flags, BASE_PAGE_SHIFT};
 use x86::current::rflags::RFlags;
 use x86::dtables::{sgdt, DescriptorTablePointer};
+use x86::msr::IA32_VMX_PROCBASED_CTLS2;
 use x86::segmentation::{
     BuildDescriptor, CodeSegmentType, DataSegmentType, Descriptor, DescriptorBuilder,
     GateDescriptorBuilder, SegmentDescriptorBuilder, SegmentSelector,
 };
 use x86::Ring;
 
+const _: () = assert!(size_of::<PML4Entry>() == 8);
+const _: () = assert!(size_of::<PDPTEntry>() == 8);
 #[entry]
 unsafe fn main() -> Status {
     uefi::helpers::init().unwrap();
@@ -65,10 +71,13 @@ unsafe fn main() -> Status {
     // 1: stack
     // 2: global descriptor table
     // 3: TSS
+    // 4-5: page tables
     const CODE_PAGE_INDEX: usize = 0;
     const STACK_PAGE_INDEX: usize = 1;
     const GDT_PAGE_INDEX: usize = 2;
     const TSS_PAGE_INDEX: usize = 3;
+    const PAGE_TABLE_4_INDEX: usize = 4;
+    const PAGE_TABLE_3_INDEX: usize = 5;
 
     let mut guest_memory = Box::<[Page]>::new_zeroed_slice(10).assume_init();
 
@@ -136,8 +145,8 @@ unsafe fn main() -> Status {
         gs: SegmentSelector::new(0, Ring::Ring0).bits(),
         tr: SegmentSelector::new(tss_index as u16, Ring::Ring0).bits(),
         efer: 1 << 8, // 64bit/32e, no syscall, no execute disable
-        cr0: (Cr0::CR0_PROTECTED_MODE).bits() as u64, // cache enabled, write protect disabled, 32(e)bit
-        cr3: 0,
+        cr0: (Cr0::CR0_PROTECTED_MODE | Cr0::CR0_ENABLE_PAGING/* TODO REMOVE */).bits() as u64, // cache enabled, write protect disabled, 32(e)bit
+        cr3: (PAGE_TABLE_4_INDEX << BASE_PAGE_SHIFT) as u64,
         cr4: Cr4::CR4_ENABLE_PAE.bits() as u64, // enable 32e
         fs_base: 0,
         gs_base: 0,
@@ -157,40 +166,42 @@ unsafe fn main() -> Status {
         extended_registers,
     };
 
-    let code_page = guest_memory[CODE_PAGE_INDEX].as_slice_mut();
+    // build page table
+    let mut page_table_4: *mut PML4Entry = guest_memory[PAGE_TABLE_4_INDEX].as_mut_ptr().cast();
+    for i in 0..512 {
+        let mut dst_entry = page_table_4.add(i);
 
-    //code_page[0] = 0xF4; // hlt
+        let entry = PML4Entry::new(
+            PAddr((PAGE_TABLE_3_INDEX << BASE_PAGE_SHIFT) as u64),
+            PML4Flags::P | PML4Flags::RW | PML4Flags::US,
+        );
+        *dst_entry = entry;
+    }
 
-    //code_page[0] = 0x0F;
-    //code_page[1] = 0x0B; // ud2
+    let mut page_table_3: *mut PDPTEntry = guest_memory[PAGE_TABLE_3_INDEX].as_mut_ptr().cast();
+    for i in 0..512 {
+        let mut dst_entry = page_table_3.add(i);
 
-    //code_page[0] = 0xCC; // int3
-
-    //code_page[0] = 0xCD; // int5
-    //code_page[1] = 0x05;
-
-    let mut assembler = CodeAssembler::new(64).unwrap();
-
-    assembler.push(rax).unwrap();
-    assembler.mov(rax, dword_ptr(0x00)).unwrap();
-    assembler.hlt().unwrap();
-
-    let bytes = assembler
-        .assemble((CODE_PAGE_INDEX << BASE_PAGE_SHIFT) as u64)
-        .unwrap();
-    for (src, dst) in bytes
-        .iter()
-        .zip(guest_memory[CODE_PAGE_INDEX].as_slice_mut().iter_mut())
-    {
-        *dst = *src;
+        // 1GB page size
+        let entry = PDPTEntry::new(
+            PAddr((i << 30) as u64),
+            PDPTFlags::P | PDPTFlags::RW | PDPTFlags::US | PDPTFlags::PS,
+        );
+        *dst_entry = entry;
     }
 
     let mut gdt: DescriptorTablePointer<Descriptor> = DescriptorTablePointer::default();
     sgdt(&mut gdt);
 
+    info!("Rflags: {:#018x}", x86::current::rflags::read());
+
     let mut vm = Vm::new();
     vm.vt.enable();
-    vm.initialize();
+    if let Err(err) = vm.initialize() {
+        error!("Failed to initialize vm: {:?}", err);
+        vm.vt.disable();
+        return Status::ABORTED;
+    }
 
     let translations = [
         vm.build_translation(
@@ -213,6 +224,16 @@ unsafe fn main() -> Status {
             guest_memory[TSS_PAGE_INDEX].as_ptr(),
             NestedPagingStructureEntryType::R,
         ),
+        vm.build_translation(
+            PAGE_TABLE_4_INDEX << BASE_PAGE_SHIFT,
+            guest_memory[PAGE_TABLE_4_INDEX].as_ptr(),
+            NestedPagingStructureEntryType::Rw, // todo: maybe bochs bug, works with R -> paging algo sets accessed bit in page table, so #PF in bochs -> investigate
+        ),
+        vm.build_translation(
+            PAGE_TABLE_3_INDEX << BASE_PAGE_SHIFT,
+            guest_memory[PAGE_TABLE_3_INDEX].as_ptr(),
+            NestedPagingStructureEntryType::Rw,
+        ),
     ];
 
     for t in translations.into_iter() {
@@ -222,18 +243,133 @@ unsafe fn main() -> Status {
         }
     }
 
+    let state = state;
+
+    run_vm_report_status(
+        &mut vm,
+        &state,
+        &mut guest_memory,
+        CODE_PAGE_INDEX,
+        STACK_PAGE_INDEX,
+        |a| {
+            a.mov(rax, 0x0123456789u64)?;
+            a.hlt()?;
+
+            Ok(())
+        },
+    );
+
+    run_vm_report_status(
+        &mut vm,
+        &state,
+        &mut guest_memory,
+        CODE_PAGE_INDEX,
+        STACK_PAGE_INDEX,
+        |a| {
+            a.int3()?;
+
+            Ok(())
+        },
+    );
+
+    run_vm_report_status(
+        &mut vm,
+        &state,
+        &mut guest_memory,
+        CODE_PAGE_INDEX,
+        STACK_PAGE_INDEX,
+        |a| {
+            a.jmp(0x0)?;
+
+            Ok(())
+        },
+    );
+
+    println!("Goodbye!");
+    vm.vt.disable();
+    println!("Final exit");
+    info!("Rflags: {:#018x}", x86::current::rflags::read());
+    //uefi::runtime::reset(ResetType::SHUTDOWN, Status::SUCCESS, None);
+    Status::SUCCESS
+}
+
+fn run_vm_report_status<F: FnOnce(&mut CodeAssembler) -> Result<(), IcedError>>(
+    vm: &mut Vm,
+    state: &VmState,
+    memory: &mut [Page],
+    code_page: usize,
+    stack_page: usize,
+    code_gen: F,
+) {
     vm.vt.load_state(&state);
 
-    println!("Running vm");
+    let code = compile_code(code_gen);
+    let mut result_state = VmState::default();
+
+    memory[stack_page]
+        .as_slice_mut()
+        .iter_mut()
+        .for_each(|b| *b = 0);
+    memory[code_page]
+        .as_slice_mut()
+        .iter_mut()
+        .for_each(|b| *b = 0);
+    for (src, dst) in code.iter().zip(memory[code_page].as_slice_mut().iter_mut()) {
+        *dst = *src;
+    }
+
     vm.vt.set_preemption_timer(1e8 as u64);
 
     let exit_reason = vm.vt.run();
+    vm.vt.save_state(&mut result_state);
 
+    println!("--------------------------");
+    println!("Test scenario:");
+    disassemble_code(&code);
+    println!("Rax: {:x?}", result_state.standard_registers.rax);
+    println!("Rip: {:x?}", result_state.standard_registers.rip);
     println!("Exit reason: {:#x?}", exit_reason);
-    vm.vt.save_state(&mut state);
-    println!("Rax: {:x?}", state.standard_registers.rax);
+}
 
-    println!("Goodbye!");
-    uefi::runtime::reset(ResetType::SHUTDOWN, Status::SUCCESS, None);
-    // Status::SUCCESS
+fn compile_code<F: FnOnce(&mut CodeAssembler) -> Result<(), IcedError>>(code_gen: F) -> Vec<u8> {
+    let mut assembler = CodeAssembler::new(64).unwrap();
+    if let Err(err) = code_gen(&mut assembler) {
+        error!("Code generation error: {:?}", err);
+        return vec![0xf4 /* hlt */];
+    }
+    assembler.assemble(0).unwrap_or_else(|err| {
+        error!("Assemble error: {:?}", err);
+        vec![0xf4 /* hlt */]
+    })
+}
+
+fn disassemble_code(code: &[u8]) {
+    let mut decoder = Decoder::with_ip(64, code, 0, DecoderOptions::NONE);
+    let mut formatter = NasmFormatter::new();
+
+    formatter.options_mut().set_digit_separator("`");
+    formatter.options_mut().set_first_operand_char_index(10);
+
+    let mut output = String::new();
+    let mut instruction = Instruction::default();
+
+    while decoder.can_decode() {
+        decoder.decode_out(&mut instruction);
+        output.clear();
+        formatter.format(&instruction, &mut output);
+
+        // Eg. "00007FFAC46ACDB2 488DAC2400FFFFFF     lea       rbp,[rsp-100h]"
+        print!("{:016X} ", instruction.ip());
+        let start_index = (instruction.ip() - 0) as usize;
+        let instr_bytes = &code[start_index..start_index + instruction.len()];
+        for b in instr_bytes.iter() {
+            print!("{:02X}", b);
+        }
+        if instr_bytes.len() < 10 {
+            for _ in 0..10 - instr_bytes.len() {
+                print!("  ");
+            }
+        }
+        println!(" {}", output);
+    }
 }

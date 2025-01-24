@@ -52,6 +52,10 @@ impl Page {
     pub fn as_ptr(&self) -> *const Page {
         self as *const Page
     }
+
+    pub fn as_mut_ptr(&mut self) -> *mut Page {
+        self as *mut Page
+    }
 }
 
 const _: () = assert!(size_of::<Page>() == 0x1000);

@@ -183,7 +183,7 @@ impl Vm {
         Ok(entry)
     }
 
-    pub fn initialize(&mut self) {
+    pub fn initialize(&mut self) -> Result<(), &'static str> {
         let addr = self.nested_pml4_addr() as u64;
         self.vt.initialize(addr)
     }

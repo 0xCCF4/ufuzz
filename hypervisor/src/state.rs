@@ -1,6 +1,6 @@
 use crate::hardware_vt::GuestRegisters;
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct VmState {
     pub standard_registers: GuestRegisters,
     pub extended_registers: VmStateExtendedRegisters,

@@ -16,7 +16,7 @@ use super::{
 };
 use crate::state::VmState;
 use crate::{
-    hardware_vt::{self, ExceptionQualification, GuestException, EPTPageFaultQualification},
+    hardware_vt::{self, EPTPageFaultQualification, ExceptionQualification, GuestException},
     x86_instructions::{cr0, cr0_write, cr3, cr4, cr4_write, rdmsr, sgdt, sidt, wrmsr},
 };
 use alloc::{
@@ -30,8 +30,8 @@ use core::{
     arch::{asm, global_asm},
     fmt,
 };
-use log::{debug, warn};
-use uefi::println;
+use log::{debug, error, info, warn};
+use x86::current::vmx::vmxoff;
 use x86::{
     controlregs::{Cr0, Cr4},
     current::rflags::RFlags,
@@ -107,9 +107,17 @@ impl hardware_vt::HardwareVt for Vmx {
         vmxon(&mut self.vmxon_region);
     }
 
+    fn disable(&mut self) {
+        vmclear(&mut self.vmcs_region);
+
+        if let Err(err) = unsafe { vmxoff() } {
+            error!("Failed to disable VMX operation: {:?}", err);
+        }
+    }
+
     /// Configures VMX. We intercept #BP, #UD, #PF, enable VMX-preemption timer
     /// and extended page tables.
-    fn initialize(&mut self, nested_pml4_addr: u64) {
+    fn initialize(&mut self, nested_pml4_addr: u64) -> Result<(), &'static str> {
         const IA32_VMX_PROCBASED_CTLS_ACTIVATE_SECONDARY_CONTROLS_FLAG: u64 = 1 << 31;
         const IA32_VMX_EXIT_CTLS_HOST_ADDRESS_SPACE_SIZE_FLAG: u64 = 1 << 9;
         const IA32_VMX_ENTRY_CTLS_IA32E_MODE_GUEST_FLAG: u64 = 1 << 9;
@@ -182,18 +190,36 @@ impl hardware_vt::HardwareVt for Vmx {
 
         vmwrite(
             vmcs::control::VMEXIT_CONTROLS,
-            adjust_vmx_control(
+            match adjust_vmx_control(
                 VmxControl::VmExit,
                 IA32_VMX_EXIT_CTLS_HOST_ADDRESS_SPACE_SIZE_FLAG,
-            ),
+            ) {
+                Ok(x) => x,
+                Err(x) => {
+                    if x & IA32_VMX_EXIT_CTLS_HOST_ADDRESS_SPACE_SIZE_FLAG == 0 {
+                        return Err("Failed to adjust VMEXIT_CONTROLS. Return to long mode.");
+                    } else {
+                        x
+                    }
+                }
+            },
         );
 
         vmwrite(
             vmcs::control::VMENTRY_CONTROLS,
-            adjust_vmx_control(
+            match adjust_vmx_control(
                 VmxControl::VmEntry,
                 IA32_VMX_ENTRY_CTLS_IA32E_MODE_GUEST_FLAG,
-            ),
+            ) {
+                Ok(x) => x,
+                Err(x) => {
+                    if x & IA32_VMX_ENTRY_CTLS_IA32E_MODE_GUEST_FLAG == 0 {
+                        return Err("Failed to adjust VMENTRY_CONTROLS. Enter to long mode.");
+                    } else {
+                        x
+                    }
+                }
+            },
         );
 
         // Enable VMX-preemption timer if available. We enable this feature to
@@ -201,18 +227,38 @@ impl hardware_vt::HardwareVt for Vmx {
         // See: 26.5.1 VMX-Preemption Timer
         vmwrite(
             vmcs::control::PINBASED_EXEC_CONTROLS,
-            adjust_vmx_control(
+            match adjust_vmx_control(
                 VmxControl::PinBased,
                 IA32_VMX_PINBASED_CTLS_ACTIVATE_VMX_PREEMPTION_TIMER_FLAG,
-            ),
+            ) {
+                Ok(x) => x,
+                Err(x) => {
+                    if x & IA32_VMX_PINBASED_CTLS_ACTIVATE_VMX_PREEMPTION_TIMER_FLAG == 0 {
+                        return Err(
+                            "Failed to adjust PINBASED_EXEC_CONTROLS. Enable VMX-preemption timer.",
+                        );
+                    } else {
+                        x
+                    }
+                }
+            },
         );
 
         vmwrite(
             vmcs::control::PRIMARY_PROCBASED_EXEC_CONTROLS,
-            adjust_vmx_control(
+            match adjust_vmx_control(
                 VmxControl::ProcessorBased,
                 IA32_VMX_PROCBASED_CTLS_ACTIVATE_SECONDARY_CONTROLS_FLAG,
-            ),
+            ) {
+                Ok(x) => x,
+                Err(x) => {
+                    if x & IA32_VMX_PROCBASED_CTLS_ACTIVATE_SECONDARY_CONTROLS_FLAG == 0 {
+                        return Err("Failed to adjust PRIMARY_PROCBASED_EXEC_CONTROLS. Activate secondary controls.");
+                    } else {
+                        x
+                    }
+                }
+            },
         );
 
         // Enable EPTs. This is a two-steps process at minimum:
@@ -238,12 +284,28 @@ impl hardware_vt::HardwareVt for Vmx {
         // Also enable unrestricted guest: no paging in guest allowed
         vmwrite(
             vmcs::control::SECONDARY_PROCBASED_EXEC_CONTROLS,
-            adjust_vmx_control(
+            match adjust_vmx_control(
                 VmxControl::ProcessorBased2,
                 (vmcs::control::SecondaryControls::ENABLE_EPT
                     | vmcs::control::SecondaryControls::UNRESTRICTED_GUEST)
                     .bits() as u64,
-            ),
+            ) {
+                Ok(x) => x,
+                Err(value) => {
+                    if (value as u32 & vmcs::control::SecondaryControls::ENABLE_EPT.bits()) == 0 {
+                        return Err(
+                            "Failed to adjust SECONDARY_PROCBASED_EXEC_CONTROLS. Enable EPT.",
+                        );
+                    } else if (value as u32
+                        & vmcs::control::SecondaryControls::UNRESTRICTED_GUEST.bits())
+                        == 0
+                    {
+                        return Err("Failed to adjust SECONDARY_PROCBASED_EXEC_CONTROLS. Enable unrestricted guest.");
+                    } else {
+                        value
+                    }
+                }
+            },
         );
         vmwrite(
             vmcs::control::EPTP_FULL,
@@ -258,6 +320,8 @@ impl hardware_vt::HardwareVt for Vmx {
                 | (1u64 << irq::INVALID_OPCODE_VECTOR)
                 | (1u64 << irq::PAGE_FAULT_VECTOR),
         );
+
+        Ok(())
     }
 
     fn set_preemption_timer(&self, timeout_in_tsc: u64) {
@@ -506,13 +570,15 @@ impl hardware_vt::HardwareVt for Vmx {
         vm_succeed(RFlags::from_raw(flags)).unwrap();
         self.launched = true;
 
+        unsafe {
+            asm!("sti", options(nostack, nomem));
+        }
+
         // VM-exit occurred. Copy the guest register values from VMCS so that
         // `self.registers` is complete and up to date.
         self.registers.rip = vmread(vmcs::guest::RIP);
         self.registers.rsp = vmread(vmcs::guest::RSP);
         self.registers.rflags = vmread(vmcs::guest::RFLAGS);
-
-        println!("{:#x?}", self);
 
         // Handle VM-exit by translating it to the `VmExitReason` type.
         //
@@ -523,7 +589,16 @@ impl hardware_vt::HardwareVt for Vmx {
         //
         // For the list of possible exit codes,
         // See: Table C-1. Basic Exit Reasons
-        match vmread(vmcs::ro::EXIT_REASON) as u16 {
+        let exit_reason = vmread(vmcs::ro::EXIT_REASON);
+
+        if exit_reason & (1 << 31) != 0 {
+            return VmExitReason::VMEntryFailure(
+                exit_reason as u32,
+                vmread(vmcs::ro::EXIT_QUALIFICATION),
+            );
+        }
+
+        match exit_reason as u16 {
             // See: 26.2 OTHER CAUSES OF VM EXITS
             //      25.9.2 Information for VM Exits Due to Vectored Events
             VMX_EXIT_REASON_EXCEPTION_OR_NMI => VmExitReason::Exception(ExceptionQualification {
@@ -617,10 +692,12 @@ impl Vmx {
         /// Returns the scale value to convert TSC to the unit where
         /// VMX-preemption timer VMCS expects.
         fn vmx_preemption_timer_scale() -> Option<u64> {
-            if (adjust_vmx_control(
+            if adjust_vmx_control(
                 VmxControl::PinBased,
                 IA32_VMX_PINBASED_CTLS_ACTIVATE_VMX_PREEMPTION_TIMER_FLAG,
-            ) & IA32_VMX_PINBASED_CTLS_ACTIVATE_VMX_PREEMPTION_TIMER_FLAG)
+            )
+            .unwrap_or_else(|x| x)
+                & IA32_VMX_PINBASED_CTLS_ACTIVATE_VMX_PREEMPTION_TIMER_FLAG
                 == 0
             {
                 warn!("VMX-preemption timer not available. Dead loop is possible!");
@@ -733,7 +810,7 @@ impl HostGdt {
         let current_gdt = unsafe {
             core::slice::from_raw_parts(
                 current_gdtr.base.cast::<u64>(),
-                usize::from(current_gdtr.limit + 1) / 8,
+                usize::from(current_gdtr.limit as usize + 1) / 8,
             )
         };
         self.gdt = current_gdt.to_vec();
@@ -784,7 +861,7 @@ fn task_segment_descriptor(tss: &TaskStateSegment) -> u64 {
 
 /// Returns an adjust value for the control field according to the capability
 /// MSR.
-fn adjust_vmx_control(control: VmxControl, requested_value: u64) -> u64 {
+fn adjust_vmx_control(control: VmxControl, requested_value: u64) -> Result<u64, u64> {
     const IA32_VMX_BASIC_VMX_CONTROLS_FLAG: u64 = 1 << 55;
 
     // This determines the right VMX capability MSR based on the value of
@@ -838,7 +915,14 @@ fn adjust_vmx_control(control: VmxControl, requested_value: u64) -> u64 {
     let mut effective_value = u32::try_from(requested_value).unwrap();
     effective_value |= allowed0;
     effective_value &= allowed1;
-    u64::from(effective_value)
+
+    let effective_value = u64::from(effective_value);
+
+    if requested_value != effective_value {
+        Err(effective_value)
+    } else {
+        Ok(effective_value)
+    }
 }
 
 /// Updates the `IA32_FEATURE_CONTROL` MSR to satisfy the requirement for

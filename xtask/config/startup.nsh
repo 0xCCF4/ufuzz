@@ -1,1 +1,2 @@
 hypervisor.efi
+reset -s

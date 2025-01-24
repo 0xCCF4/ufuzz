@@ -19,9 +19,12 @@ pub trait HardwareVt: fmt::Debug {
     /// before calling any other method.
     fn enable(&mut self);
 
+    /// Disable HW VT on the current processor.
+    fn disable(&mut self);
+
     /// Configures HW VT such as enabling nested paging and exception
     /// interception.
-    fn initialize(&mut self, nested_pml4_addr: u64);
+    fn initialize(&mut self, nested_pml4_addr: u64) -> Result<(), &'static str>;
 
     /// Load the guest state.
     fn load_state(&mut self, state: &VmState);
@@ -67,6 +70,9 @@ pub enum VmExitReason {
 
     /// An unhandled VM exit happened. Contains a vendor specific VM exit code.
     Unexpected(u64),
+
+    /// VM entry failure: reason, qualification
+    VMEntryFailure(u32, u64),
 }
 
 /// Details of the cause of nested page fault.
