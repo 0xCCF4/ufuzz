@@ -71,6 +71,8 @@ unsafe fn main() -> Status {
     let mut cmos = CMOS::<CmosActualData>::new(nmi);
     cmos.read_cmos_ram(nmi);
 
+    // println!("Raw data: {:?} {:?}", String::from_utf8(cmos.raw_data().iter().filter(|x|x.is_ascii_alphanumeric()).cloned().collect()).unwrap(), &cmos.raw_data());
+
     if !cmos.checksum_valid() {
         println!("Checksum not valid, resetting CMOS RAM...");
         cmos.reset();
@@ -105,7 +107,7 @@ unsafe fn main() -> Status {
     };
 
     let args = args.split_once(' ').map(|(_, a)| a).unwrap_or(args.as_str()).trim();
-    let args = args.split_once(' ').map(|(a, _)| a).unwrap_or(args).trim();
+    let args = args.rsplit_once(' ').map(|(a, _)| a).unwrap_or("").trim();
 
     println!("New text: {}", args);
 
