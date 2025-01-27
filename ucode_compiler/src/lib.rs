@@ -1,4 +1,4 @@
-#![cfg_attr(feature = "no_std", no_std)]
+#![cfg_attr(feature = "nostd", no_std)]
 extern crate alloc;
 extern crate core;
 
@@ -6,7 +6,7 @@ use core::fmt;
 
 use core::fmt::{Display, Formatter};
 
-#[cfg(all(feature = "uasm", not(feature = "no_std")))]
+#[cfg(all(feature = "uasm", not(feature = "nostd")))]
 #[allow(clippy::bind_instead_of_map)] // todo: if time, then remove this line
 pub mod uasm;
 pub mod utils;

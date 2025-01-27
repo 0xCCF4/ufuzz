@@ -9,6 +9,8 @@ display_library: nogui
 romimage: file="bios/OVMF.fd", address=0xffe00000, options=none
 vgaromimage: file="bios/VGABIOS-lgpl-latest"
 
+#cmosimage: file="cmos.bin" rtc_init=image
+
 memory: host=1024, guest=1024
 boot: disk
 
@@ -58,4 +60,4 @@ com4: enabled=false
 parport1: enabled=true, file=none
 parport2: enabled=false
 
-magic_break: enabled=1
+magic_break: enabled=0

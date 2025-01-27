@@ -13,7 +13,7 @@
 
 extern crate alloc;
 
-use x86::bits64::paging::{BASE_PAGE_SHIFT, BASE_PAGE_SIZE};
+use x86::bits64::paging::BASE_PAGE_SIZE;
 
 pub mod hardware_vt;
 
@@ -59,10 +59,3 @@ impl Page {
 }
 
 const _: () = assert!(size_of::<Page>() == 0x1000);
-
-/// Computes how many pages are needed for the given bytes.
-fn size_to_pages(size: usize) -> usize {
-    const PAGE_MASK: usize = 0xfff;
-
-    (size >> BASE_PAGE_SHIFT) + usize::from((size & PAGE_MASK) != 0)
-}

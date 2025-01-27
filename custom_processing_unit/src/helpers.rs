@@ -1,8 +1,8 @@
 use crate::Error;
 use crate::StagingBufferAddress::{RegTmp0, RegTmp1, RegTmp2};
-#[cfg(feature = "no_std")]
+#[cfg(feature = "nostd")]
 use alloc::format;
-#[cfg(feature = "no_std")]
+#[cfg(feature = "nostd")]
 use alloc::string::ToString;
 use core::arch::asm;
 use core::fmt;
@@ -13,9 +13,9 @@ use data_types::addresses::{
 };
 use data_types::patch::{Patch, UcodePatchBlob};
 use log::trace;
-#[cfg(not(feature = "no_std"))]
+#[cfg(not(feature = "nostd"))]
 use std::format;
-#[cfg(not(feature = "no_std"))]
+#[cfg(not(feature = "nostd"))]
 use std::string::ToString;
 
 #[derive(Copy, Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]

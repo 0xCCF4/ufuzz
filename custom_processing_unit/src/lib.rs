@@ -1,10 +1,10 @@
-#![cfg_attr(feature = "no_std", no_std)]
+#![cfg_attr(feature = "nostd", no_std)]
 
 use data_types::patch::UcodePatchEntry;
 
-#[cfg(feature = "no_std")]
+#[cfg(feature = "nostd")]
 extern crate alloc;
-#[cfg(feature = "no_std")]
+#[cfg(feature = "nostd")]
 use alloc::{format, string::String};
 use data_types::addresses::UCInstructionAddress;
 

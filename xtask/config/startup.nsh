@@ -1,2 +1,2 @@
-hypervisor.efi
+app.efi
 reset -s

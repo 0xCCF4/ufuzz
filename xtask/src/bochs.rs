@@ -33,6 +33,23 @@ impl VM for Bochs {
         // copy disk to working directory
 
         let disk = working_directory.as_ref().join("bochs_disk.img");
+        let cmos = working_directory.as_ref().join("cmos.bin");
+
+        if !cmos.exists() {
+            if !Command::new("dd")
+                .args([
+                    "if=/dev/zero",
+                    &format!("of={}", cmos.to_str().unwrap()),
+                    "bs=1",
+                    "count=128",
+                ])
+                .status()
+                .map_err(|_| "dd failed")?
+                .success()
+            {
+                return Err("dd failed".into());
+            }
+        }
 
         if !Command::new("dd")
             .args([
@@ -91,13 +108,13 @@ impl VM for Bochs {
                 "-i",
                 disk.to_str().unwrap(),
                 build_output.as_ref().to_str().unwrap(),
-                "::",
+                "::app.efi",
             ])
             .status()
-            .map_err(|_| "mcopy hypervisor.efi failed")?
+            .map_err(|_| "mcopy app.efi failed")?
             .success()
         {
-            return Err("mcopy hypervisor.efi failed".into());
+            return Err("mcopy app.efi failed".into());
         }
 
         let port = self

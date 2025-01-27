@@ -1,4 +1,4 @@
-#![cfg_attr(feature = "no_std", no_std)]
+#![cfg_attr(feature = "nostd", no_std)]
 
 mod patches;
 pub use patches::helpers as coverage_collector_debug_tools;
@@ -10,5 +10,5 @@ pub mod interface_definition;
 #[cfg(feature = "uefi")]
 pub mod page_allocation;
 
-//#[cfg(feature = "no_std")]
+//#[cfg(feature = "nostd")]
 extern crate alloc;

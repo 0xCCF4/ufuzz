@@ -7,7 +7,7 @@ use crate::harness::coverage_harness::modification_engine::{
 };
 use crate::interface::safe::ComInterface;
 use crate::interface_definition::{CoverageCount, InstructionTableEntry};
-#[cfg(feature = "no_std")]
+#[cfg(feature = "nostd")]
 use alloc::vec::Vec;
 use core::fmt::Debug;
 use custom_processing_unit::{

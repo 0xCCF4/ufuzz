@@ -30,7 +30,7 @@ use core::{
     arch::{asm, global_asm},
     fmt,
 };
-use log::{debug, error, info, warn};
+use log::{debug, error, warn};
 use x86::current::vmx::vmxoff;
 use x86::{
     controlregs::{Cr0, Cr4},

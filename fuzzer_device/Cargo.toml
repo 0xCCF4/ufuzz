@@ -1,0 +1,15 @@
+[package]
+name = "fuzzer_device"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default = ["platform_intel_celeron_n_ami"]
+platform_intel_celeron_n_ami = [] # intel celeron n with American Megatrends BIOS
+platform_other = []
+
+[dependencies]
+hypervisor = { path = "../hypervisor" }
+coverage = { path = "../coverage", features = ["uefi"], default-features = false }
+uefi = { version = "0.33.0", features = ["logger", "panic_handler", "alloc", "global_allocator"] }
+log = "0.4.25"
