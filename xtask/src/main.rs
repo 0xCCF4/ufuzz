@@ -106,6 +106,14 @@ fn build_app(project: &str, release: bool) -> Result<PathBuf, DynError> {
         "x86_64-unknown-uefi",
     ]);
 
+    if project == "fuzzer_device" {
+        status.args([
+            "--features",
+            "bios_bochs,platform_bochs,rand_isaac,mutation_all",
+            "--no-default-features",
+        ]);
+    }
+
     if release {
         status.args(["--release"]);
     }

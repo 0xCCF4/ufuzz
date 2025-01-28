@@ -4,12 +4,30 @@ version = "0.1.0"
 edition = "2021"
 
 [features]
-default = ["platform_intel_celeron_n_ami"]
-platform_intel_celeron_n_ami = [] # intel celeron n with American Megatrends BIOS
-platform_other = []
+default = ["device_brix", "mutation_all", "rand_isaac"]
+
+device_bochs = ["platform_bochs", "bios_bochs"]
+device_brix  = ["platform_intel", "bios_ami"]
+
+platform_intel = [] # CMOS io port 0x70,0x71,0x72,0x73
+platform_bochs = [] # no CMOS memory
+bios_ami = []       # American Megatrends BIOS -> CMOS memory offset 0x80, len 64
+bios_bochs = []     # no CMOS memory
+
+# Random number generator
+rand_isaac  = ["dep:rand_isaac"]
+
+mutation_all = ["mutation_random"]
+mutation_random = []  # Random mutation
 
 [dependencies]
 hypervisor = { path = "../hypervisor" }
 coverage = { path = "../coverage", features = ["uefi"], default-features = false }
 uefi = { version = "0.33.0", features = ["logger", "panic_handler", "alloc", "global_allocator"] }
 log = "0.4.25"
+rand_core = "0.9.0"
+rand_isaac = {version = "0.4.0", optional = true}
+libm = "0.2.11"
+derivative = "2.2.0"
+data_types = {path = "../data_types"}
+iced-x86 = { version = "1.21.0", default-features = false, features = ["decoder", "encoder", "block_encoder", "op_code_info", "instr_info", "gas", "intel", "masm", "nasm", "fast_fmt", "code_asm", "no_std"] }
