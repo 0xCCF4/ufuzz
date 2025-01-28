@@ -99,24 +99,34 @@ fn build_app(project: &str, release: bool) -> Result<PathBuf, DynError> {
 
     status.args([
         "build",
-        "--bins",
         "-p",
         project,
         "--target",
         "x86_64-unknown-uefi",
     ]);
 
-    if project == "fuzzer_device" {
+    let executable_name = if project == "fuzzer_device" {
         status.args([
+            "--bins",
             "--features",
             "bios_bochs,platform_bochs,rand_isaac,mutation_all",
             "--no-default-features",
         ]);
-    }
+        "fuzzer_device"
+    } else if project == "hypervisor" {
+        status.args([
+            "--example", "test_hypervisor",
+        ]);
+        "examples/test_hypervisor"
+    } else {
+        project
+    };
 
     if release {
         status.args(["--release"]);
     }
+
+    println!("{:?}", status);
 
     let build_folder = env::var("CARGO_TARGET_DIR")
         .map(PathBuf::from)
@@ -133,6 +143,6 @@ fn build_app(project: &str, release: bool) -> Result<PathBuf, DynError> {
         Ok(_) => Ok(build_folder
             .join("x86_64-unknown-uefi")
             .join("debug")
-            .join(format!("{}.efi", project))),
+            .join(format!("{}.efi", executable_name))),
     }
 }

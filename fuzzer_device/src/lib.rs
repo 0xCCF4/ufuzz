@@ -1,3 +1,4 @@
+#![feature(new_zeroed_alloc)]
 #![no_std]
 
 pub mod cmos;

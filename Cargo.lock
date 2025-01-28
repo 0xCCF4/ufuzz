@@ -490,6 +490,7 @@ name = "fuzzer_device"
 version = "0.1.0"
 dependencies = [
  "coverage",
+ "custom_processing_unit",
  "data_types",
  "derivative",
  "hypervisor",
@@ -499,6 +500,7 @@ dependencies = [
  "rand_core 0.9.0",
  "rand_isaac",
  "uefi 0.33.0",
+ "x86",
 ]
 
 [[package]]

@@ -24,7 +24,17 @@ unsafe fn main() -> Status {
 
     let mut corpus = Vec::new();
     corpus.push(Sample::default());
-    let mut executor = SampleExecutor::default();
+    let mut executor = match SampleExecutor::new() {
+        Ok(executor) => executor,
+        Err(e) => {
+            println!("Failed to create executor: {:?}", e);
+            return Status::ABORTED;
+        }
+    };
+    if !executor.selfcheck() {
+        println!("Executor selfcheck failed");
+        return Status::ABORTED;
+    }
     let mutator = MutationEngine::default();
     let mut global_scores = GlobalScores::default();
 

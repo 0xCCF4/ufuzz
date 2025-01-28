@@ -13,6 +13,7 @@
 
 extern crate alloc;
 
+use alloc::boxed::Box;
 use x86::bits64::paging::BASE_PAGE_SIZE;
 
 pub mod hardware_vt;
@@ -55,6 +56,14 @@ impl Page {
 
     pub fn as_mut_ptr(&mut self) -> *mut Page {
         self as *mut Page
+    }
+
+    pub fn alloc_zeroed() -> Box<Self> {
+        unsafe {Box::<Page>::new_zeroed().assume_init()}
+    }
+
+    pub fn zero(&mut self) {
+        self.as_slice_mut().fill(0);
     }
 }
 
