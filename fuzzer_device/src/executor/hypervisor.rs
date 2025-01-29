@@ -1,0 +1,377 @@
+use alloc::boxed::Box;
+use alloc::string::String;
+use alloc::vec::Vec;
+use iced_x86::{code_asm, Decoder, DecoderOptions, Formatter, Instruction, NasmFormatter};
+use iced_x86::code_asm::{CodeAssembler, CodeLabel};
+use log::error;
+use uefi::{print, println};
+use x86::bits64::paging::{PAddr, PDPTEntry, PDPTFlags, PML4Entry, PML4Flags, BASE_PAGE_SHIFT};
+use x86::bits64::rflags::RFlags;
+use x86::controlregs::{Cr0, Cr4};
+use x86::dtables::DescriptorTablePointer;
+use x86::Ring;
+use x86::segmentation::{BuildDescriptor, CodeSegmentType, DataSegmentType, Descriptor, DescriptorBuilder, GateDescriptorBuilder, SegmentDescriptorBuilder, SegmentSelector};
+use hypervisor::error::HypervisorError;
+use hypervisor::hardware_vt::{ExceptionQualification, GuestException, GuestRegisters, NestedPagingStructureEntryType, VmExitReason};
+use hypervisor::Page;
+use hypervisor::state::{VmState, VmStateExtendedRegisters};
+use hypervisor::vm::Vm;
+use hypervisor::x86_instructions::sgdt;
+
+pub struct Hypervisor {
+    memory_code_page: Box<Page>,
+    memory_stack_page: Box<Page>,
+
+    #[allow(dead_code)]
+    memory_code_entry_page: Box<Page>,
+
+    #[allow(dead_code)]
+    memory_gdt_page: Box<Page>,
+    #[allow(dead_code)]
+    memory_tss_page: Box<Page>,
+    #[allow(dead_code)]
+    memory_page_table_4: Box<Page>,
+    #[allow(dead_code)]
+    memory_page_table_3: Box<Page>,
+
+    vm: Vm,
+    pub initial_state: VmState,
+}
+
+impl Hypervisor {
+    pub fn new() -> Result<Self, HypervisorError> {
+        // MEMORY LAYOUT IN PAGES
+        //
+        // 0: code
+        // 1: stack
+        // 2: global descriptor table
+        // 3: TSS
+        // 4-5: page tables
+        // 6: code entry page, execution starts here
+
+        const CODE_PAGE_INDEX: usize = 0;
+        const STACK_PAGE_INDEX: usize = 1;
+        const GDT_PAGE_INDEX: usize = 2;
+        const TSS_PAGE_INDEX: usize = 3;
+        const PAGE_TABLE_4_INDEX: usize = 4;
+        const PAGE_TABLE_3_INDEX: usize = 5;
+        const CODE_ENTRY_PAGE_INDEX: usize = 6;
+
+        let code_page = Page::alloc_zeroed();
+        let mut code_entry_page = Page::alloc_zeroed();
+        let stack_page = Page::alloc_zeroed();
+        let mut gdt_page = Page::alloc_zeroed();
+        let tss_page = Page::alloc_zeroed();
+        let mut page_table_4_page = Page::alloc_zeroed();
+        let mut page_table_3_page = Page::alloc_zeroed();
+
+        let mut descriptors = Vec::new();
+        descriptors.push(Descriptor::NULL);
+
+        let code = DescriptorBuilder::code_descriptor(0, 0xfffff, CodeSegmentType::ExecuteReadAccessed)
+            .present()
+            .dpl(Ring::Ring0)
+            .l()
+            .finish();
+
+        let code_index = descriptors.len();
+        descriptors.push(code);
+
+        let data = DescriptorBuilder::data_descriptor(0, 0xfffff, DataSegmentType::ReadWriteAccessed)
+            .present()
+            .dpl(Ring::Ring0)
+            .l()
+            .finish();
+        let data_index = descriptors.len();
+        let stack_index = data_index;
+        descriptors.push(data);
+
+        let tss_descriptor: Descriptor =
+            <DescriptorBuilder as GateDescriptorBuilder<u32>>::tss_descriptor(
+                2 << BASE_PAGE_SHIFT,
+                100,
+                false,
+            )
+                .present()
+                .dpl(Ring::Ring0)
+                .finish();
+
+        let tss_index = descriptors.len();
+        descriptors.push(tss_descriptor);
+        descriptors.push(Descriptor::NULL); // 64bit mode
+
+        let descriptor_page = gdt_page.as_slice_mut();
+        unsafe {
+            for (i, descriptor) in descriptors.into_iter().enumerate() {
+                let descriptor_ptr = descriptor_page.as_mut_ptr().cast::<u64>().add(i);
+                core::ptr::write(descriptor_ptr, descriptor.as_u64());
+            }
+        }
+
+        let code_entry = Self::generate_code_entry((CODE_PAGE_INDEX << BASE_PAGE_SHIFT) as u64, (CODE_ENTRY_PAGE_INDEX << BASE_PAGE_SHIFT) as u64);
+        unsafe { core::ptr::copy_nonoverlapping(
+            code_entry.as_ptr(),
+            code_entry_page.as_slice_mut().as_mut_ptr(),
+            code_entry.len().min(4096),
+        ); }
+
+        let mut standard_registers = GuestRegisters::default();
+        standard_registers.rip = (CODE_ENTRY_PAGE_INDEX as u64) << BASE_PAGE_SHIFT;
+        standard_registers.rsp = ((STACK_PAGE_INDEX as u64 + 1) << BASE_PAGE_SHIFT) - 8;
+        standard_registers.rflags =
+            (RFlags::FLAGS_A1 | RFlags::FLAGS_ID | RFlags::FLAGS_IF | RFlags::FLAGS_IOPL0).bits()
+                as u64;
+
+        let extended_registers = VmStateExtendedRegisters {
+            gdtr: DescriptorTablePointer {
+                base: descriptor_page.as_ptr().cast(),
+                limit: 2,
+            },
+            idtr: DescriptorTablePointer::default(),
+            ldtr_base: 0,
+            ldtr: 0,
+            cs: SegmentSelector::new(code_index as u16, Ring::Ring0).bits(),
+            ss: SegmentSelector::new(stack_index as u16, Ring::Ring0).bits(),
+            ds: SegmentSelector::new(data_index as u16, Ring::Ring0).bits(),
+            es: SegmentSelector::new(0, Ring::Ring0).bits(),
+            fs: SegmentSelector::new(0, Ring::Ring0).bits(),
+            gs: SegmentSelector::new(0, Ring::Ring0).bits(),
+            tr: SegmentSelector::new(tss_index as u16, Ring::Ring0).bits(),
+            efer: 1 << 8, // 64bit/32e, no syscall, no execute disable
+            cr0: (Cr0::CR0_PROTECTED_MODE | Cr0::CR0_ENABLE_PAGING).bits() as u64, // cache enabled, write protect disabled, 32(e)bit
+            cr3: (PAGE_TABLE_4_INDEX << BASE_PAGE_SHIFT) as u64,
+            cr4: Cr4::CR4_ENABLE_PAE.bits() as u64, // enable 32e
+            fs_base: 0,
+            gs_base: 0,
+            tr_base: 0,
+            es_base: 0,
+            cs_base: 0,
+            ss_base: 0,
+            ds_base: 0,
+            sysenter_cs: 0,
+            sysenter_esp: 0,
+            sysenter_eip: 0,
+            dr7: 0,
+        };
+
+        let state = VmState {
+            standard_registers,
+            extended_registers,
+        };
+
+        // build page table
+        let page_table_4: *mut PML4Entry = page_table_4_page.as_mut_ptr().cast();
+        unsafe {
+            for i in 0..512 {
+                let dst_entry = page_table_4.add(i);
+
+                let entry = PML4Entry::new(
+                    PAddr((PAGE_TABLE_3_INDEX << BASE_PAGE_SHIFT) as u64),
+                    PML4Flags::P | PML4Flags::RW | PML4Flags::US | PML4Flags::A,
+                );
+                *dst_entry = entry;
+            }
+        }
+
+        let page_table_3: *mut PDPTEntry = page_table_3_page.as_mut_ptr().cast();
+        unsafe {
+            for i in 0..512 {
+                let dst_entry = page_table_3.add(i);
+
+                // 1GB page size
+                let entry = PDPTEntry::new(
+                    PAddr((i << 30) as u64),
+                    PDPTFlags::P | PDPTFlags::RW | PDPTFlags::US | PDPTFlags::PS | PDPTFlags::A | PDPTFlags::D,
+                );
+                *dst_entry = entry;
+            }
+        }
+
+        let mut gdt: DescriptorTablePointer<Descriptor> = DescriptorTablePointer::default();
+        sgdt(&mut gdt);
+
+        let mut vm = Vm::new();
+        vm.vt.enable();
+        if let Err(err) = vm.initialize() {
+            error!("Failed to initialize vm: {:?}", err);
+            vm.vt.disable();
+            return Err(HypervisorError::FailedToInitializeHost(err));
+        }
+
+        let translations = [
+            vm.build_translation(
+                CODE_PAGE_INDEX << BASE_PAGE_SHIFT,
+                code_page.as_ptr(),
+                NestedPagingStructureEntryType::Rx,
+            ),
+            vm.build_translation(
+                STACK_PAGE_INDEX << BASE_PAGE_SHIFT,
+                stack_page.as_ptr(),
+                NestedPagingStructureEntryType::Rw,
+            ),
+            vm.build_translation(
+                GDT_PAGE_INDEX << BASE_PAGE_SHIFT,
+                gdt_page.as_ptr(),
+                NestedPagingStructureEntryType::R,
+            ),
+            vm.build_translation(
+                TSS_PAGE_INDEX << BASE_PAGE_SHIFT,
+                tss_page.as_ptr(),
+                NestedPagingStructureEntryType::R,
+            ),
+            vm.build_translation(
+                PAGE_TABLE_4_INDEX << BASE_PAGE_SHIFT,
+                page_table_4_page.as_ptr(),
+                NestedPagingStructureEntryType::R,
+            ),
+            vm.build_translation(
+                PAGE_TABLE_3_INDEX << BASE_PAGE_SHIFT,
+                page_table_3_page.as_ptr(),
+                NestedPagingStructureEntryType::Rw,
+            ),
+            vm.build_translation(
+                CODE_ENTRY_PAGE_INDEX << BASE_PAGE_SHIFT,
+                code_entry_page.as_ptr(),
+                NestedPagingStructureEntryType::Rx,
+            ),
+        ];
+
+        for t in translations.into_iter() {
+            if let Err(err) = t {
+                error!("Failed to build translation: {:?}", err);
+                return Err(err);
+            }
+        }
+
+        Ok(Self {
+            memory_code_page: code_page,
+            memory_code_entry_page: code_entry_page,
+            memory_stack_page: stack_page,
+            memory_gdt_page: gdt_page,
+            memory_tss_page: tss_page,
+            memory_page_table_4: page_table_4_page,
+            memory_page_table_3: page_table_3_page,
+            vm,
+            initial_state: state,
+        })
+    }
+
+    pub fn prepare_vm_state(&mut self, code: &[u8]) {
+        self.vm.vt.load_state(&self.initial_state);
+        self.vm.vt.set_preemption_timer(1e8 as u64);
+
+        self.memory_code_page.zero();
+        self.memory_stack_page.zero();
+
+        unsafe {
+            core::ptr::copy_nonoverlapping(
+                code.as_ptr(),
+                self.memory_code_page.as_slice_mut().as_mut_ptr(),
+                code.len().min(4096),
+            );
+        }
+    }
+
+    pub fn run_vm(&mut self) -> VmExitReason {
+        self.vm.vt.run()
+    }
+
+    pub fn selfcheck(&mut self) -> bool {
+        let mut assembler = CodeAssembler::new(64).unwrap();
+
+        let mut start_sequence = assembler.create_label();
+        let mut hlt_int3 = assembler.create_label();
+        let mut label_loop = assembler.create_label();
+
+        assembler.jmp(start_sequence).unwrap();
+        assembler.set_label(&mut hlt_int3).unwrap();
+        assembler.int3().unwrap();
+        assembler.set_label(&mut start_sequence).unwrap();
+        assembler.mov(code_asm::rax, 0x11u64).unwrap();
+        assembler.push(code_asm::rax).unwrap();
+        assembler.mov(code_asm::rax, 0x22u64).unwrap();
+        assembler.pop(code_asm::rbx).unwrap();
+        assembler.add(code_asm::rax, code_asm::rbx).unwrap();
+        assembler.jmp(hlt_int3).unwrap();
+        assembler.set_label(&mut label_loop).unwrap();
+        assembler.jmp(label_loop).unwrap();
+
+        let code =
+            assembler.assemble(0).expect("failed to assemble selfcheck code");
+
+        disassemble_code(&code);
+
+        self.prepare_vm_state(&code);
+
+        let mut state = self.initial_state.clone();
+
+        let result = self.vm.vt.run();
+        if let VmExitReason::Exception(ExceptionQualification {
+                                           rip, exception_code
+                                       }) = result {
+            if exception_code != GuestException::BreakPoint {
+                error!("Selfcheck: Unexpected exception code: {:?}", exception_code);
+                return false;
+            }
+            if rip != 2 {
+                error!("Selfcheck: Unexpected rip: {:x}", rip);
+                return false;
+            }
+            self.vm.vt.save_state(&mut state);
+            if state.standard_registers.rax != 0x33 {
+                error!("Selfcheck: Unexpected rax: {:x}", state.standard_registers.rax);
+                return false;
+            }
+
+            return true;
+        } else {
+            error!("Selfcheck: Unexpected exit reason: {:?}", result);
+            return false;
+        }
+    }
+
+    fn generate_code_entry(code_entry: u64, current_rip: u64) -> Vec<u8> {
+        let mut assembler = CodeAssembler::new(64).unwrap();
+
+        assembler.wbinvd().unwrap();
+        assembler.mfence().unwrap();
+        assembler.wbinvd().unwrap();
+        assembler.mfence().unwrap();
+
+        assembler.mov(code_asm::rax, code_entry).unwrap();
+        assembler.jmp(code_asm::rax).unwrap();
+
+        assembler.assemble(current_rip).expect("failed to assemble code entry")
+    }
+}
+
+fn disassemble_code(code: &[u8]) {
+    let mut decoder = Decoder::with_ip(64, code, 0, DecoderOptions::NONE);
+    let mut formatter = NasmFormatter::new();
+
+    formatter.options_mut().set_digit_separator("`");
+    formatter.options_mut().set_first_operand_char_index(10);
+
+    let mut output = String::new();
+    let mut instruction = Instruction::default();
+
+    while decoder.can_decode() {
+        decoder.decode_out(&mut instruction);
+        output.clear();
+        formatter.format(&instruction, &mut output);
+
+        // Eg. "00007FFAC46ACDB2 488DAC2400FFFFFF     lea       rbp,[rsp-100h]"
+        print!("{:016X} ", instruction.ip());
+        let start_index = (instruction.ip() - 0) as usize;
+        let instr_bytes = &code[start_index..start_index + instruction.len()];
+        for b in instr_bytes.iter() {
+            print!("{:02X}", b);
+        }
+        if instr_bytes.len() < 10 {
+            for _ in 0..10 - instr_bytes.len() {
+                print!("  ");
+            }
+        }
+        println!(" {}", output);
+    }
+}

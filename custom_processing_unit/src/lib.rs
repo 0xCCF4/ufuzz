@@ -20,6 +20,7 @@ pub enum Error {
     InitMatchAndPatchFailed(String),
     HookFailed(String),
     PatchError(PatchError),
+    Other(String),
 }
 
 impl core::fmt::Display for Error {
@@ -31,6 +32,7 @@ impl core::fmt::Display for Error {
             }
             Error::HookFailed(t) => write!(f, "Failed to setup ucode hook: {}", t),
             Error::PatchError(t) => write!(f, "Failed to patch ucode: {:?}", t),
+            Error::Other(t) => write!(f, "{}", t),
         }
     }
 }

@@ -227,7 +227,7 @@ unsafe fn main() -> Status {
         vm.build_translation(
             PAGE_TABLE_4_INDEX << BASE_PAGE_SHIFT,
             guest_memory[PAGE_TABLE_4_INDEX].as_ptr(),
-            NestedPagingStructureEntryType::Rw, // todo: maybe bochs bug, works with R -> paging algo sets accessed bit in page table, so #PF in bochs -> investigate
+            NestedPagingStructureEntryType::Rw, // todo: maybe bochs bug, works with R -> paging algo sets accessed bit in page table, #PF no raised in bochs -> investigate
         ),
         vm.build_translation(
             PAGE_TABLE_3_INDEX << BASE_PAGE_SHIFT,
