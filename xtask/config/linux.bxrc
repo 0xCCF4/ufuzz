@@ -60,4 +60,4 @@ com4: enabled=false
 parport1: enabled=true, file=none
 parport2: enabled=false
 
-magic_break: enabled=0
+magic_break: enabled=1

@@ -291,6 +291,8 @@ impl Hypervisor {
     }
 
     pub fn run_vm(&mut self) -> VmExitReason {
+        println!("--------------------------------------------------------------------");
+        disassemble_code(&self.memory_code_page.as_slice()[0..20]);
         self.vm.vt.run()
     }
 

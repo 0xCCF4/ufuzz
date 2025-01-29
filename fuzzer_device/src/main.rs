@@ -4,7 +4,6 @@
 extern crate alloc;
 
 use alloc::collections::{BTreeMap, BTreeSet};
-use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt::{Display};
 use data_types::addresses::UCInstructionAddress;
@@ -12,11 +11,11 @@ use fuzzer_device::cmos::NMIGuard;
 use fuzzer_device::executor::{ExecutionResult, SampleExecutor};
 use fuzzer_device::heuristic::{GlobalScores, Sample};
 use fuzzer_device::mutation_engine::MutationEngine;
-use iced_x86::{Decoder, DecoderOptions, Formatter, Instruction, NasmFormatter};
 use log::error;
 use num_traits::{ConstZero, SaturatingSub};
 use rand_core::SeedableRng;
-use uefi::{entry, print, println, Status};
+use uefi::{entry, println, Status};
+use fuzzer_device::disassemble_code;
 
 #[entry]
 unsafe fn main() -> Status {
@@ -147,36 +146,5 @@ impl GlobalStats {
         println!("New sample added to corpus");
         println!("The sample increased coverage by: {}", new_coverage);
         disassemble_code(&sample.code_blob);
-    }
-}
-
-fn disassemble_code(code: &[u8]) {
-    let mut decoder = Decoder::with_ip(64, code, 0, DecoderOptions::NONE);
-    let mut formatter = NasmFormatter::new();
-
-    formatter.options_mut().set_digit_separator("`");
-    formatter.options_mut().set_first_operand_char_index(10);
-
-    let mut output = String::new();
-    let mut instruction = Instruction::default();
-
-    while decoder.can_decode() {
-        decoder.decode_out(&mut instruction);
-        output.clear();
-        formatter.format(&instruction, &mut output);
-
-        // Eg. "00007FFAC46ACDB2 488DAC2400FFFFFF     lea       rbp,[rsp-100h]"
-        print!("{:016X} ", instruction.ip());
-        let start_index = (instruction.ip() - 0) as usize;
-        let instr_bytes = &code[start_index..start_index + instruction.len()];
-        for b in instr_bytes.iter() {
-            print!("{:02X}", b);
-        }
-        if instr_bytes.len() < 10 {
-            for _ in 0..10 - instr_bytes.len() {
-                print!("  ");
-            }
-        }
-        println!(" {}", output);
     }
 }

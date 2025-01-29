@@ -10,7 +10,7 @@ use ::hypervisor::error::HypervisorError;
 use alloc::vec::Vec;
 use data_types::addresses::UCInstructionAddress;
 use log::{error, warn};
-use uefi::{print, println};
+use uefi::println;
 use ::hypervisor::hardware_vt::VmExitReason;
 use ::hypervisor::state::VmState;
 use coverage::harness::coverage_harness::{CoverageExecutionResult, ExecutionResultEntry};
@@ -56,7 +56,7 @@ impl SampleExecutor {
                     let mut state = VmState::default();
                     self.hypervisor.capture_state(&mut state);
 
-                    let addresses: &'a [UCInstructionAddress] = unsafe {core::mem::transmute(addresses)}; //  addresses &[...] will be valid as long as self if valid, addresses is owned by IterationHarness
+                    let addresses: Vec<UCInstructionAddress> = addresses.to_vec(); // todo optimize
 
                     (addresses, vm_exit, state) // disable hooks after execution to not capture conditional logic of the vm exit handler
                 })
@@ -87,7 +87,7 @@ impl SampleExecutor {
                                 if expected_vm_exit != &current_vm_exit {
                                     error!("Expected result {:?} but got {:?}. This should not have happened. This is a µcode bug or implementation problem!", expected_vm_exit, current_vm_exit);
                                     println!("We were hooking the following addresses:");
-                                    for address in hooked_addresses {
+                                    for address in hooked_addresses.iter() {
                                         println!(" - {:?}", address);
                                     }
                                     execution_result.events.push(ExecutionEvent::VmExitMismatchCoverageCollection {
@@ -99,7 +99,7 @@ impl SampleExecutor {
                                 if self.state_scratch_area != execution_result.state {
                                     error!("Expected architectural state x but got y. This should not have happened. This is a µcode bug or implementation problem!");
                                     println!("We were hooking the following addresses:");
-                                    for address in hooked_addresses {
+                                    for address in hooked_addresses.iter() {
                                         println!(" - {:?}", address);
                                     }
                                     execution_result.events.push(ExecutionEvent::VmStateMismatchCoverageCollection {
