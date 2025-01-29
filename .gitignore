@@ -3,4 +3,4 @@ api.key
 .idea/
 vscode/
 uefi_watchdog/
-hypervisor_illusion_rs
+.githooks
