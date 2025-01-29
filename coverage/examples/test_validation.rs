@@ -75,7 +75,7 @@ unsafe fn main() -> Status {
     let iteration_harness = IterationHarness::new(hookable_addresses);
 
     let duplicate_found = iteration_harness
-        .execute(|chunk| {
+        .execute_for_all_addresses(|chunk| {
             for addr in chunk {
                 if chunk
                     .iter()
@@ -155,14 +155,14 @@ fn collect_coverage<R, F: FnMut() -> R>(
     baseline: Option<&BTreeMap<UCInstructionAddress, CoverageCount>>,
     mut func: F,
 ) -> BTreeMap<UCInstructionAddress, CoverageCount> {
-    let results = iteration_harness.execute(|chunk| coverage_harness.execute(chunk, || func()));
+    let results = iteration_harness.execute_for_all_addresses(|chunk| coverage_harness.execute(chunk, || func()));
 
     let mut coverage = BTreeMap::new();
     for result in results {
         match result {
             Ok(value) => {
                 for hook in value.hooks {
-                    if hook.covered() {
+                    if hook.is_covered() {
                         coverage.insert(hook.address(), hook.coverage());
                     }
                 }
@@ -274,7 +274,7 @@ fn test_cpuid(
     let blacklisted = read_blacklisted().unwrap_or_default();
 
     println!("Collecting coverage...");
-    for result in iteration_harness.execute(|chunk| {
+    for result in iteration_harness.execute_for_all_addresses(|chunk| {
         if blacklisted
             .iter()
             .contains(&chunk[0].align_even().address())
@@ -294,7 +294,7 @@ fn test_cpuid(
                 }
 
                 for hook in value.hooks {
-                    if hook.covered() {
+                    if hook.is_covered() {
                         let address = hook.address();
                         let coverage = hook.coverage();
                         coverage_map

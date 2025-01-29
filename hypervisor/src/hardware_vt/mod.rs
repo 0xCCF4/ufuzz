@@ -32,8 +32,13 @@ pub trait HardwareVt: fmt::Debug {
     /// Save state
     fn save_state(&self, state: &mut VmState);
 
+    /// Executes the guest until it triggers VM exit. Runs the after execution callback at the first possible moment (volatile state is saved).
+    fn run_with_callback(&mut self, after_execution: fn()) -> VmExitReason;
+
     /// Executes the guest until it triggers VM exit.
-    fn run(&mut self) -> VmExitReason;
+    fn run(&mut self) -> VmExitReason {
+        self.run_with_callback(|| {})
+    }
 
     /// Invalidates caches of the nested paging structures.
     fn invalidate_caches(&mut self);
@@ -48,7 +53,7 @@ pub trait HardwareVt: fmt::Debug {
 }
 
 /// Reasons of VM exit.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum VmExitReason {
     /// An address translation failure with nested paging. GPA->LA. Contains a guest
     /// physical address that failed translation and whether the access was
@@ -76,7 +81,7 @@ pub enum VmExitReason {
 }
 
 /// Details of the cause of nested page fault.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct EPTPageFaultQualification {
     pub rip: usize,
     pub gpa: usize,
@@ -113,14 +118,14 @@ impl EPTPageFaultQualification {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct ExceptionQualification {
     pub rip: u64,
     pub exception_code: GuestException,
 }
 
 /// The cause of guest exception.
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Clone, Copy, PartialEq, Debug, Eq)]
 pub enum GuestException {
     BreakPoint,
     InvalidOpcode,
@@ -173,7 +178,7 @@ pub struct NestedPagingStructureEntryFlags {
 }
 
 /// The collection of the guest general purpose register values.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct GuestRegisters {
     pub rax: u64,
@@ -214,7 +219,7 @@ pub struct GuestRegisters {
 
 #[repr(C)]
 #[repr(align(16))]
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub struct M128A {
     pub low: u64,
     pub high: i64,

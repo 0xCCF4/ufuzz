@@ -1,17 +1,19 @@
-use x86::dtables::DescriptorTablePointer;
+use core::fmt::Debug;
+use core::ops::{Deref, DerefMut};
 use crate::hardware_vt::GuestRegisters;
+use x86::dtables::DescriptorTablePointer;
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct VmState {
     pub standard_registers: GuestRegisters,
     pub extended_registers: VmStateExtendedRegisters,
 }
 
 /// 26.4.1 Guest Register State
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct VmStateExtendedRegisters {
-    pub gdtr: x86::dtables::DescriptorTablePointer<u64>,
-    pub idtr: x86::dtables::DescriptorTablePointer<u64>,
+    pub gdtr: DescriptorTablePointerWrapper<u64>,
+    pub idtr: DescriptorTablePointerWrapper<u64>,
     pub ldtr_base: u64,
     pub ldtr: u16,
     pub es: u16,
@@ -38,42 +40,49 @@ pub struct VmStateExtendedRegisters {
     pub ds_base: u64,
 }
 
-impl Clone for VmStateExtendedRegisters {
-    fn clone(&self) -> Self {
-        VmStateExtendedRegisters {
-            gdtr: DescriptorTablePointer {
-                base: self.gdtr.base,
-                limit: self.gdtr.limit,
-            },
-            idtr: DescriptorTablePointer {
-                base: self.idtr.base,
-                limit: self.idtr.limit,
-            },
-            ldtr_base: self.ldtr_base,
-            ldtr: self.ldtr,
-            es: self.es,
-            cs: self.cs,
-            ss: self.ss,
-            ds: self.ds,
-            fs: self.fs,
-            gs: self.gs,
-            tr: self.tr,
-            efer: self.efer,
-            cr0: self.cr0,
-            cr3: self.cr3,
+#[derive(Default)]
+#[repr(transparent)]
+pub struct DescriptorTablePointerWrapper<T>(pub DescriptorTablePointer<T>);
 
-            cr4: self.cr4,
-            fs_base: self.fs_base,
-            gs_base: self.gs_base,
-            tr_base: self.tr_base,
-            sysenter_cs: self.sysenter_cs,
-            sysenter_esp: self.sysenter_esp,
-            sysenter_eip: self.sysenter_eip,
-            dr7: self.dr7,
-            es_base: self.es_base,
-            cs_base: self.cs_base,
-            ss_base: self.ss_base,
-            ds_base: self.ds_base,
-        }
+impl<T> From<DescriptorTablePointer<T>> for DescriptorTablePointerWrapper<T> {
+    fn from(dtp: DescriptorTablePointer<T>) -> Self {
+        DescriptorTablePointerWrapper(dtp)
     }
 }
+
+impl<T> Deref for DescriptorTablePointerWrapper<T> {
+    type Target = DescriptorTablePointer<T>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for DescriptorTablePointerWrapper<u64> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl<T> Debug for DescriptorTablePointerWrapper<T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl<T> PartialEq for DescriptorTablePointerWrapper<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.limit == other.0.limit && self.0.base as usize == other.0.base as usize
+    }
+}
+
+impl<T> Clone for DescriptorTablePointerWrapper<T> {
+    fn clone(&self) -> Self {
+        DescriptorTablePointerWrapper(DescriptorTablePointer {
+            base: self.0.base,
+            limit: self.0.limit,
+        })
+    }
+}
+
+impl<T> Eq for DescriptorTablePointerWrapper<T> {}

@@ -97,13 +97,7 @@ fn build_app(project: &str, release: bool) -> Result<PathBuf, DynError> {
 
     let mut status = Command::new(cargo);
 
-    status.args([
-        "build",
-        "-p",
-        project,
-        "--target",
-        "x86_64-unknown-uefi",
-    ]);
+    status.args(["build", "-p", project, "--target", "x86_64-unknown-uefi"]);
 
     let executable_name = if project == "fuzzer_device" {
         status.args([
@@ -114,9 +108,7 @@ fn build_app(project: &str, release: bool) -> Result<PathBuf, DynError> {
         ]);
         "fuzzer_device"
     } else if project == "hypervisor" {
-        status.args([
-            "--example", "test_hypervisor",
-        ]);
+        status.args(["--example", "test_hypervisor"]);
         "examples/test_hypervisor"
     } else {
         project

@@ -59,11 +59,15 @@ impl Page {
     }
 
     pub fn alloc_zeroed() -> Box<Self> {
-        unsafe {Box::<Page>::new_zeroed().assume_init()}
+        unsafe { Box::<Page>::new_zeroed().assume_init() }
+    }
+
+    pub fn fill(&mut self, value: u8) {
+        self.as_slice_mut().fill(value);
     }
 
     pub fn zero(&mut self) {
-        self.as_slice_mut().fill(0);
+        self.fill(0);
     }
 }
 

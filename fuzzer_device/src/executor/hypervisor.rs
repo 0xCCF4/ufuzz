@@ -1,22 +1,28 @@
 use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
+use hypervisor::error::HypervisorError;
+use hypervisor::hardware_vt::{
+    ExceptionQualification, GuestException, GuestRegisters, NestedPagingStructureEntryType,
+    VmExitReason,
+};
+use hypervisor::state::{VmState, VmStateExtendedRegisters};
+use hypervisor::vm::Vm;
+use hypervisor::x86_instructions::sgdt;
+use hypervisor::Page;
+use iced_x86::code_asm::{CodeAssembler};
 use iced_x86::{code_asm, Decoder, DecoderOptions, Formatter, Instruction, NasmFormatter};
-use iced_x86::code_asm::{CodeAssembler, CodeLabel};
 use log::error;
 use uefi::{print, println};
 use x86::bits64::paging::{PAddr, PDPTEntry, PDPTFlags, PML4Entry, PML4Flags, BASE_PAGE_SHIFT};
 use x86::bits64::rflags::RFlags;
 use x86::controlregs::{Cr0, Cr4};
 use x86::dtables::DescriptorTablePointer;
+use x86::segmentation::{
+    BuildDescriptor, CodeSegmentType, DataSegmentType, Descriptor, DescriptorBuilder,
+    GateDescriptorBuilder, SegmentDescriptorBuilder, SegmentSelector,
+};
 use x86::Ring;
-use x86::segmentation::{BuildDescriptor, CodeSegmentType, DataSegmentType, Descriptor, DescriptorBuilder, GateDescriptorBuilder, SegmentDescriptorBuilder, SegmentSelector};
-use hypervisor::error::HypervisorError;
-use hypervisor::hardware_vt::{ExceptionQualification, GuestException, GuestRegisters, NestedPagingStructureEntryType, VmExitReason};
-use hypervisor::Page;
-use hypervisor::state::{VmState, VmStateExtendedRegisters};
-use hypervisor::vm::Vm;
-use hypervisor::x86_instructions::sgdt;
 
 pub struct Hypervisor {
     memory_code_page: Box<Page>,
@@ -68,20 +74,22 @@ impl Hypervisor {
         let mut descriptors = Vec::new();
         descriptors.push(Descriptor::NULL);
 
-        let code = DescriptorBuilder::code_descriptor(0, 0xfffff, CodeSegmentType::ExecuteReadAccessed)
-            .present()
-            .dpl(Ring::Ring0)
-            .l()
-            .finish();
+        let code =
+            DescriptorBuilder::code_descriptor(0, 0xfffff, CodeSegmentType::ExecuteReadAccessed)
+                .present()
+                .dpl(Ring::Ring0)
+                .l()
+                .finish();
 
         let code_index = descriptors.len();
         descriptors.push(code);
 
-        let data = DescriptorBuilder::data_descriptor(0, 0xfffff, DataSegmentType::ReadWriteAccessed)
-            .present()
-            .dpl(Ring::Ring0)
-            .l()
-            .finish();
+        let data =
+            DescriptorBuilder::data_descriptor(0, 0xfffff, DataSegmentType::ReadWriteAccessed)
+                .present()
+                .dpl(Ring::Ring0)
+                .l()
+                .finish();
         let data_index = descriptors.len();
         let stack_index = data_index;
         descriptors.push(data);
@@ -92,9 +100,9 @@ impl Hypervisor {
                 100,
                 false,
             )
-                .present()
-                .dpl(Ring::Ring0)
-                .finish();
+            .present()
+            .dpl(Ring::Ring0)
+            .finish();
 
         let tss_index = descriptors.len();
         descriptors.push(tss_descriptor);
@@ -108,12 +116,17 @@ impl Hypervisor {
             }
         }
 
-        let code_entry = Self::generate_code_entry((CODE_PAGE_INDEX << BASE_PAGE_SHIFT) as u64, (CODE_ENTRY_PAGE_INDEX << BASE_PAGE_SHIFT) as u64);
-        unsafe { core::ptr::copy_nonoverlapping(
-            code_entry.as_ptr(),
-            code_entry_page.as_slice_mut().as_mut_ptr(),
-            code_entry.len().min(4096),
-        ); }
+        let code_entry = Self::generate_code_entry(
+            (CODE_PAGE_INDEX << BASE_PAGE_SHIFT) as u64,
+            (CODE_ENTRY_PAGE_INDEX << BASE_PAGE_SHIFT) as u64,
+        );
+        unsafe {
+            core::ptr::copy_nonoverlapping(
+                code_entry.as_ptr(),
+                code_entry_page.as_slice_mut().as_mut_ptr(),
+                code_entry.len().min(4096),
+            );
+        }
 
         let mut standard_registers = GuestRegisters::default();
         standard_registers.rip = (CODE_ENTRY_PAGE_INDEX as u64) << BASE_PAGE_SHIFT;
@@ -126,8 +139,8 @@ impl Hypervisor {
             gdtr: DescriptorTablePointer {
                 base: descriptor_page.as_ptr().cast(),
                 limit: 2,
-            },
-            idtr: DescriptorTablePointer::default(),
+            }.into(),
+            idtr: DescriptorTablePointer::default().into(),
             ldtr_base: 0,
             ldtr: 0,
             cs: SegmentSelector::new(code_index as u16, Ring::Ring0).bits(),
@@ -181,7 +194,12 @@ impl Hypervisor {
                 // 1GB page size
                 let entry = PDPTEntry::new(
                     PAddr((i << 30) as u64),
-                    PDPTFlags::P | PDPTFlags::RW | PDPTFlags::US | PDPTFlags::PS | PDPTFlags::A | PDPTFlags::D,
+                    PDPTFlags::P
+                        | PDPTFlags::RW
+                        | PDPTFlags::US
+                        | PDPTFlags::PS
+                        | PDPTFlags::A
+                        | PDPTFlags::D,
                 );
                 *dst_entry = entry;
             }
@@ -260,7 +278,7 @@ impl Hypervisor {
         self.vm.vt.load_state(&self.initial_state);
         self.vm.vt.set_preemption_timer(1e8 as u64);
 
-        self.memory_code_page.zero();
+        self.memory_code_page.fill(0x90) /* nop */;
         self.memory_stack_page.zero();
 
         unsafe {
@@ -274,6 +292,14 @@ impl Hypervisor {
 
     pub fn run_vm(&mut self) -> VmExitReason {
         self.vm.vt.run()
+    }
+
+    pub fn run_with_callback(&mut self, after_execution: fn()) -> VmExitReason {
+        self.vm.vt.run_with_callback(after_execution)
+    }
+
+    pub fn capture_state(&self, state: &mut VmState) {
+        self.vm.vt.save_state(state);
     }
 
     pub fn selfcheck(&mut self) -> bool {
@@ -296,8 +322,9 @@ impl Hypervisor {
         assembler.set_label(&mut label_loop).unwrap();
         assembler.jmp(label_loop).unwrap();
 
-        let code =
-            assembler.assemble(0).expect("failed to assemble selfcheck code");
+        let code = assembler
+            .assemble(0)
+            .expect("failed to assemble selfcheck code");
 
         disassemble_code(&code);
 
@@ -307,8 +334,10 @@ impl Hypervisor {
 
         let result = self.vm.vt.run();
         if let VmExitReason::Exception(ExceptionQualification {
-                                           rip, exception_code
-                                       }) = result {
+            rip,
+            exception_code,
+        }) = result
+        {
             if exception_code != GuestException::BreakPoint {
                 error!("Selfcheck: Unexpected exception code: {:?}", exception_code);
                 return false;
@@ -319,7 +348,10 @@ impl Hypervisor {
             }
             self.vm.vt.save_state(&mut state);
             if state.standard_registers.rax != 0x33 {
-                error!("Selfcheck: Unexpected rax: {:x}", state.standard_registers.rax);
+                error!(
+                    "Selfcheck: Unexpected rax: {:x}",
+                    state.standard_registers.rax
+                );
                 return false;
             }
 
@@ -341,7 +373,9 @@ impl Hypervisor {
         assembler.mov(code_asm::rax, code_entry).unwrap();
         assembler.jmp(code_asm::rax).unwrap();
 
-        assembler.assemble(current_rip).expect("failed to assemble code entry")
+        assembler
+            .assemble(current_rip)
+            .expect("failed to assemble code entry")
     }
 }
 

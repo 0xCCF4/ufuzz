@@ -3,15 +3,18 @@
 
 extern crate alloc;
 
-use alloc::collections::BTreeSet;
+use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::string::String;
 use alloc::vec::Vec;
+use core::fmt::{Display};
 use data_types::addresses::UCInstructionAddress;
 use fuzzer_device::cmos::NMIGuard;
 use fuzzer_device::executor::{ExecutionResult, SampleExecutor};
 use fuzzer_device::heuristic::{GlobalScores, Sample};
 use fuzzer_device::mutation_engine::MutationEngine;
 use iced_x86::{Decoder, DecoderOptions, Formatter, Instruction, NasmFormatter};
+use log::error;
+use num_traits::{ConstZero, SaturatingSub};
 use rand_core::SeedableRng;
 use uefi::{entry, print, println, Status};
 
@@ -49,25 +52,33 @@ unsafe fn main() -> Status {
     // Global stats
     let mut global_stats = GlobalStats::default();
 
+    // Execute initial sample to get ground truth coverage
+    executor.execute_sample(&corpus[0], &mut execution_result);
+    let ground_truth_coverage = execution_result.coverage.clone();
+
     // Main fuzzing loop
     loop {
         global_stats.iteration_count += 1;
 
         // Select a sample from the corpus
-        let mut sample = global_scores
+        let sample = global_scores
             .choose_sample_mut(&mut corpus, &mut random)
             .expect("There is at least one sample");
 
         // Mutate
         let (mutation, new_sample) = mutator.mutate_sample(sample, &mut random);
 
+        println!("Running sample");
+        disassemble_code(&new_sample.code_blob);
+
         // Execute
         executor.execute_sample(&new_sample, &mut execution_result);
 
         // Score
         let mut new_coverage = Vec::with_capacity(0);
-        for address in execution_result.coverage.iter() {
-            if !coverage_sofar.contains(address) {
+        subtract_iter_btree(&mut execution_result.coverage, &ground_truth_coverage);
+        for (address, count) in execution_result.coverage.iter() {
+            if *count > 0 && !coverage_sofar.contains(address) {
                 new_coverage.push(address);
             }
         }
@@ -94,6 +105,18 @@ unsafe fn main() -> Status {
     }
 
     Status::SUCCESS
+}
+
+fn subtract_iter_btree<'a, 'b, K: Ord + Display, V: SaturatingSub + Copy+ Display+ConstZero+Ord>(original: &'a mut BTreeMap<K, V>, subtract_this: &'b BTreeMap<K, V>) {
+    original.retain(|k, v| {
+    if let Some(subtract_v) = subtract_this.get(k) {
+        if *v < *subtract_v {
+            error!("Reducing coverage count for more than ground truth: {k} : {v} < {subtract_v}");
+        }
+        *v = v.saturating_sub(subtract_v);
+    }
+    !v.is_zero()
+});
 }
 
 #[cfg(feature = "rand_isaac")]
@@ -124,36 +147,36 @@ impl GlobalStats {
         println!("New sample added to corpus");
         println!("The sample increased coverage by: {}", new_coverage);
         disassemble_code(&sample.code_blob);
+    }
+}
 
-        fn disassemble_code(code: &[u8]) {
-            let mut decoder = Decoder::with_ip(64, code, 0, DecoderOptions::NONE);
-            let mut formatter = NasmFormatter::new();
+fn disassemble_code(code: &[u8]) {
+    let mut decoder = Decoder::with_ip(64, code, 0, DecoderOptions::NONE);
+    let mut formatter = NasmFormatter::new();
 
-            formatter.options_mut().set_digit_separator("`");
-            formatter.options_mut().set_first_operand_char_index(10);
+    formatter.options_mut().set_digit_separator("`");
+    formatter.options_mut().set_first_operand_char_index(10);
 
-            let mut output = String::new();
-            let mut instruction = Instruction::default();
+    let mut output = String::new();
+    let mut instruction = Instruction::default();
 
-            while decoder.can_decode() {
-                decoder.decode_out(&mut instruction);
-                output.clear();
-                formatter.format(&instruction, &mut output);
+    while decoder.can_decode() {
+        decoder.decode_out(&mut instruction);
+        output.clear();
+        formatter.format(&instruction, &mut output);
 
-                // Eg. "00007FFAC46ACDB2 488DAC2400FFFFFF     lea       rbp,[rsp-100h]"
-                print!("{:016X} ", instruction.ip());
-                let start_index = (instruction.ip() - 0) as usize;
-                let instr_bytes = &code[start_index..start_index + instruction.len()];
-                for b in instr_bytes.iter() {
-                    print!("{:02X}", b);
-                }
-                if instr_bytes.len() < 10 {
-                    for _ in 0..10 - instr_bytes.len() {
-                        print!("  ");
-                    }
-                }
-                println!(" {}", output);
+        // Eg. "00007FFAC46ACDB2 488DAC2400FFFFFF     lea       rbp,[rsp-100h]"
+        print!("{:016X} ", instruction.ip());
+        let start_index = (instruction.ip() - 0) as usize;
+        let instr_bytes = &code[start_index..start_index + instruction.len()];
+        for b in instr_bytes.iter() {
+            print!("{:02X}", b);
+        }
+        if instr_bytes.len() < 10 {
+            for _ in 0..10 - instr_bytes.len() {
+                print!("  ");
             }
         }
+        println!(" {}", output);
     }
 }

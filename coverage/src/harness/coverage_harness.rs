@@ -221,7 +221,7 @@ impl ExecutionResultEntry {
         }
     }
 
-    pub fn covered(&self) -> bool {
+    pub fn is_covered(&self) -> bool {
         self.coverage() > 0
     }
 }

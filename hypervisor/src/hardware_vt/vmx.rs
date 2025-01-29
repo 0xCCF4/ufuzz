@@ -559,7 +559,7 @@ impl hardware_vt::HardwareVt for Vmx {
     }
 
     /// Executes the guest until it triggers VM-exit.
-    fn run(&mut self) -> VmExitReason {
+    fn run_with_callback(&mut self, after_execution: fn()) -> VmExitReason {
         const VMX_EXIT_REASON_EXCEPTION_OR_NMI: u16 = 0;
         const VMX_EXIT_REASON_TRIPLE_FAULT: u16 = 2;
         const VMX_EXIT_REASON_EPT_VIOLATION: u16 = 48;
@@ -567,7 +567,9 @@ impl hardware_vt::HardwareVt for Vmx {
 
         // Run the VM until the VM-exit occurs.
         let flags = unsafe { run_vm_vmx(&mut self.registers, u64::from(self.launched)) };
-        vm_succeed(RFlags::from_raw(flags)).unwrap();
+        let flags = RFlags::from_raw(flags);
+        after_execution();
+        vm_succeed(flags).unwrap();
         self.launched = true;
 
         unsafe {

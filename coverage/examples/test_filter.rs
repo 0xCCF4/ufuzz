@@ -189,7 +189,7 @@ unsafe fn main() -> Status {
                         return Status::ABORTED;
                     }
                     for entry in r.hooks {
-                        if entry.covered() {
+                        if entry.is_covered() {
                             *(actually_covered
                                 .entry(entry.address().address())
                                 .or_insert(0)) += entry.coverage();
