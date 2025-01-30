@@ -5,22 +5,25 @@ extern crate alloc;
 
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec::Vec;
-use core::fmt::{Display};
+use core::fmt::Display;
 use data_types::addresses::UCInstructionAddress;
 use fuzzer_device::cmos::NMIGuard;
+use fuzzer_device::disassemble_code;
 use fuzzer_device::executor::{ExecutionResult, SampleExecutor};
 use fuzzer_device::heuristic::{GlobalScores, Sample};
 use fuzzer_device::mutation_engine::MutationEngine;
-use log::error;
+use log::{error, info};
 use num_traits::{ConstZero, SaturatingSub};
 use rand_core::SeedableRng;
+use uefi::proto::loaded_image::LoadedImage;
 use uefi::{entry, println, Status};
-use fuzzer_device::disassemble_code;
 
 #[entry]
 unsafe fn main() -> Status {
     uefi::helpers::init().unwrap();
     println!("Hello world!");
+
+    prepare_gdb();
 
     let _nmi_guard = NMIGuard::disable_nmi(true);
 
@@ -37,6 +40,7 @@ unsafe fn main() -> Status {
         println!("Executor selfcheck failed");
         return Status::ABORTED;
     }
+    info!("Executor selfcheck success");
     let mutator = MutationEngine::default();
     let mut global_scores = GlobalScores::default();
 
@@ -67,8 +71,8 @@ unsafe fn main() -> Status {
         // Mutate
         let (mutation, new_sample) = mutator.mutate_sample(sample, &mut random);
 
-        println!("Running sample");
-        disassemble_code(&new_sample.code_blob);
+        // println!("Running sample");
+        // disassemble_code(&new_sample.code_blob);
 
         // Execute
         executor.execute_sample(&new_sample, &mut execution_result);
@@ -106,16 +110,26 @@ unsafe fn main() -> Status {
     Status::SUCCESS
 }
 
-fn subtract_iter_btree<'a, 'b, K: Ord + Display, V: SaturatingSub + Copy+ Display+ConstZero+Ord>(original: &'a mut BTreeMap<K, V>, subtract_this: &'b BTreeMap<K, V>) {
+fn subtract_iter_btree<
+    'a,
+    'b,
+    K: Ord + Display,
+    V: SaturatingSub + Copy + Display + ConstZero + Ord,
+>(
+    original: &'a mut BTreeMap<K, V>,
+    subtract_this: &'b BTreeMap<K, V>,
+) {
     original.retain(|k, v| {
-    if let Some(subtract_v) = subtract_this.get(k) {
-        if *v < *subtract_v {
-            error!("Reducing coverage count for more than ground truth: {k} : {v} < {subtract_v}");
+        if let Some(subtract_v) = subtract_this.get(k) {
+            if *v < *subtract_v {
+                error!(
+                    "Reducing coverage count for more than ground truth: {k} : {v} < {subtract_v}"
+                );
+            }
+            *v = v.saturating_sub(subtract_v);
         }
-        *v = v.saturating_sub(subtract_v);
-    }
-    !v.is_zero()
-});
+        !v.is_zero()
+    });
 }
 
 #[cfg(feature = "rand_isaac")]
@@ -132,12 +146,15 @@ pub struct GlobalStats {
 
 impl GlobalStats {
     pub fn maybe_print(&self) {
-        if self.iteration_count % 10000 == 0 || self.iterations_since_last_gain == 0 {
+        if self.iteration_count % 1000000 == 0 || self.iterations_since_last_gain == 0 {
             self.print();
         }
     }
     pub fn print(&self) {
-        println!("Iteration: {:e}", self.iteration_count);
+        println!(
+            "===============================================\nIteration: {:e}",
+            self.iteration_count
+        );
         println!(" - since last: {:e}", self.iterations_since_last_gain);
         println!(" - coverage: {}", self.coverage_sofar);
     }
@@ -146,5 +163,15 @@ impl GlobalStats {
         println!("New sample added to corpus");
         println!("The sample increased coverage by: {}", new_coverage);
         disassemble_code(&sample.code_blob);
+    }
+}
+
+fn prepare_gdb() {
+    let image_handle = uefi::boot::image_handle();
+    let image_proto = uefi::boot::open_protocol_exclusive::<LoadedImage>(image_handle);
+
+    if let Ok(image_proto) = image_proto {
+        let (base, _size) = image_proto.info();
+        println!("Loaded image base: 0x{:x}", base as usize);
     }
 }

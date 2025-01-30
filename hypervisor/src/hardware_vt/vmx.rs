@@ -18,6 +18,7 @@ use crate::state::VmState;
 use crate::{
     hardware_vt::{self, EPTPageFaultQualification, ExceptionQualification, GuestException},
     x86_instructions::{cr0, cr0_write, cr3, cr4, cr4_write, rdmsr, sgdt, sidt, wrmsr},
+    Page,
 };
 use alloc::{
     boxed::Box,
@@ -30,13 +31,12 @@ use core::{
     arch::{asm, global_asm},
     fmt,
 };
-use log::{debug, error, trace, warn};
+use log::{debug, error, warn};
 use x86::current::vmx::vmxoff;
 use x86::{
     controlregs::{Cr0, Cr4},
     current::rflags::RFlags,
     dtables::DescriptorTablePointer,
-    irq,
     segmentation::{
         BuildDescriptor, Descriptor, DescriptorBuilder, GateDescriptorBuilder, SegmentSelector,
     },
@@ -58,6 +58,8 @@ pub struct Vmx {
     /// The scale to convert TSC into the unit used for VMX-preemption timer.
     /// If VMX-preemption timer is not supported, None.
     timer_scale: Option<u64>,
+    #[derivative(Default(value = "Page::alloc_zeroed()"))]
+    msrbitmaps: Box<Page>,
 }
 
 impl hardware_vt::HardwareVt for Vmx {
@@ -118,7 +120,6 @@ impl hardware_vt::HardwareVt for Vmx {
     /// Configures VMX. We intercept #BP, #UD, #PF, enable VMX-preemption timer
     /// and extended page tables.
     fn initialize(&mut self, nested_pml4_addr: u64) -> Result<(), &'static str> {
-        const IA32_VMX_PROCBASED_CTLS_ACTIVATE_SECONDARY_CONTROLS_FLAG: u64 = 1 << 31;
         const IA32_VMX_EXIT_CTLS_HOST_ADDRESS_SPACE_SIZE_FLAG: u64 = 1 << 9;
         const IA32_VMX_ENTRY_CTLS_IA32E_MODE_GUEST_FLAG: u64 = 1 << 9;
         const EPT_POINTER_MEMORY_TYPE_WRITE_BACK: u64 = 6 /* << 0 */;
@@ -229,11 +230,15 @@ impl hardware_vt::HardwareVt for Vmx {
             vmcs::control::PINBASED_EXEC_CONTROLS,
             match adjust_vmx_control(
                 VmxControl::PinBased,
-                IA32_VMX_PINBASED_CTLS_ACTIVATE_VMX_PREEMPTION_TIMER_FLAG,
+                (vmcs::control::PinbasedControls::EXTERNAL_INTERRUPT_EXITING
+                    | vmcs::control::PinbasedControls::NMI_EXITING
+                    | vmcs::control::PinbasedControls::VMX_PREEMPTION_TIMER)
+                    .bits() as u64,
             ) {
                 Ok(x) => x,
                 Err(x) => {
-                    if x & IA32_VMX_PINBASED_CTLS_ACTIVATE_VMX_PREEMPTION_TIMER_FLAG == 0 {
+                    if x & vmcs::control::PinbasedControls::VMX_PREEMPTION_TIMER.bits() as u64 == 0
+                    {
                         return Err(
                             "Failed to adjust PINBASED_EXEC_CONTROLS. Enable VMX-preemption timer.",
                         );
@@ -248,11 +253,17 @@ impl hardware_vt::HardwareVt for Vmx {
             vmcs::control::PRIMARY_PROCBASED_EXEC_CONTROLS,
             match adjust_vmx_control(
                 VmxControl::ProcessorBased,
-                IA32_VMX_PROCBASED_CTLS_ACTIVATE_SECONDARY_CONTROLS_FLAG,
+                (vmcs::control::PrimaryControls::HLT_EXITING
+                    | vmcs::control::PrimaryControls::RDTSC_EXITING
+                    | vmcs::control::PrimaryControls::CR8_STORE_EXITING
+                    | vmcs::control::PrimaryControls::UNCOND_IO_EXITING
+                    //| vmcs::control::PrimaryControls::USE_MSR_BITMAPS
+                    | vmcs::control::PrimaryControls::SECONDARY_CONTROLS)
+                    .bits() as u64,
             ) {
                 Ok(x) => x,
                 Err(x) => {
-                    if x & IA32_VMX_PROCBASED_CTLS_ACTIVATE_SECONDARY_CONTROLS_FLAG == 0 {
+                    if x & vmcs::control::PrimaryControls::SECONDARY_CONTROLS.bits() as u64 == 0 {
                         return Err("Failed to adjust PRIMARY_PROCBASED_EXEC_CONTROLS. Activate secondary controls.");
                     } else {
                         x
@@ -287,7 +298,9 @@ impl hardware_vt::HardwareVt for Vmx {
             match adjust_vmx_control(
                 VmxControl::ProcessorBased2,
                 (vmcs::control::SecondaryControls::ENABLE_EPT
-                    | vmcs::control::SecondaryControls::UNRESTRICTED_GUEST)
+                    | vmcs::control::SecondaryControls::UNRESTRICTED_GUEST
+                    | vmcs::control::SecondaryControls::RDRAND_EXITING
+                    | vmcs::control::SecondaryControls::RDSEED_EXITING)
                     .bits() as u64,
             ) {
                 Ok(x) => x,
@@ -312,13 +325,15 @@ impl hardware_vt::HardwareVt for Vmx {
             nested_pml4_addr | EPT_POINTER_PAGE_WALK_LENGTH_4 | EPT_POINTER_MEMORY_TYPE_WRITE_BACK,
         );
 
-        // Intercept #BP, #UD, #PF.
+        // Intercept All
         // See: 25.6.3 Exception Bitmap
+        vmwrite(vmcs::control::EXCEPTION_BITMAP, u32::MAX as u64);
+
+        self.msrbitmaps.fill(0xFF);
+
         vmwrite(
-            vmcs::control::EXCEPTION_BITMAP,
-            (1u64 << irq::BREAKPOINT_VECTOR)
-                | (1u64 << irq::INVALID_OPCODE_VECTOR)
-                | (1u64 << irq::PAGE_FAULT_VECTOR),
+            vmcs::control::MSR_BITMAPS_ADDR_FULL,
+            self.msrbitmaps.as_ptr() as u64,
         );
 
         Ok(())
@@ -561,9 +576,18 @@ impl hardware_vt::HardwareVt for Vmx {
     /// Executes the guest until it triggers VM-exit.
     fn run_with_callback(&mut self, after_execution: fn()) -> VmExitReason {
         const VMX_EXIT_REASON_EXCEPTION_OR_NMI: u16 = 0;
+        const VMX_EXIT_REASON_EXTERNAL_INTERRUPT: u16 = 1;
         const VMX_EXIT_REASON_TRIPLE_FAULT: u16 = 2;
+        const VMX_EXIT_REASON_CPUID: u16 = 10;
+        const VMX_EXIT_REASON_HLT: u16 = 12;
+        const VMX_EXIT_REASON_RDTSC: u16 = 16;
+        const VMX_EXIT_REASON_IO: u16 = 30;
+        const VMX_EXIT_REASON_RDMSR: u16 = 31;
+        const VMX_EXIT_REASON_WRMSR: u16 = 32;
         const VMX_EXIT_REASON_EPT_VIOLATION: u16 = 48;
         const VMX_EXIT_REASON_VMX_PREEMPTION_TIMER: u16 = 52;
+        const VMX_EXIT_REASON_RDRAND: u16 = 57;
+        const VMX_EXIT_REASON_RDSEED: u16 = 61;
 
         // Run the VM until the VM-exit occurs.
         let flags = unsafe { run_vm_vmx(&mut self.registers, u64::from(self.launched)) };
@@ -610,6 +634,7 @@ impl hardware_vt::HardwareVt for Vmx {
                 )
                 .unwrap(),
             }),
+            VMX_EXIT_REASON_EXTERNAL_INTERRUPT => VmExitReason::ExternalInterruptOrPause,
             // See: 29.3.3.2 EPT Violations
             //      28.2.1 Basic VM-Exit Information
             //      Table 28-7. Exit Qualification for EPT Violations
@@ -625,6 +650,14 @@ impl hardware_vt::HardwareVt for Vmx {
             VMX_EXIT_REASON_VMX_PREEMPTION_TIMER => VmExitReason::TimerExpiration,
             // See: 26.2 OTHER CAUSES OF VM EXITS
             VMX_EXIT_REASON_TRIPLE_FAULT => VmExitReason::Shutdown(vmread(vmcs::ro::EXIT_REASON)),
+            VMX_EXIT_REASON_CPUID => VmExitReason::Cpuid,
+            VMX_EXIT_REASON_HLT => VmExitReason::Hlt,
+            VMX_EXIT_REASON_IO => VmExitReason::Io,
+            VMX_EXIT_REASON_RDMSR => VmExitReason::Rdmsr,
+            VMX_EXIT_REASON_WRMSR => VmExitReason::Wrmsr,
+            VMX_EXIT_REASON_RDRAND => VmExitReason::Rdrand,
+            VMX_EXIT_REASON_RDSEED => VmExitReason::Rdseed,
+            VMX_EXIT_REASON_RDTSC => VmExitReason::Rdtsc,
             // Anything else.
             _ => VmExitReason::Unexpected(vmread(vmcs::ro::EXIT_REASON)),
         }

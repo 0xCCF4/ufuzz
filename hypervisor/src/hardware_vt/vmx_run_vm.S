@@ -169,14 +169,22 @@ run_vm_vmx:
     movaps  xmm14, [r15 + {registers_xmm14}]
     movaps  xmm15, [r15 + {registers_xmm15}]
 
+    // xchg bx, bx // magic break
+
     // Determine whether to perform a VM launch or resume based on the `launched` flag.
     test    r14, r14
     je      .Launch
 
     // Resume guest execution. This path is taken if the VM has previously been launched.
+    mov     r14, 0x6C14 // VMCS_HOST_RSP
+    vmwrite r14, rsp
+    lea     r13, [rip + .VmExit]
+    mov     r14, 0x6C16 // VMCS_HOST_RIP
+    vmwrite r14, r13
     mov     r13, [r15 + {registers_r13}]
     mov     r14, [r15 + {registers_r14}]
     mov     r15, [r15 + {registers_r15}]
+
     vmresume
     jmp     .VmEntryFailure
 
@@ -192,8 +200,6 @@ run_vm_vmx:
     mov     r14, [r15 + {registers_r14}]
     mov     r15, [r15 + {registers_r15}]
 
-    xchg bx,bx // magic break
-
     vmlaunch
 
 .VmEntryFailure:
@@ -201,6 +207,8 @@ run_vm_vmx:
     jmp     .Exit
 
 .VmExit:
+    // xchg bx, bx // magic break
+
     // VM-exit handling. This block is responsible for saving the guest state upon exit
     // and preparing for transition back to host execution.
     xchg    r15, [rsp]  // Swap guest R15 with `registers` pointer on the stack.
@@ -242,6 +250,8 @@ run_vm_vmx:
     mov     [r15 + {registers_r15}], rax
 
 .Exit:
+    // xchg bx, bx // magic break
+
     // Finalize the VM-exit sequence by adjusting the stack and restoring the host state.
     pop     rax
 

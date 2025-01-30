@@ -1,6 +1,6 @@
+use crate::hardware_vt::GuestRegisters;
 use core::fmt::Debug;
 use core::ops::{Deref, DerefMut};
-use crate::hardware_vt::GuestRegisters;
 use x86::dtables::DescriptorTablePointer;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]

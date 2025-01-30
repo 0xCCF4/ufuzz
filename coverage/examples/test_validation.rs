@@ -155,7 +155,8 @@ fn collect_coverage<R, F: FnMut() -> R>(
     baseline: Option<&BTreeMap<UCInstructionAddress, CoverageCount>>,
     mut func: F,
 ) -> BTreeMap<UCInstructionAddress, CoverageCount> {
-    let results = iteration_harness.execute_for_all_addresses(|chunk| coverage_harness.execute(chunk, || func()));
+    let results = iteration_harness
+        .execute_for_all_addresses(|chunk| coverage_harness.execute(chunk, || func()));
 
     let mut coverage = BTreeMap::new();
     for result in results {

@@ -1,21 +1,21 @@
 mod coverage_collection;
 mod hypervisor;
 
-use alloc::collections::{btree_map, BTreeMap};
 use crate::cmos::NMIGuard;
 use crate::executor::coverage_collection::CoverageCollector;
 use crate::executor::hypervisor::Hypervisor;
 use crate::heuristic::Sample;
 use ::hypervisor::error::HypervisorError;
+use ::hypervisor::hardware_vt::VmExitReason;
+use ::hypervisor::state::VmState;
+use alloc::collections::{btree_map, BTreeMap};
 use alloc::vec::Vec;
+use coverage::harness::coverage_harness::{CoverageExecutionResult, ExecutionResultEntry};
+use coverage::harness::iteration_harness::IterationHarness;
+use coverage::interface_definition::CoverageCount;
 use data_types::addresses::UCInstructionAddress;
 use log::{error, warn};
 use uefi::println;
-use ::hypervisor::hardware_vt::VmExitReason;
-use ::hypervisor::state::VmState;
-use coverage::harness::coverage_harness::{CoverageExecutionResult, ExecutionResultEntry};
-use coverage::harness::iteration_harness::{IterationHarness};
-use coverage::interface_definition::CoverageCount;
 
 struct CoverageCollectorData {
     pub collector: CoverageCollector,
@@ -34,49 +34,64 @@ fn disable_all_hooks() {
 }
 
 impl SampleExecutor {
-    pub fn execute_sample<'a>(&'a mut self, sample: &Sample, execution_result: &mut ExecutionResult) {
+    pub fn execute_sample<'a>(
+        &'a mut self,
+        sample: &Sample,
+        execution_result: &mut ExecutionResult,
+    ) {
         // try to disable Non-Maskable Interrupts
         let nmi_guard = NMIGuard::disable_nmi(true);
 
         execution_result.reset(&self.hypervisor.initial_state);
 
+        // load code sample to hypervisor memory
+        self.hypervisor.load_code_blob(&sample.code_blob);
+
         if let Some(coverage) = self.coverage.as_mut() {
             // plan the following executions to collect coverage
-            let execution_plan = coverage.planner.execute_for_all_addresses(|addresses: &[UCInstructionAddress]| {
+            let execution_plan = coverage.planner.execute_for_all_addresses(
+                |addresses: &[UCInstructionAddress]| {
+                    // prepare hypervisor for execution
+                    self.hypervisor.prepare_vm_state();
 
-                // prepare hypervisor for execution
-                self.hypervisor.prepare_vm_state(&sample.code_blob);
+                    coverage
+                        .collector
+                        .execute_coverage_collection(addresses, || {
+                            // execute the sample within the hypervisor
+                            let vm_exit = self.hypervisor.run_with_callback(disable_all_hooks);
+                            // hooks are now disabled
 
-                coverage.collector.execute_coverage_collection(addresses, || {
+                            let mut state = VmState::default();
+                            self.hypervisor.capture_state(&mut state);
 
-                    // execute the sample within the hypervisor
-                    let vm_exit = self.hypervisor.run_with_callback(disable_all_hooks);
-                    // hooks are now disabled
+                            let addresses: Vec<UCInstructionAddress> = addresses.to_vec(); // todo optimize
 
-                    let mut state = VmState::default();
-                    self.hypervisor.capture_state(&mut state);
+                            (addresses, vm_exit, state) // disable hooks after execution to not capture conditional logic of the vm exit handler
+                        })
+                },
+            );
 
-                    let addresses: Vec<UCInstructionAddress> = addresses.to_vec(); // todo optimize
-
-                    (addresses, vm_exit, state) // disable hooks after execution to not capture conditional logic of the vm exit handler
-                })
-            });
-
+            // since, we are executing the sample multiple times, we would expect the same output each time
             let mut expected_vm_exit = None;
 
             // execute the planned coverage collection
             for iteration in execution_plan {
                 // save the vm current state
 
-
                 match iteration {
                     Err(error) => {
-                        error!("Failed to collect coverage: {:?}. This should not have happened.", error);
-                        execution_result.events.push(ExecutionEvent::CoverageCollectionError {
-                            error,
-                        });
+                        error!(
+                            "Failed to collect coverage: {:?}. This should not have happened.",
+                            error
+                        );
+                        execution_result
+                            .events
+                            .push(ExecutionEvent::CoverageCollectionError { error });
                     }
-                    Ok(CoverageExecutionResult {result: (hooked_addresses, current_vm_exit, current_vm_state), hooks: coverage_information}) => {
+                    Ok(CoverageExecutionResult {
+                        result: (hooked_addresses, current_vm_exit, current_vm_state),
+                        hooks: coverage_information,
+                    }) => {
                         // first check if the result of the execution is the same for the current iteration
                         match expected_vm_exit {
                             None => {
@@ -90,11 +105,13 @@ impl SampleExecutor {
                                     for address in hooked_addresses.iter() {
                                         println!(" - {:?}", address);
                                     }
-                                    execution_result.events.push(ExecutionEvent::VmExitMismatchCoverageCollection {
-                                        addresses: hooked_addresses.to_vec(),
-                                        expected_exit: expected_vm_exit.clone(),
-                                        actual_exit: current_vm_exit,
-                                    });
+                                    execution_result.events.push(
+                                        ExecutionEvent::VmExitMismatchCoverageCollection {
+                                            addresses: hooked_addresses.to_vec(),
+                                            expected_exit: expected_vm_exit.clone(),
+                                            actual_exit: current_vm_exit,
+                                        },
+                                    );
                                 }
                                 if self.state_scratch_area != execution_result.state {
                                     error!("Expected architectural state x but got y. This should not have happened. This is a µcode bug or implementation problem!");
@@ -102,19 +119,23 @@ impl SampleExecutor {
                                     for address in hooked_addresses.iter() {
                                         println!(" - {:?}", address);
                                     }
-                                    execution_result.events.push(ExecutionEvent::VmStateMismatchCoverageCollection {
-                                        addresses: hooked_addresses.to_vec(),
-                                        expected_exit: self.state_scratch_area.clone(),
-                                        actual_exit: execution_result.state.clone(),
-                                    });
+                                    execution_result.events.push(
+                                        ExecutionEvent::VmStateMismatchCoverageCollection {
+                                            addresses: hooked_addresses.to_vec(),
+                                            expected_exit: self.state_scratch_area.clone(),
+                                            actual_exit: execution_result.state.clone(),
+                                        },
+                                    );
                                 }
                             }
                         }
 
                         // extract the coverage information
                         for ucode_location in coverage_information {
-                            if let ExecutionResultEntry::Covered {address, count} = ucode_location {
-                                let entry = execution_result.coverage.entry(ucode_location.address());
+                            if let ExecutionResultEntry::Covered { address, count } = ucode_location
+                            {
+                                let entry =
+                                    execution_result.coverage.entry(ucode_location.address());
 
                                 match entry {
                                     btree_map::Entry::Occupied(mut entry) => {
@@ -132,7 +153,7 @@ impl SampleExecutor {
             }
         } else {
             // prepare hypervisor for execution
-            self.hypervisor.prepare_vm_state(&sample.code_blob);
+            self.hypervisor.prepare_vm_state();
 
             // run the hypervisor
             let _vm_exit = self.hypervisor.run_vm();
@@ -163,7 +184,6 @@ impl SampleExecutor {
                 }
             });
 
-
         Ok(Self {
             state_scratch_area: hypervisor.initial_state.clone(),
             hypervisor,
@@ -189,7 +209,7 @@ pub enum ExecutionEvent {
     },
     CoverageCollectionError {
         error: coverage::harness::coverage_harness::CoverageError,
-    }
+    },
 }
 
 #[derive(Default)]

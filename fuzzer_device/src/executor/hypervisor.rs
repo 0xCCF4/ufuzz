@@ -1,6 +1,7 @@
 use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
+use core::arch::asm;
 use hypervisor::error::HypervisorError;
 use hypervisor::hardware_vt::{
     ExceptionQualification, GuestException, GuestRegisters, NestedPagingStructureEntryType,
@@ -10,7 +11,7 @@ use hypervisor::state::{VmState, VmStateExtendedRegisters};
 use hypervisor::vm::Vm;
 use hypervisor::x86_instructions::sgdt;
 use hypervisor::Page;
-use iced_x86::code_asm::{CodeAssembler};
+use iced_x86::code_asm::CodeAssembler;
 use iced_x86::{code_asm, Decoder, DecoderOptions, Formatter, Instruction, NasmFormatter};
 use log::error;
 use uefi::{print, println};
@@ -139,7 +140,8 @@ impl Hypervisor {
             gdtr: DescriptorTablePointer {
                 base: descriptor_page.as_ptr().cast(),
                 limit: 2,
-            }.into(),
+            }
+            .into(),
             idtr: DescriptorTablePointer::default().into(),
             ldtr_base: 0,
             ldtr: 0,
@@ -274,25 +276,27 @@ impl Hypervisor {
         })
     }
 
-    pub fn prepare_vm_state(&mut self, code: &[u8]) {
-        self.vm.vt.load_state(&self.initial_state);
-        self.vm.vt.set_preemption_timer(1e8 as u64);
-
+    pub fn load_code_blob(&mut self, code_blob: &[u8]) {
         self.memory_code_page.fill(0x90) /* nop */;
-        self.memory_stack_page.zero();
+        self.memory_code_page.as_slice_mut()[4] = 0xF4;
 
         unsafe {
             core::ptr::copy_nonoverlapping(
-                code.as_ptr(),
+                code_blob.as_ptr(),
                 self.memory_code_page.as_slice_mut().as_mut_ptr(),
-                code.len().min(4096),
+                code_blob.len().min(4096),
             );
         }
     }
 
+    pub fn prepare_vm_state(&mut self) {
+        self.vm.vt.load_state(&self.initial_state);
+        self.vm.vt.set_preemption_timer(1e8 as u64);
+
+        self.memory_stack_page.zero();
+    }
+
     pub fn run_vm(&mut self) -> VmExitReason {
-        println!("--------------------------------------------------------------------");
-        disassemble_code(&self.memory_code_page.as_slice()[0..20]);
         self.vm.vt.run()
     }
 
@@ -330,7 +334,8 @@ impl Hypervisor {
 
         disassemble_code(&code);
 
-        self.prepare_vm_state(&code);
+        self.load_code_blob(&code);
+        self.prepare_vm_state();
 
         let mut state = self.initial_state.clone();
 

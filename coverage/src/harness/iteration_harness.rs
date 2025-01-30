@@ -11,7 +11,11 @@ pub struct IterationRun<'a, FuncResult, F: FnMut(&[UCInstructionAddress]) -> Fun
 impl<'a, FuncResult, F: FnMut(&[UCInstructionAddress]) -> FuncResult>
     IterationRun<'a, FuncResult, F>
 {
-    pub fn new(address_iterator: &'a HookableAddressIterator, function: F, chunk_size: usize) -> Self {
+    pub fn new(
+        address_iterator: &'a HookableAddressIterator,
+        function: F,
+        chunk_size: usize,
+    ) -> Self {
         IterationRun {
             next_chunk_index: 0,
             address_iterator,
@@ -58,18 +62,32 @@ impl IterationHarness {
         IterationHarness { address_iterator }
     }
 
-    pub fn execute_for_all_addresses<FuncResult, F: FnMut(&[UCInstructionAddress]) -> FuncResult>(
+    pub fn execute_for_all_addresses<
+        FuncResult,
+        F: FnMut(&[UCInstructionAddress]) -> FuncResult,
+    >(
         &self,
         func: F,
     ) -> IterationRun<FuncResult, F> {
-        IterationRun::new(&self.address_iterator, func, self.address_iterator.chunk_size())
+        IterationRun::new(
+            &self.address_iterator,
+            func,
+            self.address_iterator.chunk_size(),
+        )
     }
 
-    pub fn execute_for_all_addresses_with_size<FuncResult, F: FnMut(&[UCInstructionAddress]) -> FuncResult>(
+    pub fn execute_for_all_addresses_with_size<
+        FuncResult,
+        F: FnMut(&[UCInstructionAddress]) -> FuncResult,
+    >(
         &self,
         chunk_size: usize,
         func: F,
     ) -> IterationRun<FuncResult, F> {
-        IterationRun::new(&self.address_iterator, func, self.address_iterator.chunk_size().min(chunk_size))
+        IterationRun::new(
+            &self.address_iterator,
+            func,
+            self.address_iterator.chunk_size().min(chunk_size),
+        )
     }
 }

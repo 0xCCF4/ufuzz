@@ -63,6 +63,28 @@ pub enum VmExitReason {
     /// An exception happened. Contains an exception code.
     Exception(ExceptionQualification),
 
+    Cpuid,
+
+    Hlt,
+
+    Io,
+
+    Rdmsr,
+
+    Wrmsr,
+
+    Rdrand,
+
+    Rdseed,
+
+    Rdtsc,
+
+    Cr8Write,
+
+    IoWrite,
+
+    MsrUse,
+
     /// An external interrupt occurred, or `PAUSE` was executed more than
     /// certain times.
     ExternalInterruptOrPause,
@@ -127,20 +149,57 @@ pub struct ExceptionQualification {
 /// The cause of guest exception.
 #[derive(Clone, Copy, PartialEq, Debug, Eq)]
 pub enum GuestException {
+    DivideError,
+    DebugException,
+    NMIInterrupt,
     BreakPoint,
+    Overflow,
+    BoundRangeExceeded,
     InvalidOpcode,
+    DeviceNotAvailable,
+    DoubleFault,
+    CoprocessorSegmentOverrun,
+    InvalidTSS,
+    SegmentNotPresent,
+    StackSegmentFault,
+    GeneralProtection,
     PageFault,
+    FloatingPointError,
+    AlignmentCheck,
+    MachineCheck,
+    SIMDException,
+    VirtualizationException,
+    ControlProtection,
+    Reserved(u8),
+    User(u8),
 }
 
-impl TryFrom<u8> for GuestException {
-    type Error = &'static str;
-
-    fn try_from(vector: u8) -> Result<Self, Self::Error> {
+impl From<u8> for GuestException {
+    fn from(vector: u8) -> Self {
         match vector {
-            irq::BREAKPOINT_VECTOR => Ok(GuestException::BreakPoint),
-            irq::INVALID_OPCODE_VECTOR => Ok(GuestException::InvalidOpcode),
-            irq::PAGE_FAULT_VECTOR => Ok(GuestException::PageFault),
-            _ => Err("Vector of the exception that is not intercepted"),
+            irq::DIVIDE_ERROR_VECTOR => GuestException::DivideError,
+            irq::DEBUG_VECTOR => GuestException::DebugException,
+            irq::NONMASKABLE_INTERRUPT_VECTOR => GuestException::NMIInterrupt,
+            irq::BREAKPOINT_VECTOR => GuestException::BreakPoint,
+            irq::OVERFLOW_VECTOR => GuestException::Overflow,
+            irq::BOUND_RANGE_EXCEEDED_VECTOR => GuestException::BoundRangeExceeded,
+            irq::INVALID_OPCODE_VECTOR => GuestException::InvalidOpcode,
+            irq::DEVICE_NOT_AVAILABLE_VECTOR => GuestException::DeviceNotAvailable,
+            irq::DOUBLE_FAULT_VECTOR => GuestException::DoubleFault,
+            irq::COPROCESSOR_SEGMENT_OVERRUN_VECTOR => GuestException::CoprocessorSegmentOverrun,
+            irq::INVALID_TSS_VECTOR => GuestException::InvalidTSS,
+            irq::SEGMENT_NOT_PRESENT_VECTOR => GuestException::SegmentNotPresent,
+            irq::STACK_SEGEMENT_FAULT_VECTOR => GuestException::StackSegmentFault,
+            irq::GENERAL_PROTECTION_FAULT_VECTOR => GuestException::GeneralProtection,
+            irq::PAGE_FAULT_VECTOR => GuestException::PageFault,
+            irq::X87_FPU_VECTOR => GuestException::FloatingPointError,
+            irq::ALIGNMENT_CHECK_VECTOR => GuestException::AlignmentCheck,
+            irq::MACHINE_CHECK_VECTOR => GuestException::MachineCheck,
+            irq::SIMD_FLOATING_POINT_VECTOR => GuestException::SIMDException,
+            irq::VIRTUALIZATION_VECTOR => GuestException::VirtualizationException,
+            21 => GuestException::ControlProtection,
+            x if x == 15 || (x >= 22 && x <= 31) => GuestException::Reserved(x),
+            x => GuestException::User(x),
         }
     }
 }

@@ -97,7 +97,21 @@ fn build_app(project: &str, release: bool) -> Result<PathBuf, DynError> {
 
     let mut status = Command::new(cargo);
 
-    status.args(["build", "-p", project, "--target", "x86_64-unknown-uefi"]);
+    let project_directory = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
+
+    let target_file = project_directory
+        .parent()
+        .unwrap()
+        .join("uefi-target-with-debug.json");
+
+    status.args([
+        "build",
+        "-p",
+        project,
+        "-Zbuild-std",
+        "--target",
+        target_file.to_str().unwrap(),
+    ]);
 
     let executable_name = if project == "fuzzer_device" {
         status.args([
@@ -133,7 +147,7 @@ fn build_app(project: &str, release: bool) -> Result<PathBuf, DynError> {
         Ok(status) if !status.success() => Err("Failed to build the hypervisor")?,
         Err(_) => Err("Failed to build the hypervisor")?,
         Ok(_) => Ok(build_folder
-            .join("x86_64-unknown-uefi")
+            .join("uefi-target-with-debug")
             .join("debug")
             .join(format!("{}.efi", executable_name))),
     }

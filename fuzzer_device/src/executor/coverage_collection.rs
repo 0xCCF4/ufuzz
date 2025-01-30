@@ -7,7 +7,7 @@ use coverage::harness::coverage_harness::modification_engine::ModificationEngine
 use coverage::harness::coverage_harness::{
     CoverageError, CoverageExecutionResult, CoverageHarness,
 };
-use coverage::harness::iteration_harness::{IterationHarness};
+use coverage::harness::iteration_harness::IterationHarness;
 use coverage::interface::safe::ComInterface;
 use coverage::interface_definition;
 use custom_processing_unit::CustomProcessingUnit;

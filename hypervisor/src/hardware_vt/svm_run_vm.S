@@ -125,7 +125,7 @@ movaps xmm0, xmmword ptr [rsp]
 ;// extern "efiapi" fn run_vm_svm(registers: &mut GuestRegisters, guest_vmcb_pa: *const Vmcb);
 .global run_vm_svm
 run_vm_svm:
-    xchg    bx, bx
+    //xchg    bx, bx
 
     ;// Save current (host) general purpose registers onto stack.
     PUSHAQ
@@ -173,11 +173,11 @@ run_vm_svm:
     movaps  xmm15, [r15 + {registers_xmm15}]
 
     ;// Run the guest until #VMEXIT occurs.
-    xchg    bx, bx
+    // xchg    bx, bx
     vmrun   rax
 
     ;// #VMEXIT occurred. Save current (guest) general purpose registers.
-    xchg    bx, bx
+    //xchg    bx, bx
     xchg    r15, [rsp]  // Swap guest R15 with `registers` pointer on the stack.
     mov     [r15 + {registers_rax}], rax
     mov     [r15 + {registers_rbx}], rbx
