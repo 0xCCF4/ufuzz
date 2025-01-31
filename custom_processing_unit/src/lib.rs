@@ -141,7 +141,7 @@ impl CustomProcessingUnit {
         match self.current_glm_version {
             GLM_OLD => &dump::ROM_cpu_000506C9,
             GLM_NEW => &dump::ROM_cpu_000506CA,
-            _ => unreachable!(),
+            _x => unreachable!(),
         }
     }
 }

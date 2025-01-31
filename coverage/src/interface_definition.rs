@@ -25,7 +25,7 @@ impl ComInterfaceDescription {
     }
 }
 
-const MAX_NUMBER_OF_HOOKS: usize = 8;
+const MAX_NUMBER_OF_HOOKS: usize = 1;
 
 pub type CoverageCount = u16;
 pub type CoverageEntry = [CoverageCount; 2];

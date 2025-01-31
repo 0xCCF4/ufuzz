@@ -1,7 +1,6 @@
 use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
-use core::arch::asm;
 use hypervisor::error::HypervisorError;
 use hypervisor::hardware_vt::{
     ExceptionQualification, GuestException, GuestRegisters, NestedPagingStructureEntryType,
@@ -290,6 +289,8 @@ impl Hypervisor {
     }
 
     pub fn prepare_vm_state(&mut self) {
+        // todo is a full vm reset required?
+        //self.vm.initialize().expect("it also worked the first time");
         self.vm.vt.load_state(&self.initial_state);
         self.vm.vt.set_preemption_timer(1e8 as u64);
 
@@ -414,5 +415,11 @@ fn disassemble_code(code: &[u8]) {
             }
         }
         println!(" {}", output);
+    }
+}
+
+impl Drop for Hypervisor {
+    fn drop(&mut self) {
+        self.vm.vt.disable();
     }
 }

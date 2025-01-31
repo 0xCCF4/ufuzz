@@ -1,4 +1,9 @@
+#[cfg(not(feature = "__debug_bochs_pretend"))]
 mod coverage_collection;
+#[cfg(feature = "__debug_bochs_pretend")]
+mod fake_coverage_collection;
+#[cfg(feature = "__debug_bochs_pretend")]
+use fake_coverage_collection as coverage_collection;
 mod hypervisor;
 
 use crate::cmos::NMIGuard;
@@ -10,12 +15,12 @@ use ::hypervisor::hardware_vt::VmExitReason;
 use ::hypervisor::state::VmState;
 use alloc::collections::{btree_map, BTreeMap};
 use alloc::vec::Vec;
+use core::fmt::Debug;
 use coverage::harness::coverage_harness::{CoverageExecutionResult, ExecutionResultEntry};
 use coverage::harness::iteration_harness::IterationHarness;
 use coverage::interface_definition::CoverageCount;
 use data_types::addresses::UCInstructionAddress;
 use log::{error, warn};
-use uefi::println;
 
 struct CoverageCollectorData {
     pub collector: CoverageCollector,
@@ -25,11 +30,10 @@ struct CoverageCollectorData {
 pub struct SampleExecutor {
     hypervisor: Hypervisor,
     coverage: Option<CoverageCollectorData>,
-
-    state_scratch_area: VmState,
 }
 
 fn disable_all_hooks() {
+    #[cfg(not(feature = "__debug_bochs_pretend"))]
     custom_processing_unit::disable_all_hooks();
 }
 
@@ -59,9 +63,9 @@ impl SampleExecutor {
                         .execute_coverage_collection(addresses, || {
                             // execute the sample within the hypervisor
                             let vm_exit = self.hypervisor.run_with_callback(disable_all_hooks);
-                            // hooks are now disabled
+                            // hooks are now disabled, so coverage collection stopped
 
-                            let mut state = VmState::default();
+                            let mut state = self.hypervisor.initial_state.clone();
                             self.hypervisor.capture_state(&mut state);
 
                             let addresses: Vec<UCInstructionAddress> = addresses.to_vec(); // todo optimize
@@ -73,6 +77,7 @@ impl SampleExecutor {
 
             // since, we are executing the sample multiple times, we would expect the same output each time
             let mut expected_vm_exit = None;
+            let mut expected_vm_state = None;
 
             // execute the planned coverage collection
             for iteration in execution_plan {
@@ -80,10 +85,6 @@ impl SampleExecutor {
 
                 match iteration {
                     Err(error) => {
-                        error!(
-                            "Failed to collect coverage: {:?}. This should not have happened.",
-                            error
-                        );
                         execution_result
                             .events
                             .push(ExecutionEvent::CoverageCollectionError { error });
@@ -93,41 +94,33 @@ impl SampleExecutor {
                         hooks: coverage_information,
                     }) => {
                         // first check if the result of the execution is the same for the current iteration
-                        match expected_vm_exit {
-                            None => {
+                        match (&mut expected_vm_exit, &mut expected_vm_state) {
+                            (None, None) => {
                                 expected_vm_exit = Some(current_vm_exit);
-                                self.state_scratch_area.clone_from(&current_vm_state);
+                                expected_vm_state = Some(current_vm_state);
                             }
-                            Some(ref expected_vm_exit) => {
+                            (Some(ref expected_vm_exit), Some(ref expected_vm_state)) => {
                                 if expected_vm_exit != &current_vm_exit {
-                                    error!("Expected result {:?} but got {:?}. This should not have happened. This is a µcode bug or implementation problem!", expected_vm_exit, current_vm_exit);
-                                    println!("We were hooking the following addresses:");
-                                    for address in hooked_addresses.iter() {
-                                        println!(" - {:?}", address);
-                                    }
                                     execution_result.events.push(
                                         ExecutionEvent::VmExitMismatchCoverageCollection {
                                             addresses: hooked_addresses.to_vec(),
                                             expected_exit: expected_vm_exit.clone(),
-                                            actual_exit: current_vm_exit,
+                                            actual_exit: current_vm_exit.clone(),
                                         },
                                     );
                                 }
-                                if self.state_scratch_area != execution_result.state {
-                                    error!("Expected architectural state x but got y. This should not have happened. This is a µcode bug or implementation problem!");
-                                    println!("We were hooking the following addresses:");
-                                    for address in hooked_addresses.iter() {
-                                        println!(" - {:?}", address);
-                                    }
+                                if expected_vm_state != &current_vm_state {
                                     execution_result.events.push(
                                         ExecutionEvent::VmStateMismatchCoverageCollection {
                                             addresses: hooked_addresses.to_vec(),
-                                            expected_exit: self.state_scratch_area.clone(),
-                                            actual_exit: execution_result.state.clone(),
+                                            exit: current_vm_exit,
+                                            expected_state: expected_vm_state.clone(),
+                                            actual_state: current_vm_state,
                                         },
                                     );
                                 }
                             }
+                            _ => unreachable!("both are set simultaneously"),
                         }
 
                         // extract the coverage information
@@ -185,7 +178,6 @@ impl SampleExecutor {
             });
 
         Ok(Self {
-            state_scratch_area: hypervisor.initial_state.clone(),
             hypervisor,
             coverage: coverage_collector,
         })
@@ -196,6 +188,7 @@ impl SampleExecutor {
     }
 }
 
+#[derive(Debug)]
 pub enum ExecutionEvent {
     VmExitMismatchCoverageCollection {
         addresses: Vec<UCInstructionAddress>,
@@ -204,8 +197,9 @@ pub enum ExecutionEvent {
     },
     VmStateMismatchCoverageCollection {
         addresses: Vec<UCInstructionAddress>,
-        expected_exit: VmState,
-        actual_exit: VmState,
+        exit: VmExitReason,
+        expected_state: VmState,
+        actual_state: VmState,
     },
     CoverageCollectionError {
         error: coverage::harness::coverage_harness::CoverageError,

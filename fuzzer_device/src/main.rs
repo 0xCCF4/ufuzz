@@ -4,15 +4,17 @@
 extern crate alloc;
 
 use alloc::collections::{BTreeMap, BTreeSet};
+use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt::Display;
 use data_types::addresses::UCInstructionAddress;
 use fuzzer_device::cmos::NMIGuard;
 use fuzzer_device::disassemble_code;
-use fuzzer_device::executor::{ExecutionResult, SampleExecutor};
+use fuzzer_device::executor::{ExecutionEvent, ExecutionResult, SampleExecutor};
 use fuzzer_device::heuristic::{GlobalScores, Sample};
 use fuzzer_device::mutation_engine::MutationEngine;
-use log::{error, info};
+use hypervisor::state::StateDifference;
+use log::{debug, error, info, trace, warn};
 use num_traits::{ConstZero, SaturatingSub};
 use rand_core::SeedableRng;
 use uefi::proto::loaded_image::LoadedImage;
@@ -29,6 +31,7 @@ unsafe fn main() -> Status {
 
     let mut corpus = Vec::new();
     corpus.push(Sample::default());
+    trace!("Starting executor...");
     let mut executor = match SampleExecutor::new() {
         Ok(executor) => executor,
         Err(e) => {
@@ -36,6 +39,7 @@ unsafe fn main() -> Status {
             return Status::ABORTED;
         }
     };
+    info!("Doing hypervisor selfcheck");
     if !executor.selfcheck() {
         println!("Executor selfcheck failed");
         return Status::ABORTED;
@@ -56,8 +60,16 @@ unsafe fn main() -> Status {
     let mut global_stats = GlobalStats::default();
 
     // Execute initial sample to get ground truth coverage
+    info!("Collecting ground truth coverage");
     executor.execute_sample(&corpus[0], &mut execution_result);
     let ground_truth_coverage = execution_result.coverage.clone();
+    if execution_result.events.len() > 0 {
+        error!("Initial sample execution had events");
+        for event in &execution_result.events {
+            println!("{:#?}", event);
+        }
+        return Status::ABORTED;
+    }
 
     // Main fuzzing loop
     loop {
@@ -72,10 +84,63 @@ unsafe fn main() -> Status {
         let (mutation, new_sample) = mutator.mutate_sample(sample, &mut random);
 
         // println!("Running sample");
-        // disassemble_code(&new_sample.code_blob);
+        disassemble_code(&new_sample.code_blob);
 
         // Execute
-        executor.execute_sample(&new_sample, &mut execution_result);
+        //executor.execute_sample(&new_sample, &mut execution_result);
+        executor.execute_sample(
+            &Sample {
+                // todo remove
+                code_blob: vec![0xCC],
+                local_scores: Default::default(),
+            },
+            &mut execution_result,
+        );
+
+        // Handle events
+        for event in &execution_result.events {
+            match event {
+                ExecutionEvent::CoverageCollectionError { error } => {
+                    error!(
+                        "Failed to collect coverage: {:?}. This should not have happened.",
+                        error
+                    );
+                }
+                ExecutionEvent::VmExitMismatchCoverageCollection {
+                    addresses,
+                    expected_exit,
+                    actual_exit,
+                } => {
+                    error!("Expected result {:#?} but got {:#?}. This should not have happened. This is a ucode bug or implementation problem!", expected_exit, actual_exit);
+                    println!("We were hooking the following addresses:");
+                    #[cfg(not(feature = "__debug_bochs_pretend"))]
+                    for address in addresses.iter() {
+                        println!(" - {:?}", address);
+                    }
+                }
+                ExecutionEvent::VmStateMismatchCoverageCollection {
+                    addresses,
+                    exit,
+                    expected_state,
+                    actual_state,
+                } => {
+                    error!("Expected architectural state x but got y. This should not have happened. This is a ucode bug or implementation problem!");
+                    println!("We were hooking the following addresses:");
+                    #[cfg(not(feature = "__debug_bochs_pretend"))]
+                    for address in addresses.iter() {
+                        println!(" - {:?}", address);
+                    }
+                    println!("We exited with {:#?}", exit);
+                    println!("The difference was:");
+                    for (field, expected, result) in expected_state.difference(actual_state) {
+                        println!(
+                            " - {:?}: expected {:x?}, got {:x?}",
+                            field, expected, result
+                        );
+                    }
+                }
+            }
+        }
 
         // Score
         let mut new_coverage = Vec::with_capacity(0);
@@ -105,7 +170,14 @@ unsafe fn main() -> Status {
 
         // Print status message
         global_stats.maybe_print();
+
+        // todo remove
+        if global_stats.iteration_count > 100 {
+            break;
+        }
     }
+
+    warn!("Exiting...");
 
     Status::SUCCESS
 }
@@ -146,7 +218,7 @@ pub struct GlobalStats {
 
 impl GlobalStats {
     pub fn maybe_print(&self) {
-        if self.iteration_count % 1000000 == 0 || self.iterations_since_last_gain == 0 {
+        if self.iteration_count % 1000 == 0 || self.iterations_since_last_gain == 0 {
             self.print();
         }
     }
@@ -172,6 +244,6 @@ fn prepare_gdb() {
 
     if let Ok(image_proto) = image_proto {
         let (base, _size) = image_proto.info();
-        println!("Loaded image base: 0x{:x}", base as usize);
+        debug!("Loaded image base: 0x{:x}", base as usize);
     }
 }

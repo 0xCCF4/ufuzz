@@ -117,7 +117,7 @@ fn build_app(project: &str, release: bool) -> Result<PathBuf, DynError> {
         status.args([
             "--bins",
             "--features",
-            "bios_bochs,platform_bochs,rand_isaac,mutation_all",
+            "bios_bochs,platform_bochs,rand_isaac,mutation_all,__debug_bochs_pretend",
             "--no-default-features",
         ]);
         "fuzzer_device"

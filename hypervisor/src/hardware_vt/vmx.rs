@@ -14,7 +14,7 @@ use super::{
     get_segment_descriptor_value, get_segment_limit, GuestRegisters,
     NestedPagingStructureEntryFlags, NestedPagingStructureEntryType, VmExitReason,
 };
-use crate::state::VmState;
+use crate::state::{DescriptorTablePointerWrapper, VmState};
 use crate::{
     hardware_vt::{self, EPTPageFaultQualification, ExceptionQualification, GuestException},
     x86_instructions::{cr0, cr0_write, cr3, cr4, cr4_write, rdmsr, sgdt, sidt, wrmsr},
@@ -33,6 +33,7 @@ use core::{
 };
 use log::{debug, error, warn};
 use x86::current::vmx::vmxoff;
+use x86::dtables::lgdt;
 use x86::{
     controlregs::{Cr0, Cr4},
     current::rflags::RFlags,
@@ -107,13 +108,20 @@ impl hardware_vt::HardwareVt for Vmx {
         let revision_id = rdmsr(x86::msr::IA32_VMX_BASIC) as u32;
         self.vmxon_region.revision_id = revision_id;
         vmxon(&mut self.vmxon_region);
+
+        self.host_gdt.initialize_from_current();
     }
 
     fn disable(&mut self) {
         vmclear(&mut self.vmcs_region);
+        self.launched = false;
 
         if let Err(err) = unsafe { vmxoff() } {
             error!("Failed to disable VMX operation: {:?}", err);
+        }
+
+        unsafe {
+            lgdt(&self.host_gdt.gdtr);
         }
     }
 
@@ -145,6 +153,7 @@ impl hardware_vt::HardwareVt for Vmx {
         //  corresponding VMCS active with VMPTRLD for the first time."
         // See: 25.11.3 Initializing a VMCS
         vmclear(&mut self.vmcs_region);
+        self.launched = false;
 
         // Then, make it "active" and "current" using the VMPTRLD instruction.
         // This instruction requires that the VMCS revision identifier of the
@@ -170,7 +179,6 @@ impl hardware_vt::HardwareVt for Vmx {
         //   `initialize_from_current` for more details.
         // - Those that are not going to be used. For example, SS, DS, ES, FS, and GS
         //   are not initialized because x64 UEFI environment does not use them.
-        self.host_gdt.initialize_from_current();
         let mut idtr = DescriptorTablePointer::<u64>::default();
         sidt(&mut idtr);
         vmwrite(vmcs::host::CS_SELECTOR, self.host_gdt.cs.bits());
@@ -824,6 +832,7 @@ struct HostGdt {
     tss: TaskStateSegment,
     tr: SegmentSelector,
     cs: SegmentSelector,
+    previous_gdtr: DescriptorTablePointerWrapper<u64>,
 }
 const _: () = assert!((size_of::<HostGdt>() % 0x10) == 0);
 
@@ -840,8 +849,10 @@ impl HostGdt {
     /// See: 27.2.3 Checks on Host Segment and Descriptor-Table Registers
     fn initialize_from_current(&mut self) {
         // Clone the current GDT first.
-        let mut current_gdtr = DescriptorTablePointer::<u64>::default();
+        let mut current_gdtr: DescriptorTablePointerWrapper<u64> =
+            DescriptorTablePointer::<u64>::default().into();
         sgdt(&mut current_gdtr);
+        self.previous_gdtr = current_gdtr.clone();
         let current_gdt = unsafe {
             core::slice::from_raw_parts(
                 current_gdtr.base.cast::<u64>(),
@@ -872,6 +883,7 @@ impl Default for HostGdt {
             tss: TaskStateSegment([0; 104]),
             tr: SegmentSelector::from_raw(0),
             cs: SegmentSelector::from_raw(0),
+            previous_gdtr: DescriptorTablePointer::default().into(),
         }
     }
 }

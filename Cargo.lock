@@ -500,6 +500,7 @@ dependencies = [
  "num-traits",
  "rand_core 0.9.0",
  "rand_isaac",
+ "ucode_dump",
  "uefi 0.33.0",
  "x86",
 ]

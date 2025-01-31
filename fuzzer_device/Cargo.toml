@@ -20,6 +20,8 @@ rand_isaac  = ["dep:rand_isaac"]
 mutation_all = ["mutation_random"]
 mutation_random = []  # Random mutation
 
+__debug_bochs_pretend = [] # pretend bochs to be a compatible device for coverage collection
+
 [dependencies]
 hypervisor = { path = "../hypervisor" }
 coverage = { path = "../coverage", features = ["uefi"], default-features = false }
@@ -34,3 +36,4 @@ iced-x86 = { version = "1.21.0", default-features = false, features = ["decoder"
 x86 = "0.52"
 custom_processing_unit = {path = "../custom_processing_unit"}
 num-traits = { version = "0.2.19", default-features = false }
+ucode_dump = { path = "../ucode_dump" }

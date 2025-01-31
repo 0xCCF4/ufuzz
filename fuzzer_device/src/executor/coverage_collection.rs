@@ -1,6 +1,7 @@
 use alloc::boxed::Box;
 use alloc::format;
 use alloc::string::ToString;
+use core::ops::{Deref, DerefMut};
 use core::pin::Pin;
 use coverage::harness::coverage_harness::hookable_address_iterator::HookableAddressIterator;
 use coverage::harness::coverage_harness::modification_engine::ModificationEngineSettings;
@@ -12,6 +13,8 @@ use coverage::interface::safe::ComInterface;
 use coverage::interface_definition;
 use custom_processing_unit::CustomProcessingUnit;
 use data_types::addresses::UCInstructionAddress;
+use ucode_dump::RomDump;
+use uefi::println;
 
 // safety: Self referential struct, drop in reverse order
 // should be safe since no references are released to the outside
@@ -20,6 +23,8 @@ pub struct CoverageCollector {
     custom_processing_unit: Option<Pin<Box<CustomProcessingUnit>>>,
     com_interface: Option<Pin<Box<ComInterface<'static>>>>,
     coverage_harness: Option<CoverageHarness<'static, 'static, 'static>>,
+
+    rom: &'static RomDump<'static, 'static>,
 
     hooks: usize,
     modification_engine_settings: ModificationEngineSettings,
@@ -33,6 +38,7 @@ impl CoverageCollector {
         cpu.zero_hooks()?;
 
         let cpu = Box::pin(cpu);
+        let rom = cpu.rom();
 
         let interface = match ComInterface::new(&interface_definition::COM_INTERFACE_DESCRIPTION) {
             Ok(interface) => interface,
@@ -62,9 +68,14 @@ impl CoverageCollector {
             ));
         }
 
+        // break the self-referential cycle
+        let mut interface_static_tmp = interface.as_mut();
+        let cpu_static_tmp = cpu.as_ref();
+        let interface_static: &mut ComInterface = interface_static_tmp.deref_mut();
+        let cpu_static: &CustomProcessingUnit = cpu_static_tmp.deref();
         let interface_static: &'static mut ComInterface =
-            unsafe { core::mem::transmute(&mut interface) };
-        let cpu_static: &'static CustomProcessingUnit = unsafe { core::mem::transmute(&cpu) };
+            unsafe { core::mem::transmute(interface_static) };
+        let cpu_static: &'static CustomProcessingUnit = unsafe { core::mem::transmute(cpu_static) };
 
         let harness = match CoverageHarness::new(interface_static, cpu_static) {
             Ok(harness) => harness,
@@ -81,13 +92,14 @@ impl CoverageCollector {
             com_interface: Some(interface),
             coverage_harness: Some(harness),
             modification_engine_settings: ModificationEngineSettings::default(),
+            rom,
             hooks,
         })
     }
 
     pub fn get_iteration_harness(&self) -> IterationHarness {
         let hookable_addresses = HookableAddressIterator::construct(
-            self.custom_processing_unit.as_ref().unwrap().rom(), // safe, since rom() -> 'static, no side effects
+            self.rom,
             &self.modification_engine_settings,
             self.hooks,
         );
