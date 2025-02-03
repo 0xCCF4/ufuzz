@@ -1,4 +1,5 @@
 use alloc::boxed::Box;
+use alloc::collections::BTreeSet;
 use alloc::format;
 use alloc::string::ToString;
 use core::ops::{Deref, DerefMut};
@@ -12,14 +13,13 @@ use coverage::harness::iteration_harness::IterationHarness;
 use coverage::interface::safe::ComInterface;
 use coverage::interface_definition;
 use custom_processing_unit::CustomProcessingUnit;
-use data_types::addresses::UCInstructionAddress;
+use data_types::addresses::{Address, UCInstructionAddress};
 use ucode_dump::RomDump;
-use uefi::println;
 
 // safety: Self referential struct, drop in reverse order
 // should be safe since no references are released to the outside
 // references inside are towards Pin<Box>>
-pub struct CoverageCollector {
+pub struct CoverageCollector<'a> {
     custom_processing_unit: Option<Pin<Box<CustomProcessingUnit>>>,
     com_interface: Option<Pin<Box<ComInterface<'static>>>>,
     coverage_harness: Option<CoverageHarness<'static, 'static, 'static>>,
@@ -28,10 +28,14 @@ pub struct CoverageCollector {
 
     hooks: usize,
     modification_engine_settings: ModificationEngineSettings,
+
+    excluded_addresses: &'a BTreeSet<usize>,
 }
 
-impl CoverageCollector {
-    pub fn initialize() -> Result<Self, custom_processing_unit::Error> {
+impl<'a> CoverageCollector<'a> {
+    pub fn initialize(
+        excluded_addresses: &'a BTreeSet<usize>,
+    ) -> Result<Self, custom_processing_unit::Error> {
         let mut cpu = CustomProcessingUnit::new()?;
 
         cpu.init()?;
@@ -94,6 +98,7 @@ impl CoverageCollector {
             modification_engine_settings: ModificationEngineSettings::default(),
             rom,
             hooks,
+            excluded_addresses,
         })
     }
 
@@ -102,6 +107,7 @@ impl CoverageCollector {
             self.rom,
             &self.modification_engine_settings,
             self.hooks,
+            |address| !self.excluded_addresses.contains(&address.address()),
         );
 
         IterationHarness::new(hookable_addresses)
@@ -119,7 +125,7 @@ impl CoverageCollector {
     }
 }
 
-impl Drop for CoverageCollector {
+impl Drop for CoverageCollector<'_> {
     fn drop(&mut self) {
         // drop in reverse order
         drop(self.coverage_harness.take());

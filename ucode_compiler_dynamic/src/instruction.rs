@@ -1,5 +1,5 @@
-use crate::utils::even_odd_parity_u64;
-use crate::utils::opcodes::Opcode;
+use crate::even_odd_parity_u64;
+use crate::opcodes::Opcode;
 use core::fmt::Display;
 use data_types::addresses::{Address, UCInstructionAddress};
 use num_traits::FromPrimitive;

@@ -8,7 +8,7 @@ log = { version = "0.4.22" }
 uefi = { version = "0.33.0", optional = true, default-features = false, features = ["alloc"] }
 custom_processing_unit = { path = "../custom_processing_unit", features = ["nostd"] }
 data_types = { path = "../data_types", features = ["nostd"] }
-ucode_compiler = { path = "../ucode_compiler", default-features = false, features = ["nostd"] }
+ucode_compiler_dynamic = { path = "../ucode_compiler_dynamic" }
 itertools = { version = "0.14.0", default-features = false, features = ["use_alloc"] }
 ucode_dump = { path = "../ucode_dump" }
 bitflags = "2.6.0"
@@ -18,7 +18,8 @@ nostd = [] # when using as a library: no_std
 uefi = ["dep:uefi", "nostd"] # when using uefi features
 
 [build-dependencies]
-ucode_compiler = { path = "../ucode_compiler", default-features = false, features = ["uasm"] }
+ucode_compiler_bridge = { path = "../ucode_compiler_bridge" }
+ucode_compiler_dynamic = { path = "../ucode_compiler_dynamic" }
 regex = { version = "1.11.0"}
 ucode_dump = { path = "../ucode_dump" }
 data_types = { path = "../data_types" }

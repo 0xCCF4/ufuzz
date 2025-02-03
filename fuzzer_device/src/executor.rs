@@ -7,29 +7,36 @@ use fake_coverage_collection as coverage_collection;
 mod hypervisor;
 
 use crate::cmos::NMIGuard;
+#[cfg(feature = "__debug_print_dissassembly")]
+use crate::disassemble_code;
 use crate::executor::coverage_collection::CoverageCollector;
 use crate::executor::hypervisor::Hypervisor;
 use crate::heuristic::Sample;
+use crate::{cmos, PersistentApplicationData, PersistentApplicationState};
 use ::hypervisor::error::HypervisorError;
 use ::hypervisor::hardware_vt::VmExitReason;
 use ::hypervisor::state::VmState;
-use alloc::collections::{btree_map, BTreeMap};
+use alloc::collections::{btree_map, BTreeMap, BTreeSet};
 use alloc::vec::Vec;
 use core::fmt::Debug;
 use coverage::harness::coverage_harness::{CoverageExecutionResult, ExecutionResultEntry};
 use coverage::harness::iteration_harness::IterationHarness;
 use coverage::interface_definition::CoverageCount;
-use data_types::addresses::UCInstructionAddress;
+use data_types::addresses::{Address, UCInstructionAddress};
+#[cfg(feature = "__debug_print_external_interrupt_notification")]
+use log::trace;
 use log::{error, warn};
+#[cfg(feature = "__debug_print_progress")]
+use uefi::print;
 
-struct CoverageCollectorData {
-    pub collector: CoverageCollector,
+struct CoverageCollectorData<'a> {
+    pub collector: CoverageCollector<'a>,
     pub planner: IterationHarness,
 }
 
-pub struct SampleExecutor {
+pub struct SampleExecutor<'a> {
     hypervisor: Hypervisor,
-    coverage: Option<CoverageCollectorData>,
+    coverage: Option<CoverageCollectorData<'a>>,
 }
 
 fn disable_all_hooks() {
@@ -37,11 +44,12 @@ fn disable_all_hooks() {
     custom_processing_unit::disable_all_hooks();
 }
 
-impl SampleExecutor {
-    pub fn execute_sample<'a>(
-        &'a mut self,
+impl<'a> SampleExecutor<'a> {
+    pub fn execute_sample(
+        &mut self,
         sample: &Sample,
         execution_result: &mut ExecutionResult,
+        cmos: &mut cmos::CMOS<PersistentApplicationData>,
     ) {
         // try to disable Non-Maskable Interrupts
         let nmi_guard = NMIGuard::disable_nmi(true);
@@ -51,6 +59,9 @@ impl SampleExecutor {
         // load code sample to hypervisor memory
         self.hypervisor.load_code_blob(&sample.code_blob);
 
+        #[cfg(feature = "__debug_print_dissassembly")]
+        disassemble_code(&sample.code_blob);
+
         if let Some(coverage) = self.coverage.as_mut() {
             // plan the following executions to collect coverage
             let execution_plan = coverage.planner.execute_for_all_addresses(
@@ -58,20 +69,56 @@ impl SampleExecutor {
                     // prepare hypervisor for execution
                     self.hypervisor.prepare_vm_state();
 
-                    coverage
-                        .collector
-                        .execute_coverage_collection(addresses, || {
-                            // execute the sample within the hypervisor
-                            let vm_exit = self.hypervisor.run_with_callback(disable_all_hooks);
-                            // hooks are now disabled, so coverage collection stopped
+                    if addresses.len() == 1 {
+                        cmos.data_mut_or_insert().state =
+                            PersistentApplicationState::CollectingCoverage(
+                                addresses[0].address() as u16
+                            );
+                    }
 
-                            let mut state = self.hypervisor.initial_state.clone();
-                            self.hypervisor.capture_state(&mut state);
+                    #[cfg(feature = "__debug_print_progress")]
+                    print!("{}\r", addresses[0]);
 
-                            let addresses: Vec<UCInstructionAddress> = addresses.to_vec(); // todo optimize
+                    loop {
+                        let result =
+                            coverage
+                                .collector
+                                .execute_coverage_collection(addresses, || {
+                                    // execute the sample within the hypervisor
+                                    let vm_exit =
+                                        self.hypervisor.run_with_callback(disable_all_hooks);
+                                    // hooks are now disabled, so coverage collection stopped
 
-                            (addresses, vm_exit, state) // disable hooks after execution to not capture conditional logic of the vm exit handler
-                        })
+                                    if addresses.len() == 1 {
+                                        cmos.data_mut_or_insert().state =
+                                            PersistentApplicationState::Idle;
+                                    }
+
+                                    let mut state = self.hypervisor.initial_state.clone();
+                                    self.hypervisor.capture_state(&mut state);
+
+                                    let addresses: Vec<UCInstructionAddress> = addresses.to_vec(); // todo optimize
+
+                                    (addresses, vm_exit, state) // disable hooks after execution to not capture conditional logic of the vm exit handler
+                                });
+
+                        match result {
+                            Err(error) => {
+                                return Err(error);
+                            }
+                            Ok(result) => {
+                                if result.result.1 == VmExitReason::ExternalInterrupt {
+                                    #[cfg(
+                                        feature = "__debug_print_external_interrupt_notification"
+                                    )]
+                                    trace!("External interrupt detected. Retrying...");
+                                    continue;
+                                } else {
+                                    return Ok(result);
+                                }
+                            }
+                        }
+                    }
                 },
             );
 
@@ -159,23 +206,26 @@ impl SampleExecutor {
         drop(nmi_guard);
     }
 
-    pub fn new() -> Result<Self, HypervisorError> {
+    pub fn new(
+        excluded_addresses: &'a BTreeSet<usize>,
+    ) -> Result<SampleExecutor<'a>, HypervisorError> {
         let hypervisor = Hypervisor::new()?;
 
-        let coverage_collector = coverage_collection::CoverageCollector::initialize()
-            .map(Option::Some)
-            .unwrap_or_else(|error| {
-                warn!("Failed to initialize custom processing unit: {:?}", error);
-                warn!("Coverage collection will be disabled");
-                None
-            })
-            .map(|collector| {
-                let hookable_addresses = collector.get_iteration_harness();
-                CoverageCollectorData {
-                    collector: collector,
-                    planner: hookable_addresses,
-                }
-            });
+        let coverage_collector =
+            coverage_collection::CoverageCollector::initialize(excluded_addresses)
+                .map(Option::Some)
+                .unwrap_or_else(|error| {
+                    warn!("Failed to initialize custom processing unit: {:?}", error);
+                    warn!("Coverage collection will be disabled");
+                    None
+                })
+                .map(|collector| {
+                    let hookable_addresses = collector.get_iteration_harness();
+                    CoverageCollectorData {
+                        collector: collector,
+                        planner: hookable_addresses,
+                    }
+                });
 
         Ok(Self {
             hypervisor,
@@ -184,7 +234,14 @@ impl SampleExecutor {
     }
 
     pub fn selfcheck(&mut self) -> bool {
-        self.hypervisor.selfcheck()
+        for _ in 0..10 {
+            // can fail due to ExternalInterrupts
+            if self.hypervisor.selfcheck() {
+                return true;
+            }
+            warn!("Selfcheck failed...");
+        }
+        false
     }
 }
 

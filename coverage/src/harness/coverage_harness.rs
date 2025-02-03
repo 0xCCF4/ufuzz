@@ -15,8 +15,8 @@ use custom_processing_unit::{
     CustomProcessingUnit, FunctionResult, HookGuard, PatchError,
 };
 use data_types::addresses::UCInstructionAddress;
-use ucode_compiler::utils::sequence_word::DisassembleError;
-use ucode_compiler::utils::Triad;
+use ucode_compiler_dynamic::sequence_word::DisassembleError;
+use ucode_compiler_dynamic::Triad;
 // const COVERAGE_ENTRIES: usize = UCInstructionAddress::MAX.to_const();
 
 #[derive(Debug, Clone, PartialEq, Eq)]

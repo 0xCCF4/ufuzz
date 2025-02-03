@@ -106,8 +106,6 @@ fn build_app(project: &str, release: bool) -> Result<PathBuf, DynError> {
 
     status.args([
         "build",
-        "-p",
-        project,
         "-Zbuild-std",
         "--target",
         target_file.to_str().unwrap(),
@@ -115,16 +113,30 @@ fn build_app(project: &str, release: bool) -> Result<PathBuf, DynError> {
 
     let executable_name = if project == "fuzzer_device" {
         status.args([
+            "-p",
+            project,
             "--bins",
             "--features",
-            "bios_bochs,platform_bochs,rand_isaac,mutation_all,__debug_bochs_pretend",
+            "__device_bochs",
             "--no-default-features",
         ]);
         "fuzzer_device"
     } else if project == "hypervisor" {
-        status.args(["--example", "test_hypervisor"]);
+        status.args(["-p", project, "--example", "test_hypervisor"]);
         "examples/test_hypervisor"
+    } else if project == "cmos_test" {
+        status.args([
+            "-p",
+            "fuzzer_device",
+            "--example",
+            "test_cmos",
+            "--features",
+            "device_bochs,mutation_all",
+            "--no-default-features",
+        ]);
+        "examples/test_cmos"
     } else {
+        status.args(["-p", project]);
         project
     };
 

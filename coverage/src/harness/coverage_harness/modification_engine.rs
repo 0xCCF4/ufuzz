@@ -1,10 +1,10 @@
 use data_types::addresses::UCInstructionAddress;
-use ucode_compiler::utils::instruction::Instruction;
-use ucode_compiler::utils::opcodes::Opcode;
-use ucode_compiler::utils::sequence_word::{
+use ucode_compiler_dynamic::instruction::Instruction;
+use ucode_compiler_dynamic::opcodes::Opcode;
+use ucode_compiler_dynamic::sequence_word::{
     AssembleError, DisassembleError, SequenceWord, SequenceWordControl,
 };
-use ucode_compiler::utils::Triad;
+use ucode_compiler_dynamic::Triad;
 use ucode_dump::RomDump;
 
 bitflags::bitflags! {

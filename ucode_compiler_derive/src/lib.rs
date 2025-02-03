@@ -2,7 +2,7 @@
 extern crate proc_macro;
 use proc_macro::TokenStream;
 use std::path::PathBuf;
-use ucode_compiler::uasm::CompilerOptions;
+use ucode_compiler_bridge::CompilerOptions;
 use unindent::unindent;
 
 /// This macro must be used at module level. It will create a module containing the patch content.
@@ -53,13 +53,13 @@ fn compile(text: &str) -> String {
 
     std::fs::write(&source_path, text).expect("Failed to write patch! macro source");
 
-    ucode_compiler::uasm::preprocess_scripts(
+    ucode_compiler_bridge::preprocess_scripts(
         &original_dir,
         &processed_dir,
         project_dir.join("patches"),
     )
     .unwrap_or_else(|err| panic!("Failed to preprocess patch! macro: {}", err));
-    ucode_compiler::uasm::build_script_compile_folder(
+    ucode_compiler_bridge::build_script_compile_folder(
         &processed_dir,
         &compiled_dir,
         CompilerOptions {

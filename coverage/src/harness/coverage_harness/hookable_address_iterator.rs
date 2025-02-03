@@ -13,14 +13,16 @@ pub struct HookableAddressIterator {
 }
 
 impl HookableAddressIterator {
-    pub fn construct(
+     pub fn construct<F: Fn(UCInstructionAddress) -> bool>(
         rom: &RomDump,
         modification_engine_settings: &ModificationEngineSettings,
         chunk_size: usize,
+        filter: F,
     ) -> Self {
         let hookable_addresses = (0..0x7c00)
             .filter(|a| a % 2 == 0)
             .map(UCInstructionAddress::from_const)
+            .filter(|f| filter(*f))
             .filter(|a| {
                 modification_engine::modify_triad_for_hooking(*a, rom, modification_engine_settings)
                     .is_ok()

@@ -1,10 +1,22 @@
-use crate::utils::instruction::Instruction;
-use crate::utils::sequence_word::{DisassembleError, SequenceWord};
+#![no_std]
+
+extern crate alloc;
+extern crate core;
+
+use crate::instruction::Instruction;
+use crate::sequence_word::{DisassembleError, SequenceWord};
+use core::fmt;
 use core::fmt::{Display, Formatter};
 
 pub mod instruction;
 pub mod opcodes;
 pub mod sequence_word;
+
+impl Display for opcodes::Opcode {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Triad {

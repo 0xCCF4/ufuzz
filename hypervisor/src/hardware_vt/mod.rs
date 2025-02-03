@@ -85,9 +85,7 @@ pub enum VmExitReason {
 
     MsrUse,
 
-    /// An external interrupt occurred, or `PAUSE` was executed more than
-    /// certain times.
-    ExternalInterruptOrPause,
+    ExternalInterrupt,
 
     /// The guest ran long enough to use up its time slice.
     TimerExpiration,

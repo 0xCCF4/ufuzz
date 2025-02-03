@@ -5,7 +5,7 @@ use std::process::Command;
 
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
-    generate_opcode_file("src/opcodes.txt", "src/utils/opcodes.rs");
+    generate_opcode_file("src/opcodes.txt", "src/opcodes.rs");
 }
 
 fn generate_opcode_file<A: AsRef<Path>, B: AsRef<Path>>(opcodes: A, target_file: B) {

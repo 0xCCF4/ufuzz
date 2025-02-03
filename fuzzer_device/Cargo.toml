@@ -21,6 +21,12 @@ mutation_all = ["mutation_random"]
 mutation_random = []  # Random mutation
 
 __debug_bochs_pretend = [] # pretend bochs to be a compatible device for coverage collection
+__debug_print_dissassembly = [] # print disassembly of the code
+__debug_print_progress = [] # print continous progress, slows down the fuzzer, useful for debugging
+__debug_print_external_interrupt_notification = [] # print external interrupt notification
+
+__device_brix = ["device_brix", "rand_isaac", "mutation_all", "__debug_print_dissassembly", "__debug_print_progress", "__debug_print_external_interrupt_notification"]
+__device_bochs = ["device_bochs", "rand_isaac", "mutation_all", "__debug_print_dissassembly", "__debug_print_external_interrupt_notification"]
 
 [dependencies]
 hypervisor = { path = "../hypervisor" }
@@ -37,3 +43,7 @@ x86 = "0.52"
 custom_processing_unit = {path = "../custom_processing_unit"}
 num-traits = { version = "0.2.19", default-features = false }
 ucode_dump = { path = "../ucode_dump" }
+
+[build-dependencies]
+chrono = "0.4.39"
+sha2 = "0.10.8"

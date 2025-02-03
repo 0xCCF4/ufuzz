@@ -1,0 +1,11 @@
+[package]
+name = "ucode_compiler_bridge"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+error-chain = { version = "0.12.4"}
+regex = { version = "1.11.0"}
+
+[dev-dependencies]
+regex = { version = "1.11.0"}

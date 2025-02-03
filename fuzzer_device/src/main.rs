@@ -1,38 +1,81 @@
+#![allow(incomplete_features)]
+#![feature(generic_const_exprs)]
 #![no_main]
 #![no_std]
 
 extern crate alloc;
 
 use alloc::collections::{BTreeMap, BTreeSet};
-use alloc::vec;
+use alloc::format;
+use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt::Display;
+use core::ops::DerefMut;
 use data_types::addresses::UCInstructionAddress;
-use fuzzer_device::cmos::NMIGuard;
-use fuzzer_device::disassemble_code;
+use fuzzer_device::cmos::CMOS;
 use fuzzer_device::executor::{ExecutionEvent, ExecutionResult, SampleExecutor};
 use fuzzer_device::heuristic::{GlobalScores, Sample};
 use fuzzer_device::mutation_engine::MutationEngine;
+use fuzzer_device::{disassemble_code, PersistentApplicationData, PersistentApplicationState};
 use hypervisor::state::StateDifference;
 use log::{debug, error, info, trace, warn};
 use num_traits::{ConstZero, SaturatingSub};
 use rand_core::SeedableRng;
 use uefi::proto::loaded_image::LoadedImage;
-use uefi::{entry, println, Status};
+use uefi::proto::media::file::{File, FileAttribute, FileMode};
+use uefi::{entry, println, CString16, Error, Status};
 
 #[entry]
 unsafe fn main() -> Status {
     uefi::helpers::init().unwrap();
     println!("Hello world!");
+    println!(
+        "Program version: {:08x}",
+        PersistentApplicationData::this_app_version()
+    );
 
     prepare_gdb();
 
-    let _nmi_guard = NMIGuard::disable_nmi(true);
+    let disable_nmi = true;
+    let mut cmos = CMOS::<PersistentApplicationData>::read_from_ram(disable_nmi);
+    let mut excluded_addresses = match ExcludedAddresses::load_file() {
+        Ok(excluded_addresses) => excluded_addresses,
+        Err(e) => {
+            error!("Failed to load excluded addresses: {:?}", e);
+            return Status::ABORTED;
+        }
+    };
+    // Read application data from last run from cmos
+    if cmos.is_data_valid() {
+        info!("CMOS checksum is valid");
+    } else {
+        info!("CMOS checksum is invalid.");
+    }
+    let mut cmos_data = cmos.data_mut_or_insert();
+    if !cmos_data.is_same_program_version() {
+        // if app data was from previous program version, reset
+        trace!("Program version changed. Erasing CMOS data.");
+        *cmos_data.deref_mut() = PersistentApplicationData::default();
+    }
+    if let PersistentApplicationState::CollectingCoverage(address) = cmos_data.state {
+        // failed to collect coverage from that address
+        excluded_addresses.exclude_address(address);
+        info!(
+            "Last run failed to collect coverage from address: {:x?}",
+            address
+        );
+        if let Err(err) = excluded_addresses.save_file() {
+            error!("Failed to save excluded addresses: {:?}", err);
+            return Status::ABORTED;
+        }
+        cmos_data.state = PersistentApplicationState::Idle;
+    }
+    drop(cmos_data);
 
     let mut corpus = Vec::new();
     corpus.push(Sample::default());
     trace!("Starting executor...");
-    let mut executor = match SampleExecutor::new() {
+    let mut executor = match SampleExecutor::new(&excluded_addresses.addresses) {
         Ok(executor) => executor,
         Err(e) => {
             println!("Failed to create executor: {:?}", e);
@@ -61,7 +104,7 @@ unsafe fn main() -> Status {
 
     // Execute initial sample to get ground truth coverage
     info!("Collecting ground truth coverage");
-    executor.execute_sample(&corpus[0], &mut execution_result);
+    executor.execute_sample(&corpus[0], &mut execution_result, &mut cmos);
     let ground_truth_coverage = execution_result.coverage.clone();
     if execution_result.events.len() > 0 {
         error!("Initial sample execution had events");
@@ -83,19 +126,8 @@ unsafe fn main() -> Status {
         // Mutate
         let (mutation, new_sample) = mutator.mutate_sample(sample, &mut random);
 
-        // println!("Running sample");
-        disassemble_code(&new_sample.code_blob);
-
         // Execute
-        //executor.execute_sample(&new_sample, &mut execution_result);
-        executor.execute_sample(
-            &Sample {
-                // todo remove
-                code_blob: vec![0xCC],
-                local_scores: Default::default(),
-            },
-            &mut execution_result,
-        );
+        executor.execute_sample(&new_sample, &mut execution_result, &mut cmos);
 
         // Handle events
         for event in &execution_result.events {
@@ -178,6 +210,7 @@ unsafe fn main() -> Status {
     }
 
     warn!("Exiting...");
+    drop(cmos);
 
     Status::SUCCESS
 }
@@ -245,5 +278,98 @@ fn prepare_gdb() {
     if let Ok(image_proto) = image_proto {
         let (base, _size) = image_proto.info();
         debug!("Loaded image base: 0x{:x}", base as usize);
+    }
+}
+
+struct ExcludedAddresses {
+    addresses: BTreeSet<usize>,
+}
+
+impl ExcludedAddresses {
+    const FILENAME: &'static str = "blacklist.txt";
+    fn filename() -> Result<CString16, Error> {
+        CString16::try_from(Self::FILENAME)
+            .map_err(|_| uefi::Error::from(uefi::Status::UNSUPPORTED))
+    }
+    pub fn load_file() -> Result<Self, uefi::Error> {
+        let mut proto = uefi::boot::get_image_file_system(uefi::boot::image_handle())?;
+        let mut root_dir = proto.open_volume()?;
+        let file = match root_dir.open(
+            Self::filename()?.as_ref(),
+            FileMode::Read,
+            FileAttribute::empty(),
+        ) {
+            Ok(file) => file,
+            Err(e) => {
+                return if e.status() == Status::NOT_FOUND {
+                    Ok(Self {
+                        addresses: BTreeSet::new(),
+                    })
+                } else {
+                    Err(e)
+                }
+            }
+        };
+        let mut regular_file = file
+            .into_regular_file()
+            .ok_or_else(|| uefi::Error::from(uefi::Status::UNSUPPORTED))?;
+
+        let mut buffer = [0u8; 4096];
+        let mut data = String::new();
+
+        loop {
+            let read = regular_file.read(&mut buffer)?;
+
+            if read == 0 {
+                break;
+            }
+
+            for i in 0..read {
+                data.push(buffer[i] as char);
+            }
+        }
+
+        let excluded = data
+            .lines()
+            .filter(|line| !(line.starts_with("//") || line.starts_with("#") || line.is_empty()))
+            .filter_map(|line| {
+                usize::from_str_radix(line, 16)
+                    .map_err(|_| uefi::Error::from(uefi::Status::UNSUPPORTED))
+                    .ok()
+            });
+
+        Ok(Self {
+            addresses: BTreeSet::from_iter(excluded),
+        })
+    }
+
+    pub fn exclude_address<A: Into<usize>>(&mut self, address: A) {
+        self.addresses.insert(address.into());
+    }
+
+    pub fn save_file(&self) -> Result<(), uefi::Error> {
+        let mut proto = uefi::boot::get_image_file_system(uefi::boot::image_handle())?;
+        let mut root_dir = proto.open_volume()?;
+        let file = root_dir.open(
+            Self::filename().unwrap().as_ref(),
+            FileMode::CreateReadWrite,
+            FileAttribute::empty(),
+        )?;
+        let mut regular_file = file
+            .into_regular_file()
+            .ok_or_else(|| uefi::Error::from(uefi::Status::UNSUPPORTED))?;
+        let mut data = String::new();
+        for address in &self.addresses {
+            data.push_str(&format!("{:04x}\n", address));
+        }
+        regular_file
+            .write(data.as_bytes())
+            .map_err(|_| uefi::Error::from(uefi::Status::WARN_WRITE_FAILURE))?;
+        regular_file.flush()?;
+
+        root_dir.flush()?;
+        root_dir.close();
+
+        Ok(())
     }
 }

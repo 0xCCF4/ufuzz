@@ -642,7 +642,7 @@ impl hardware_vt::HardwareVt for Vmx {
                 )
                 .unwrap(),
             }),
-            VMX_EXIT_REASON_EXTERNAL_INTERRUPT => VmExitReason::ExternalInterruptOrPause,
+            VMX_EXIT_REASON_EXTERNAL_INTERRUPT => VmExitReason::ExternalInterrupt,
             // See: 29.3.3.2 EPT Violations
             //      28.2.1 Basic VM-Exit Information
             //      Table 28-7. Exit Qualification for EPT Violations

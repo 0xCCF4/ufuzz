@@ -289,8 +289,8 @@ impl Hypervisor {
     }
 
     pub fn prepare_vm_state(&mut self) {
-        // todo is a full vm reset required?
-        //self.vm.initialize().expect("it also worked the first time");
+        // is a full vm reset required? -> YES, interrupt state or smth is transferred across runs
+        self.vm.initialize().expect("it also worked the first time");
         self.vm.vt.load_state(&self.initial_state);
         self.vm.vt.set_preemption_timer(1e8 as u64);
 

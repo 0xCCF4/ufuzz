@@ -3,9 +3,9 @@ use crate::interface_definition::{
     ComInterfaceDescription, CoverageEntry, InstructionTableEntry, JumpTableEntry,
 };
 use std::path::Path;
-use ucode_compiler::uasm::{CompilerOptions, AUTOGEN};
+use ucode_compiler_bridge::{CompilerOptions, AUTOGEN};
 
-pub fn build_ucode_scripts() -> ucode_compiler::uasm::Result<()> {
+pub fn build_ucode_scripts() -> ucode_compiler_bridge::Result<()> {
     if !std::fs::exists("src/patches").expect("fs perm denied") {
         std::fs::create_dir("src/patches").expect("dir creation failed")
     }
@@ -27,8 +27,12 @@ pub fn build_ucode_scripts() -> ucode_compiler::uasm::Result<()> {
         None,
         &interface_definition::COM_INTERFACE_DESCRIPTION,
     );
-    ucode_compiler::uasm::preprocess_scripts("patches", "src/patches", "patches")?;
-    ucode_compiler::uasm::compile_source_and_create_module("src/patches", "src/patches", &options)?;
+    ucode_compiler_bridge::preprocess_scripts("patches", "src/patches", "patches")?;
+    ucode_compiler_bridge::compile_source_and_create_module(
+        "src/patches",
+        "src/patches",
+        &options,
+    )?;
 
     let result_text = std::fs::read_to_string("src/patches/patch.rs").expect("read failed");
 
@@ -41,8 +45,12 @@ pub fn build_ucode_scripts() -> ucode_compiler::uasm::Result<()> {
         Some(data),
         &interface_definition::COM_INTERFACE_DESCRIPTION,
     );
-    ucode_compiler::uasm::preprocess_scripts("patches", "src/patches", "patches")?;
-    ucode_compiler::uasm::compile_source_and_create_module("src/patches", "src/patches", &options)?;
+    ucode_compiler_bridge::preprocess_scripts("patches", "src/patches", "patches")?;
+    ucode_compiler_bridge::compile_source_and_create_module(
+        "src/patches",
+        "src/patches",
+        &options,
+    )?;
 
     // delete_intermediate_files("src/patches");
 

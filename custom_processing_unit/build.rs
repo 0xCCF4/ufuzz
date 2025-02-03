@@ -1,9 +1,9 @@
-use ucode_compiler::uasm::CompilerOptions;
+use ucode_compiler_bridge::CompilerOptions;
 
 fn main() {
     println!("cargo::rerun-if-changed=build.rs");
 
-    if let Err(err) = ucode_compiler::uasm::compile_source_and_create_module(
+    if let Err(err) = ucode_compiler_bridge::compile_source_and_create_module(
         "patches",
         "src/patches",
         CompilerOptions {

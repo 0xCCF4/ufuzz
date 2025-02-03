@@ -1,4 +1,4 @@
-use crate::utils::even_odd_parity_u32;
+use crate::even_odd_parity_u32;
 use core::fmt::Display;
 use data_types::addresses::{Address, UCInstructionAddress};
 use num_derive::FromPrimitive;

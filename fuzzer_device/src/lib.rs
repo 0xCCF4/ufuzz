@@ -1,4 +1,6 @@
 #![feature(new_zeroed_alloc)]
+#![allow(incomplete_features)]
+#![feature(generic_const_exprs)]
 #![no_std]
 
 pub mod cmos;
@@ -8,6 +10,7 @@ pub mod mutation_engine;
 
 extern crate alloc;
 
+use crate::cmos::CMOS;
 use alloc::string::String;
 use iced_x86::{Decoder, DecoderOptions, Formatter, Instruction, NasmFormatter};
 use uefi::{print, println};
@@ -41,4 +44,46 @@ pub fn disassemble_code(code: &[u8]) {
         }
         println!(" {}", output);
     }
+}
+
+#[repr(C)]
+pub struct PersistentApplicationData {
+    version: u32,
+    pub state: PersistentApplicationState,
+}
+
+impl PersistentApplicationData {
+    pub fn this_app_version() -> u32 {
+        let hex_chars = env!("BUILD_TIMESTAMP_HASH").as_bytes();
+        assert!(hex_chars.len() == 4 * 2);
+        let mut bytes = hex_chars
+            .chunks(2)
+            .map(|c| u8::from_str_radix(core::str::from_utf8(c).unwrap(), 16).unwrap());
+        u32::from_le_bytes([
+            bytes.next().unwrap(),
+            bytes.next().unwrap(),
+            bytes.next().unwrap(),
+            bytes.next().unwrap(),
+        ])
+    }
+    pub fn is_same_program_version(&self) -> bool {
+        self.version == Self::this_app_version()
+    }
+}
+
+impl Default for PersistentApplicationData {
+    fn default() -> Self {
+        Self {
+            version: Self::this_app_version(),
+            state: PersistentApplicationState::Idle,
+        }
+    }
+}
+
+const _: () = CMOS::<PersistentApplicationData>::size_check();
+
+#[repr(C, u8)]
+pub enum PersistentApplicationState {
+    Idle = 0,
+    CollectingCoverage(u16) = 1,
 }

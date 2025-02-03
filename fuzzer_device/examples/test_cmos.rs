@@ -1,17 +1,19 @@
 #![no_main]
 #![no_std]
+#![feature(generic_const_exprs)]
 
 extern crate alloc;
 
-use crate::cmos::CMOS;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::fmt::Debug;
+use fuzzer_device::cmos;
+use fuzzer_device::cmos::CMOS;
 use uefi::boot::ScopedProtocol;
 use uefi::proto::loaded_image::LoadedImage;
 use uefi::{entry, println, Status};
 
-const STRING_LEN: usize = 59;
+const STRING_LEN: usize = 20;
 #[repr(C)]
 struct CmosActualData {
     length: u8,
@@ -66,9 +68,21 @@ unsafe fn main() -> Status {
     println!("Reading CMOS RAM...");
     let mut cmos = CMOS::<CmosActualData>::read_from_ram(nmi);
 
-    // println!("Raw data: {:?} {:?}", String::from_utf8(cmos.raw_data().iter().filter(|x|x.is_ascii_alphanumeric()).cloned().collect()).unwrap(), &cmos.raw_data());
+    println!(
+        "Raw data: {:?} {:?}",
+        String::from_utf8(
+            cmos.raw_data()
+                .iter()
+                .filter(|x| x.is_ascii_alphanumeric())
+                .cloned()
+                .collect()
+        )
+        .unwrap(),
+        &cmos.raw_data()
+    );
+    println!("Checksum {:x}", cmos.read_checksum());
 
-    if !cmos.checksum_valid() {
+    if !cmos.is_data_valid() {
         println!("Checksum not valid, resetting CMOS RAM...");
         cmos.reset();
     }
@@ -114,11 +128,8 @@ unsafe fn main() -> Status {
     println!("New text: {}", args);
 
     let mut data = cmos.data_mut().unwrap();
-
     data.update(&args);
     drop(data);
-
-    cmos.write_cmos_ram();
 
     Status::SUCCESS
 }

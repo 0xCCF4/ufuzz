@@ -1,28 +1,23 @@
-use alloc::boxed::Box;
-use alloc::format;
-use alloc::string::ToString;
-use core::ops::{Deref, DerefMut};
-use core::pin::Pin;
+use alloc::collections::BTreeSet;
 use coverage::harness::coverage_harness::hookable_address_iterator::HookableAddressIterator;
 use coverage::harness::coverage_harness::modification_engine::ModificationEngineSettings;
 use coverage::harness::coverage_harness::{
-    CoverageError, CoverageExecutionResult, CoverageHarness, ExecutionResultEntry,
+    CoverageError, CoverageExecutionResult, ExecutionResultEntry,
 };
 use coverage::harness::iteration_harness::IterationHarness;
-use coverage::interface::safe::ComInterface;
-use coverage::interface_definition;
-use custom_processing_unit::CustomProcessingUnit;
-use data_types::addresses::UCInstructionAddress;
-use log::trace;
-use ucode_dump::RomDump;
-use uefi::{print, println};
+use data_types::addresses::{Address, UCInstructionAddress};
+use uefi::{println};
 
 // Bochs stub for coverage collection
-pub struct CoverageCollector {}
+pub struct CoverageCollector<'a> {
+    excluded_addresses: &'a BTreeSet<usize>,
+}
 
-impl CoverageCollector {
-    pub fn initialize() -> Result<Self, custom_processing_unit::Error> {
-        Ok(Self {})
+impl<'a> CoverageCollector<'a> {
+    pub fn initialize(
+        excluded_addresses: &'a BTreeSet<usize>,
+    ) -> Result<CoverageCollector<'a>, custom_processing_unit::Error> {
+        Ok(Self { excluded_addresses })
     }
 
     pub fn get_iteration_harness(&self) -> IterationHarness {
@@ -30,6 +25,7 @@ impl CoverageCollector {
             &ucode_dump::dump::ROM_cpu_000506CA,
             &ModificationEngineSettings::default(),
             0x2000,
+            |x| !self.excluded_addresses.contains(&x.address()),
         );
 
         IterationHarness::new(hookable_addresses)

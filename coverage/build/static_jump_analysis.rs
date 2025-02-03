@@ -2,7 +2,7 @@ use data_types::addresses::{Address, UCInstructionAddress};
 use itertools::Itertools;
 use std::collections::BTreeMap;
 use std::fs;
-use ucode_compiler::utils::sequence_word::SequenceWord;
+use ucode_compiler_dynamic::sequence_word::SequenceWord;
 use ucode_dump::dump::ROMS_DISASM;
 use ucode_dump::{dump, RomDump};
 
