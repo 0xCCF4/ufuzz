@@ -108,6 +108,9 @@ unsafe fn main() -> Status {
     let ground_truth_coverage = execution_result.coverage.clone();
     if execution_result.events.len() > 0 {
         error!("Initial sample execution had events");
+        if let Err(err) = initial_execution_events_to_file(&execution_result.events) {
+            error!("Failed to write to file");
+        }
         for event in &execution_result.events {
             println!("{:#?}", event);
         }
@@ -213,6 +216,27 @@ unsafe fn main() -> Status {
     drop(cmos);
 
     Status::SUCCESS
+}
+
+fn initial_execution_events_to_file(p0: &Vec<ExecutionEvent>) {
+    let mut proto = uefi::boot::get_image_file_system(uefi::boot::image_handle()).unwrap();
+    let mut root_dir = proto.open_volume().unwrap();
+    let file = root_dir
+        .open(
+            CString16::try_from("initial_execution_events.txt").unwrap().as_ref(),
+            FileMode::CreateReadWrite,
+            FileAttribute::empty(),
+        )
+        .unwrap();
+    let mut regular_file = file.into_regular_file().unwrap();
+    let mut data = String::new();
+    for event in p0 {
+        data.push_str(&format!("{:#x?}\n\n", event));
+    }
+    regular_file.write(data.as_bytes()).unwrap();
+    regular_file.flush().unwrap();
+    root_dir.flush().unwrap();
+    root_dir.close();
 }
 
 fn subtract_iter_btree<
