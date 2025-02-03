@@ -6,6 +6,7 @@
 extern crate alloc;
 
 use alloc::collections::{BTreeMap, BTreeSet};
+use alloc::fmt::format;
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -108,9 +109,7 @@ unsafe fn main() -> Status {
     let ground_truth_coverage = execution_result.coverage.clone();
     if execution_result.events.len() > 0 {
         error!("Initial sample execution had events");
-        if let Err(err) = initial_execution_events_to_file(&execution_result.events) {
-            error!("Failed to write to file");
-        }
+        initial_execution_events_to_file(&execution_result.events);
         for event in &execution_result.events {
             println!("{:#?}", event);
         }
@@ -231,7 +230,24 @@ fn initial_execution_events_to_file(p0: &Vec<ExecutionEvent>) {
     let mut regular_file = file.into_regular_file().unwrap();
     let mut data = String::new();
     for event in p0 {
-        data.push_str(&format!("{:#x?}\n\n", event));
+        match event {
+            ExecutionEvent::CoverageCollectionError { .. } => {
+                data.push_str(&format!("{:#?}\n", event));
+            }
+            ExecutionEvent::VmExitMismatchCoverageCollection {.. } => {
+                data.push_str(&format!("{:#?}\n", event));
+            }
+            ExecutionEvent::VmStateMismatchCoverageCollection {actual_state, expected_state, exit, addresses } => {
+                data.push_str("VmStateMismatchCoverageCollection\n");
+                data.push_str(&format!("Addresses: {:#?}\n", addresses));
+                data.push_str(&format!("Exit: {:#?}\n", exit));
+                data.push_str("State mismatched:\n");
+                for (field, expected, result) in expected_state.difference(actual_state) {
+                    data.push_str(&format!(" - {:?}: expected {:x?}, got {:x?}\n", field, expected, result));
+                }
+            }
+        }
+        data.push_str("\n\n");
     }
     regular_file.write(data.as_bytes()).unwrap();
     regular_file.flush().unwrap();
