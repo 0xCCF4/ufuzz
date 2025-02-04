@@ -12,6 +12,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt::Display;
 use core::ops::DerefMut;
+use iced_x86::CC_ge::ge;
 use data_types::addresses::UCInstructionAddress;
 use fuzzer_device::cmos::CMOS;
 use fuzzer_device::executor::{ExecutionEvent, ExecutionResult, SampleExecutor};
@@ -25,9 +26,15 @@ use rand_core::SeedableRng;
 use uefi::proto::loaded_image::LoadedImage;
 use uefi::proto::media::file::{File, FileAttribute, FileMode};
 use uefi::{entry, println, CString16, Error, Status};
+use fuzzer_device::genetic_breeding::GeneticPool;
+
+const POPULATION_SIZE: usize = 50;
+const MAX_ITERATIONS: usize = POPULATION_SIZE * 100;
 
 #[entry]
 unsafe fn main() -> Status {
+    // todo setup idt
+
     uefi::helpers::init().unwrap();
     println!("Hello world!");
     println!(
@@ -36,6 +43,8 @@ unsafe fn main() -> Status {
     );
 
     prepare_gdb();
+
+    uefi::boot::stall(1000000);
 
     let disable_nmi = true;
     let mut cmos = CMOS::<PersistentApplicationData>::read_from_ram(disable_nmi);
@@ -74,7 +83,6 @@ unsafe fn main() -> Status {
     drop(cmos_data);
 
     let mut corpus = Vec::new();
-    corpus.push(Sample::default());
     trace!("Starting executor...");
     let mut executor = match SampleExecutor::new(&excluded_addresses.addresses) {
         Ok(executor) => executor,
@@ -89,8 +97,7 @@ unsafe fn main() -> Status {
         return Status::ABORTED;
     }
     info!("Executor selfcheck success");
-    let mutator = MutationEngine::default();
-    let mut global_scores = GlobalScores::default();
+
 
     let mut random = random_source(0);
 
@@ -103,13 +110,16 @@ unsafe fn main() -> Status {
     // Global stats
     let mut global_stats = GlobalStats::default();
 
+    // Samples
+    let mut genetic_pool = GeneticPool::new_random_population(POPULATION_SIZE, &mut random);
+
     // Execute initial sample to get ground truth coverage
     info!("Collecting ground truth coverage");
-    executor.execute_sample(&corpus[0], &mut execution_result, &mut cmos);
+    executor.execute_sample(&[], &mut execution_result, &mut cmos);
     let ground_truth_coverage = execution_result.coverage.clone();
     if execution_result.events.len() > 0 {
         error!("Initial sample execution had events");
-        initial_execution_events_to_file(&execution_result.events);
+        initial_execution_events_to_file(&execution_result);
         for event in &execution_result.events {
             println!("{:#?}", event);
         }
@@ -118,97 +128,93 @@ unsafe fn main() -> Status {
 
     // Main fuzzing loop
     loop {
-        global_stats.iteration_count += 1;
+        for sample in genetic_pool.all_samples_mut() {
+            global_stats.iteration_count += 1;
 
-        // Select a sample from the corpus
-        let sample = global_scores
-            .choose_sample_mut(&mut corpus, &mut random)
-            .expect("There is at least one sample");
+            // Execute
+            executor.execute_sample(sample.code(), &mut execution_result, &mut cmos);
 
-        // Mutate
-        let (mutation, new_sample) = mutator.mutate_sample(sample, &mut random);
-
-        // Execute
-        executor.execute_sample(&new_sample, &mut execution_result, &mut cmos);
-
-        // Handle events
-        for event in &execution_result.events {
-            match event {
-                ExecutionEvent::CoverageCollectionError { error } => {
-                    error!(
+            // Handle events
+            for event in &execution_result.events {
+                match event {
+                    ExecutionEvent::CoverageCollectionError { error } => {
+                        error!(
                         "Failed to collect coverage: {:?}. This should not have happened.",
                         error
                     );
-                }
-                ExecutionEvent::VmExitMismatchCoverageCollection {
-                    addresses,
-                    expected_exit,
-                    actual_exit,
-                } => {
-                    error!("Expected result {:#?} but got {:#?}. This should not have happened. This is a ucode bug or implementation problem!", expected_exit, actual_exit);
-                    println!("We were hooking the following addresses:");
-                    #[cfg(not(feature = "__debug_bochs_pretend"))]
-                    for address in addresses.iter() {
-                        println!(" - {:?}", address);
                     }
-                }
-                ExecutionEvent::VmStateMismatchCoverageCollection {
-                    addresses,
-                    exit,
-                    expected_state,
-                    actual_state,
-                } => {
-                    error!("Expected architectural state x but got y. This should not have happened. This is a ucode bug or implementation problem!");
-                    println!("We were hooking the following addresses:");
-                    #[cfg(not(feature = "__debug_bochs_pretend"))]
-                    for address in addresses.iter() {
-                        println!(" - {:?}", address);
+                    ExecutionEvent::VmExitMismatchCoverageCollection {
+                        addresses,
+                        expected_exit,
+                        actual_exit,
+                    } => {
+                        error!("Expected result {:#?} but got {:#?}. This should not have happened. This is a ucode bug or implementation problem!", expected_exit, actual_exit);
+                        println!("We were hooking the following addresses:");
+                        #[cfg(not(feature = "__debug_bochs_pretend"))]
+                        for address in addresses.iter() {
+                            println!(" - {:?}", address);
+                        }
                     }
-                    println!("We exited with {:#?}", exit);
-                    println!("The difference was:");
-                    for (field, expected, result) in expected_state.difference(actual_state) {
-                        println!(
-                            " - {:?}: expected {:x?}, got {:x?}",
-                            field, expected, result
-                        );
+                    ExecutionEvent::VmStateMismatchCoverageCollection {
+                        addresses,
+                        exit,
+                        expected_state,
+                        actual_state,
+                    } => {
+                        error!("Expected architectural state x but got y. This should not have happened. This is a ucode bug or implementation problem!");
+                        println!("We were hooking the following addresses:");
+                        #[cfg(not(feature = "__debug_bochs_pretend"))]
+                        for address in addresses.iter() {
+                            println!(" - {:?}", address);
+                        }
+                        println!("We exited with {:#?}", exit);
+                        println!("The difference was:");
+                        for (field, expected, result) in expected_state.difference(actual_state) {
+                            println!(
+                                " - {:?}: expected {:x?}, got {:x?}",
+                                field, expected, result
+                            );
+                        }
                     }
                 }
             }
-        }
 
-        // Score
-        let mut new_coverage = Vec::with_capacity(0);
-        subtract_iter_btree(&mut execution_result.coverage, &ground_truth_coverage);
-        for (address, count) in execution_result.coverage.iter() {
-            if *count > 0 && !coverage_sofar.contains(address) {
-                new_coverage.push(address);
+            // Rate
+            sample.rate_from_execution(&execution_result);
+
+            let mut new_coverage = Vec::with_capacity(0);
+            subtract_iter_btree(&mut execution_result.coverage, &ground_truth_coverage);
+            for (address, count) in execution_result.coverage.iter() {
+                if *count > 0 && !coverage_sofar.contains(address) {
+                    new_coverage.push(address);
+                }
             }
-        }
-        global_scores.update_best_recent_gain(new_coverage.len() as f64);
-        let benefit = global_scores.benefit(new_coverage.len() as f64);
 
-        // Update ratings
-        sample
-            .local_scores
-            .update_ratings(benefit, mutation, &mut global_scores);
+            global_stats.iterations_since_last_gain += 1;
+            if new_coverage.len() > 0 {
+                global_stats.annonce_new_sample(sample.code(), new_coverage.len());
+                global_stats.iterations_since_last_gain = 0;
+                corpus.push(sample.code().to_vec());
+                coverage_sofar.extend(new_coverage);
+                global_stats.coverage_sofar = coverage_sofar.len();
+            }
 
-        // Add to corpus
-        global_stats.iterations_since_last_gain += 1;
-        if new_coverage.len() > 0 {
-            global_stats.annonce_new_sample(&new_sample, new_coverage.len());
-            global_stats.iterations_since_last_gain = 0;
-            corpus.push(new_sample);
-            coverage_sofar.extend(new_coverage);
-            global_stats.coverage_sofar = coverage_sofar.len();
+            // Print status message
+            global_stats.maybe_print();
         }
 
-        // Print status message
-        global_stats.maybe_print();
+        genetic_pool.evolution(&mut random);
 
         // todo remove
-        if global_stats.iteration_count > 100 {
+        if global_stats.iteration_count > MAX_ITERATIONS {
             break;
         }
+    }
+
+    println!("Best performing programs are:");
+    for code in genetic_pool.result().iter().take(4) {
+        println!("-----------------");
+        disassemble_code(code.code());
     }
 
     warn!("Exiting...");
@@ -217,7 +223,7 @@ unsafe fn main() -> Status {
     Status::SUCCESS
 }
 
-fn initial_execution_events_to_file(p0: &Vec<ExecutionEvent>) {
+fn initial_execution_events_to_file(result: &ExecutionResult) {
     let mut proto = uefi::boot::get_image_file_system(uefi::boot::image_handle()).unwrap();
     let mut root_dir = proto.open_volume().unwrap();
     let file = root_dir
@@ -229,18 +235,18 @@ fn initial_execution_events_to_file(p0: &Vec<ExecutionEvent>) {
         .unwrap();
     let mut regular_file = file.into_regular_file().unwrap();
     let mut data = String::new();
-    for event in p0 {
+    for event in &result.events {
         match event {
             ExecutionEvent::CoverageCollectionError { .. } => {
-                data.push_str(&format!("{:#?}\n", event));
+                data.push_str(&format!("{:#x?}\n", event));
             }
             ExecutionEvent::VmExitMismatchCoverageCollection {.. } => {
-                data.push_str(&format!("{:#?}\n", event));
+                data.push_str(&format!("{:#x?}\n", event));
             }
             ExecutionEvent::VmStateMismatchCoverageCollection {actual_state, expected_state, exit, addresses } => {
                 data.push_str("VmStateMismatchCoverageCollection\n");
-                data.push_str(&format!("Addresses: {:#?}\n", addresses));
-                data.push_str(&format!("Exit: {:#?}\n", exit));
+                data.push_str(&format!("Addresses: {:#x?}\n", addresses));
+                data.push_str(&format!("Exit: {:#x?}\n", exit));
                 data.push_str("State mismatched:\n");
                 for (field, expected, result) in expected_state.difference(actual_state) {
                     data.push_str(&format!(" - {:?}: expected {:x?}, got {:x?}\n", field, expected, result));
@@ -249,10 +255,16 @@ fn initial_execution_events_to_file(p0: &Vec<ExecutionEvent>) {
         }
         data.push_str("\n\n");
     }
+    data.push_str("Coverage:\n");
+    data.push_str("\n\n");
     regular_file.write(data.as_bytes()).unwrap();
     regular_file.flush().unwrap();
     root_dir.flush().unwrap();
     root_dir.close();
+
+    for (address, count) in result.coverage.iter() {
+        data.push_str(&format!("{:#x?}: {:#x?}\n", address, count));
+    }
 }
 
 fn subtract_iter_btree<
@@ -291,7 +303,7 @@ pub struct GlobalStats {
 
 impl GlobalStats {
     pub fn maybe_print(&self) {
-        if self.iteration_count % 1000 == 0 || self.iterations_since_last_gain == 0 {
+        if self.iteration_count % 20 == 0 || self.iterations_since_last_gain == 0 {
             self.print();
         }
     }
@@ -304,10 +316,10 @@ impl GlobalStats {
         println!(" - coverage: {}", self.coverage_sofar);
     }
 
-    pub fn annonce_new_sample(&self, sample: &Sample, new_coverage: usize) {
+    pub fn annonce_new_sample(&self, sample: &[u8], new_coverage: usize) {
         println!("New sample added to corpus");
         println!("The sample increased coverage by: {}", new_coverage);
-        disassemble_code(&sample.code_blob);
+        disassemble_code(sample);
     }
 }
 

@@ -4,6 +4,7 @@
 //pub mod svm;
 pub mod vmx;
 
+use alloc::boxed::Box;
 use crate::state::VmState;
 use bitfield::bitfield;
 use core::fmt;
@@ -50,6 +51,12 @@ pub trait HardwareVt: fmt::Debug {
         entry_type: NestedPagingStructureEntryType,
     ) -> NestedPagingStructureEntryFlags;
     fn set_preemption_timer(&self, timeout_in_tsc: u64);
+
+    fn enable_tracing(&mut self);
+
+    fn disable_tracing(&mut self);
+
+    fn registers(&self) -> &GuestRegisters;
 }
 
 /// Reasons of VM exit.
@@ -98,6 +105,9 @@ pub enum VmExitReason {
 
     /// VM entry failure: reason, qualification
     VMEntryFailure(u32, u64),
+
+    /// If an SMM exit occurred that has a higher priority than a pending MTF Exit
+    MonitorTrap,
 }
 
 /// Details of the cause of nested page fault.

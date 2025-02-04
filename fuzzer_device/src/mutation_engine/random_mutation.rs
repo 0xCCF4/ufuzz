@@ -7,7 +7,7 @@ use rand_core::RngCore;
 pub struct RandomMutation;
 
 impl<R: RngCore> Mutation<R> for RandomMutation {
-    fn mutate(&self, sample: &mut Sample, random: &mut R) {
+    fn mutate(&mut self, sample: &mut Sample, random: &mut R) {
         if sample.code_blob.is_empty() {
             warn!("Sample has no code blob, cannot mutate");
             return;

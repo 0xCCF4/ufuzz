@@ -47,7 +47,7 @@ fn disable_all_hooks() {
 impl<'a> SampleExecutor<'a> {
     pub fn execute_sample(
         &mut self,
-        sample: &Sample,
+        sample: &[u8],
         execution_result: &mut ExecutionResult,
         cmos: &mut cmos::CMOS<PersistentApplicationData>,
     ) {
@@ -57,10 +57,13 @@ impl<'a> SampleExecutor<'a> {
         execution_result.reset(&self.hypervisor.initial_state);
 
         // load code sample to hypervisor memory
-        self.hypervisor.load_code_blob(&sample.code_blob);
+        self.hypervisor.load_code_blob(sample);
 
         #[cfg(feature = "__debug_print_dissassembly")]
-        disassemble_code(&sample.code_blob);
+        disassemble_code(sample);
+
+        // do a trace
+        self.hypervisor.trace_vm(&mut execution_result.trace, 10000);
 
         if let Some(coverage) = self.coverage.as_mut() {
             // plan the following executions to collect coverage
@@ -79,7 +82,9 @@ impl<'a> SampleExecutor<'a> {
                     #[cfg(feature = "__debug_print_progress")]
                     print!("{}\r", addresses[0]);
 
+                    let mut iteration: usize = 0;
                     loop {
+                        iteration += 1;
                         let result =
                             coverage
                                 .collector
@@ -111,7 +116,7 @@ impl<'a> SampleExecutor<'a> {
                                     #[cfg(
                                         feature = "__debug_print_external_interrupt_notification"
                                     )]
-                                    trace!("External interrupt detected. Retrying...");
+                                    trace!("External interrupt detected. Retrying... {}", iteration);
                                     continue;
                                 } else {
                                     return Ok(result);
@@ -211,6 +216,7 @@ impl<'a> SampleExecutor<'a> {
     ) -> Result<SampleExecutor<'a>, HypervisorError> {
         let hypervisor = Hypervisor::new()?;
 
+        #[cfg(not(feature = "__debug_pretend_no_coverage"))]
         let coverage_collector =
             coverage_collection::CoverageCollector::initialize(excluded_addresses)
                 .map(Option::Some)
@@ -226,6 +232,9 @@ impl<'a> SampleExecutor<'a> {
                         planner: hookable_addresses,
                     }
                 });
+
+        #[cfg(feature = "__debug_pretend_no_coverage")]
+        let coverage_collector = None;
 
         Ok(Self {
             hypervisor,
@@ -268,6 +277,7 @@ pub struct ExecutionResult {
     pub coverage: BTreeMap<UCInstructionAddress, CoverageCount>, // mapping address -> count
     pub events: Vec<ExecutionEvent>,
     pub state: VmState,
+    pub trace: Vec<u64>,
 }
 
 impl ExecutionResult {
@@ -275,5 +285,6 @@ impl ExecutionResult {
         self.coverage.clear();
         self.events.clear();
         self.state.clone_from(initial_state);
+        self.trace.clear();
     }
 }

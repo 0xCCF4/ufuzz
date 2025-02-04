@@ -301,6 +301,26 @@ impl Hypervisor {
         self.vm.vt.run()
     }
 
+    pub fn trace_vm(&mut self, trace: &mut Vec<u64>, max_trace_length: usize) -> VmExitReason {
+        self.vm.vt.enable_tracing();
+
+        let mut last_exit = VmExitReason::Unexpected(0);
+        for _ in 0..(if max_trace_length == 0 { usize::MAX } else { max_trace_length }) {
+
+            trace.push(self.vm.vt.registers().rip);
+            last_exit = self.vm.vt.run();
+
+            if last_exit == VmExitReason::MonitorTrap {
+                continue;
+            } else {
+                break;
+            }
+        }
+
+        self.vm.vt.disable_tracing();
+        last_exit
+    }
+
     pub fn run_with_callback(&mut self, after_execution: fn()) -> VmExitReason {
         self.vm.vt.run_with_callback(after_execution)
     }

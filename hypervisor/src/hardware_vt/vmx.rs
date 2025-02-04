@@ -280,6 +280,17 @@ impl hardware_vt::HardwareVt for Vmx {
             },
         );
 
+        let _ = match adjust_vmx_control(VmxControl::ProcessorBased, vmcs::control::PrimaryControls::MONITOR_TRAP_FLAG.bits() as u64) {
+            Ok(x) => x,
+            Err(x) => {
+                if x & vmcs::control::PrimaryControls::MONITOR_TRAP_FLAG.bits() as u64 == 0 {
+                    return Err("Failed to adjust PRIMARY_PROCBASED_EXEC_CONTROLS. Activate monitor trap flag.");
+                } else {
+                x
+                }
+            }
+        };
+
         // Enable EPTs. This is a two-steps process at minimum:
         // - Set bit[1] of the secondary processor-based VM-execution controls.
         // See: Table 25-7. Definitions of Secondary Processor-Based VM-Execution
@@ -359,6 +370,28 @@ impl hardware_vt::HardwareVt for Vmx {
                 timeout_in_tsc / timer_scale,
             );
         };
+    }
+
+    fn enable_tracing(&mut self) {
+        let primary = vmread(vmcs::control::PRIMARY_PROCBASED_EXEC_CONTROLS);
+        vmwrite(
+            vmcs::control::PRIMARY_PROCBASED_EXEC_CONTROLS,
+            adjust_vmx_control(
+                VmxControl::ProcessorBased,
+                primary | vmcs::control::PrimaryControls::MONITOR_TRAP_FLAG.bits() as u64,
+            ).unwrap_or_else(|x| x),
+        );
+    }
+
+    fn disable_tracing(&mut self) {
+        let primary = vmread(vmcs::control::PRIMARY_PROCBASED_EXEC_CONTROLS);
+        vmwrite(
+            vmcs::control::PRIMARY_PROCBASED_EXEC_CONTROLS,
+            adjust_vmx_control(
+                VmxControl::ProcessorBased,
+                primary & !vmcs::control::PrimaryControls::MONITOR_TRAP_FLAG.bits() as u64,
+            ).unwrap_or_else(|x| x),
+        );
     }
 
     fn load_state(&mut self, state: &VmState) {
@@ -528,6 +561,9 @@ impl hardware_vt::HardwareVt for Vmx {
         self.registers.xmm13 = registers.xmm13;
         self.registers.xmm14 = registers.xmm14;
         self.registers.xmm15 = registers.xmm15;
+
+        self.registers.rip = registers.rip;
+        self.registers.rsp = registers.rsp;
     }
 
     fn save_state(&self, state: &mut VmState) {
@@ -592,6 +628,7 @@ impl hardware_vt::HardwareVt for Vmx {
         const VMX_EXIT_REASON_IO: u16 = 30;
         const VMX_EXIT_REASON_RDMSR: u16 = 31;
         const VMX_EXIT_REASON_WRMSR: u16 = 32;
+        const VMX_EXIT_MONITOR_TRAP_FLAG: u16 = 37;
         const VMX_EXIT_REASON_EPT_VIOLATION: u16 = 48;
         const VMX_EXIT_REASON_VMX_PREEMPTION_TIMER: u16 = 52;
         const VMX_EXIT_REASON_RDRAND: u16 = 57;
@@ -632,7 +669,7 @@ impl hardware_vt::HardwareVt for Vmx {
             );
         }
 
-        match exit_reason as u16 {
+        let exit = match exit_reason as u16 {
             // See: 26.2 OTHER CAUSES OF VM EXITS
             //      25.9.2 Information for VM Exits Due to Vectored Events
             VMX_EXIT_REASON_EXCEPTION_OR_NMI => VmExitReason::Exception(ExceptionQualification {
@@ -666,9 +703,23 @@ impl hardware_vt::HardwareVt for Vmx {
             VMX_EXIT_REASON_RDRAND => VmExitReason::Rdrand,
             VMX_EXIT_REASON_RDSEED => VmExitReason::Rdseed,
             VMX_EXIT_REASON_RDTSC => VmExitReason::Rdtsc,
+            VMX_EXIT_REASON_MONITOR_TRAP_FLAG => VmExitReason::MonitorTrap,
             // Anything else.
             _ => VmExitReason::Unexpected(vmread(vmcs::ro::EXIT_REASON)),
-        }
+        };
+
+        exit
+
+        /*
+        if (28 << 1) & exit_reason != 0 {
+            VmExitReason::MonitorTrap
+        } else {
+            exit
+        }*/
+    }
+
+    fn registers(&self) -> &GuestRegisters {
+        &self.registers
     }
 
     /// Invalidates caches of the extended page tables.
