@@ -33,7 +33,6 @@ pub struct MutationEngine<R: RngCore> {
 impl<R: RngCore> Default for MutationEngine<R> {
     fn default() -> Self {
         let mutations = {
-            let mut index = 0;
             let mut mutations: Vec<Box<dyn Mutation<R>>> = Vec::default();
 
             if cfg!(feature = "mutation_random") {
@@ -55,7 +54,7 @@ impl<R: RngCore> MutationEngine<R> {
         let mut result = sample.clone();
 
         let mutation_index = sample.local_scores.choose_mutation(random);
-        let mut mutation: &mut Box<dyn Mutation<R>> = self
+        let mutation: &mut Box<dyn Mutation<R>> = self
             .mutations
             .get_mut(mutation_index)
             .expect("Mutation index out of bounds");

@@ -19,8 +19,8 @@ use custom_processing_unit::{
 use data_types::addresses::UCInstructionAddress;
 use itertools::Itertools;
 use log::info;
-use ucode_compiler::utils::instruction::Instruction;
-use ucode_compiler::utils::sequence_word::SequenceWord;
+use ucode_compiler_dynamic::instruction::Instruction;
+use ucode_compiler_dynamic::sequence_word::SequenceWord;
 use uefi::boot::ScopedProtocol;
 use uefi::prelude::*;
 use uefi::proto::loaded_image::LoadedImage;

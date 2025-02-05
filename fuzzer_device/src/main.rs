@@ -6,18 +6,14 @@
 extern crate alloc;
 
 use alloc::collections::{BTreeMap, BTreeSet};
-use alloc::fmt::format;
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt::Display;
 use core::ops::DerefMut;
-use iced_x86::CC_ge::ge;
 use data_types::addresses::UCInstructionAddress;
 use fuzzer_device::cmos::CMOS;
 use fuzzer_device::executor::{ExecutionEvent, ExecutionResult, SampleExecutor};
-use fuzzer_device::heuristic::{GlobalScores, Sample};
-use fuzzer_device::mutation_engine::MutationEngine;
 use fuzzer_device::{disassemble_code, PersistentApplicationData, PersistentApplicationState};
 use hypervisor::state::StateDifference;
 use log::{debug, error, info, trace, warn};
@@ -26,10 +22,9 @@ use rand_core::SeedableRng;
 use uefi::proto::loaded_image::LoadedImage;
 use uefi::proto::media::file::{File, FileAttribute, FileMode};
 use uefi::{entry, println, CString16, Error, Status};
-use fuzzer_device::genetic_breeding::GeneticPool;
+use fuzzer_device::genetic_breeding::{GeneticPool, GeneticPoolSettings};
 
-const POPULATION_SIZE: usize = 50;
-const MAX_ITERATIONS: usize = POPULATION_SIZE * 100;
+const MAX_ITERATIONS: usize = 1000;
 
 #[entry]
 unsafe fn main() -> Status {
@@ -111,7 +106,7 @@ unsafe fn main() -> Status {
     let mut global_stats = GlobalStats::default();
 
     // Samples
-    let mut genetic_pool = GeneticPool::new_random_population(POPULATION_SIZE, &mut random);
+    let mut genetic_pool = GeneticPool::new_random_population(GeneticPoolSettings::default(), &mut random);
 
     // Execute initial sample to get ground truth coverage
     info!("Collecting ground truth coverage");
@@ -123,7 +118,7 @@ unsafe fn main() -> Status {
         for event in &execution_result.events {
             println!("{:#?}", event);
         }
-        return Status::ABORTED;
+        //return Status::ABORTED;
     }
 
     // Main fuzzing loop
@@ -256,15 +251,14 @@ fn initial_execution_events_to_file(result: &ExecutionResult) {
         data.push_str("\n\n");
     }
     data.push_str("Coverage:\n");
+    for (address, count) in result.coverage.iter() {
+        data.push_str(&format!("{:#x?}: {:#x?}\n", address, count));
+    }
     data.push_str("\n\n");
     regular_file.write(data.as_bytes()).unwrap();
     regular_file.flush().unwrap();
     root_dir.flush().unwrap();
     root_dir.close();
-
-    for (address, count) in result.coverage.iter() {
-        data.push_str(&format!("{:#x?}: {:#x?}\n", address, count));
-    }
 }
 
 fn subtract_iter_btree<

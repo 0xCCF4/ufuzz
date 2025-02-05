@@ -11,7 +11,6 @@ use crate::cmos::NMIGuard;
 use crate::disassemble_code;
 use crate::executor::coverage_collection::CoverageCollector;
 use crate::executor::hypervisor::Hypervisor;
-use crate::heuristic::Sample;
 use crate::{cmos, PersistentApplicationData, PersistentApplicationState};
 use ::hypervisor::error::HypervisorError;
 use ::hypervisor::hardware_vt::VmExitReason;
@@ -63,6 +62,7 @@ impl<'a> SampleExecutor<'a> {
         disassemble_code(sample);
 
         // do a trace
+        self.hypervisor.prepare_vm_state();
         self.hypervisor.trace_vm(&mut execution_result.trace, 10000);
 
         if let Some(coverage) = self.coverage.as_mut() {
@@ -117,7 +117,11 @@ impl<'a> SampleExecutor<'a> {
                                         feature = "__debug_print_external_interrupt_notification"
                                     )]
                                     trace!("External interrupt detected. Retrying... {}", iteration);
-                                    continue;
+                                    if iteration < 10 {
+                                        continue;
+                                    } else {
+                                        return Ok(result);
+                                    }
                                 } else {
                                     return Ok(result);
                                 }
@@ -197,10 +201,7 @@ impl<'a> SampleExecutor<'a> {
                 }
             }
         } else {
-            // prepare hypervisor for execution
             self.hypervisor.prepare_vm_state();
-
-            // run the hypervisor
             let _vm_exit = self.hypervisor.run_vm();
 
             // save the vm current state

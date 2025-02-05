@@ -628,7 +628,7 @@ impl hardware_vt::HardwareVt for Vmx {
         const VMX_EXIT_REASON_IO: u16 = 30;
         const VMX_EXIT_REASON_RDMSR: u16 = 31;
         const VMX_EXIT_REASON_WRMSR: u16 = 32;
-        const VMX_EXIT_MONITOR_TRAP_FLAG: u16 = 37;
+        const VMX_EXIT_REASON_MONITOR_TRAP_FLAG: u16 = 37;
         const VMX_EXIT_REASON_EPT_VIOLATION: u16 = 48;
         const VMX_EXIT_REASON_VMX_PREEMPTION_TIMER: u16 = 52;
         const VMX_EXIT_REASON_RDRAND: u16 = 57;

@@ -4,7 +4,6 @@
 //pub mod svm;
 pub mod vmx;
 
-use alloc::boxed::Box;
 use crate::state::VmState;
 use bitfield::bitfield;
 use core::fmt;

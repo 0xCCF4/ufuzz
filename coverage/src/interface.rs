@@ -311,36 +311,5 @@ pub mod safe {
             unsafe { self.base.write_instruction_table_all(values) }
         }
 
-        pub fn write_clock_table(&mut self, index: usize, value: u64) {
-            unsafe { self.base.write_clock_table(index, value) }
-        }
-
-        pub fn write_clock_table_settings(&mut self, index: usize, value: u16) {
-            unsafe { self.base.write_clock_table_settings(index, value) }
-        }
-
-        pub fn write_clock_table_all<T: IntoIterator<Item = u64>>(&mut self, values: T) {
-            unsafe { self.base.write_clock_table_all(values) }
-        }
-
-        pub fn write_clock_table_settings_all<T: IntoIterator<Item = u16>>(&mut self, values: T) {
-            unsafe { self.base.write_clock_table_settings_all(values) }
-        }
-
-        pub fn read_clock_table(&self, index: usize) -> u64 {
-            unsafe { self.base.read_clock_table(index) }
-        }
-
-        pub fn read_clock_table_settings(&self, index: usize) -> u16 {
-            unsafe { self.base.read_clock_table_settings(index) }
-        }
-
-        pub fn zero_clock_table(&mut self) {
-            unsafe { self.base.zero_clock_table() }
-        }
-
-        pub fn zero_clock_table_settings(&mut self) {
-            unsafe { self.base.zero_clock_table_settings() }
-        }
     }
 }

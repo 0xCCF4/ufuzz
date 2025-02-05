@@ -1,28 +1,48 @@
 use alloc::vec::Vec;
 use log::warn;
 use rand_core::RngCore;
-use uefi::println;
 use crate::executor::ExecutionResult;
 
-const CODE_SIZE: usize = 10;
 type SampleRating = u64;
 
-const SELECT_BEST_X_PERCENT: f64 = 0.1;
-const RANDOM_MUTATION_CHANCE: f64 = 0.001;
-const RANDOM_SELECTION_PERCENTAGE: f64 = 0.01;
+
+#[derive(Clone)]
+pub struct GeneticPoolSettings {
+    pub population_size: usize,
+    pub code_size: usize,
+
+    pub random_solutions_each_generation: usize,
+    pub keep_best_x_solutions: usize,
+    pub random_mutation_chance: f64,
+}
+
+impl Default for GeneticPoolSettings {
+    fn default() -> Self {
+        Self {
+            population_size: 100,
+            random_solutions_each_generation: 2,
+            code_size: 10,
+            keep_best_x_solutions: 10,
+            random_mutation_chance: 0.01,
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct GeneticPool {
     population: Vec<Sample>,
+    settings: GeneticPoolSettings,
+
+    scratch_pad: Vec<Sample>,
 }
 
 impl GeneticPool {
-    pub fn new_random_population<R: RngCore>(size: usize, random: &mut R) -> Self {
-        let mut population = Vec::with_capacity(size);
-        for _ in 0..size {
-            population.push(Sample::random(random));
+    pub fn new_random_population<R: RngCore>(settings: GeneticPoolSettings, random: &mut R) -> Self {
+        let mut population = Vec::with_capacity(settings.population_size);
+        for _ in 0..settings.population_size {
+            population.push(Sample::random(settings.code_size, random));
         }
-        Self { population }
+        Self { population, settings, scratch_pad: Vec::new() }
     }
     pub fn all_samples(&self) -> &[Sample] {
         &self.population
@@ -35,10 +55,13 @@ impl GeneticPool {
             warn!("Sample not rated!");
             0
         }));
-        let best_samples = self.population.as_slice()[0..(self.population.len() as f64 * SELECT_BEST_X_PERCENT) as usize].to_vec();
+        let best_samples = &mut self.scratch_pad;
+        best_samples.clear();
 
-        for _ in 0..(self.population.len() as f64 * RANDOM_SELECTION_PERCENTAGE) as usize {
-            self.population.push(Sample::random(random));
+        best_samples.extend_from_slice(&self.population.as_slice()[0..self.settings.keep_best_x_solutions]);
+
+        for _ in 0..self.settings.random_solutions_each_generation {
+            best_samples.push(Sample::random(self.settings.code_size, random));
         }
 
         let target_len = self.population.len();
@@ -48,12 +71,14 @@ impl GeneticPool {
             let parent1 = &best_samples[random.next_u32() as usize % best_samples.len()];
             let parent2 = &best_samples[random.next_u32() as usize % best_samples.len()];
             let mut child = parent1.clone();
-            for i in 0..CODE_SIZE {
-                for j in (random.next_u32() as usize % CODE_SIZE)..CODE_SIZE {
-                    child.code_blob[j] = parent2.code_blob[j];
-                }
-                if (random.next_u32() as f64 / u32::MAX as f64) < RANDOM_MUTATION_CHANCE {
-                    child.code_blob[i] = random.next_u32() as u8;
+            for j in (random.next_u32() as usize % self.settings.code_size)..self.settings.code_size {
+                child.code_blob[j] = parent2.code_blob[j];
+            }
+            if (random.next_u32() as f64 / u32::MAX as f64) < self.settings.random_mutation_chance {
+                let length = (random.next_u32() % 16).min(self.settings.code_size as u32) as usize;
+                let offset = if self.settings.code_size == length { 0 } else { random.next_u32() as usize % (self.settings.code_size - length) };
+                for i in 0..length {
+                    child.code_blob[i+offset] = random.next_u32() as u8;
                 }
             }
             self.population.push(child);
@@ -70,14 +95,16 @@ impl GeneticPool {
 
 #[derive(Clone)]
 pub struct Sample {
-    code_blob: [u8; CODE_SIZE],
+    code_blob: Vec<u8>,
     rating: Option<SampleRating>,
 }
 
 impl Sample {
-    pub fn random<R: RngCore>(random: &mut R) -> Self {
-        let mut code_blob = [0; CODE_SIZE];
-        random.fill_bytes(&mut code_blob);
+    pub fn random<R: RngCore>(code_size: usize, random: &mut R) -> Self {
+        let mut code_blob = Vec::with_capacity(code_size);
+        for _ in 0..code_size {
+            code_blob.push((random.next_u32() % u8::MAX as u32) as u8);
+        }
         Self { code_blob, rating: None }
     }
     pub fn rate(&mut self, rating: SampleRating) {
