@@ -15,6 +15,7 @@ use super::{
     NestedPagingStructureEntryFlags, NestedPagingStructureEntryType, VmExitReason,
 };
 use crate::state::{DescriptorTablePointerWrapper, VmState};
+use crate::x86_instructions::bochs_breakpoint;
 use crate::{
     hardware_vt::{self, EPTPageFaultQualification, ExceptionQualification, GuestException},
     x86_instructions::{cr0, cr0_write, cr3, cr4, cr4_write, rdmsr, sgdt, sidt, wrmsr},
@@ -31,7 +32,7 @@ use core::{
     arch::{asm, global_asm},
     fmt,
 };
-use log::{debug, error, warn};
+use log::{debug, error, trace, warn};
 use x86::current::vmx::vmxoff;
 use x86::dtables::lgdt;
 use x86::{
@@ -59,8 +60,6 @@ pub struct Vmx {
     /// The scale to convert TSC into the unit used for VMX-preemption timer.
     /// If VMX-preemption timer is not supported, None.
     timer_scale: Option<u64>,
-    #[derivative(Default(value = "Page::alloc_zeroed()"))]
-    msrbitmaps: Box<Page>,
 }
 
 impl hardware_vt::HardwareVt for Vmx {
@@ -113,6 +112,8 @@ impl hardware_vt::HardwareVt for Vmx {
     }
 
     fn disable(&mut self) {
+        trace!("Disabling VMX operation");
+
         vmclear(&mut self.vmcs_region);
         self.launched = false;
 
@@ -123,6 +124,8 @@ impl hardware_vt::HardwareVt for Vmx {
         unsafe {
             lgdt(&self.host_gdt.gdtr);
         }
+
+        trace!("VMX operation disabled");
     }
 
     /// Configures VMX. We intercept #BP, #UD, #PF, enable VMX-preemption timer
@@ -280,13 +283,16 @@ impl hardware_vt::HardwareVt for Vmx {
             },
         );
 
-        let _ = match adjust_vmx_control(VmxControl::ProcessorBased, vmcs::control::PrimaryControls::MONITOR_TRAP_FLAG.bits() as u64) {
+        let _ = match adjust_vmx_control(
+            VmxControl::ProcessorBased,
+            vmcs::control::PrimaryControls::MONITOR_TRAP_FLAG.bits() as u64,
+        ) {
             Ok(x) => x,
             Err(x) => {
                 if x & vmcs::control::PrimaryControls::MONITOR_TRAP_FLAG.bits() as u64 == 0 {
                     return Err("Failed to adjust PRIMARY_PROCBASED_EXEC_CONTROLS. Activate monitor trap flag.");
                 } else {
-                x
+                    x
                 }
             }
         };
@@ -348,12 +354,13 @@ impl hardware_vt::HardwareVt for Vmx {
         // See: 25.6.3 Exception Bitmap
         vmwrite(vmcs::control::EXCEPTION_BITMAP, u32::MAX as u64);
 
+        /*
         self.msrbitmaps.fill(0xFF);
 
         vmwrite(
             vmcs::control::MSR_BITMAPS_ADDR_FULL,
             self.msrbitmaps.as_ptr() as u64,
-        );
+        );*/
 
         Ok(())
     }
@@ -379,7 +386,8 @@ impl hardware_vt::HardwareVt for Vmx {
             adjust_vmx_control(
                 VmxControl::ProcessorBased,
                 primary | vmcs::control::PrimaryControls::MONITOR_TRAP_FLAG.bits() as u64,
-            ).unwrap_or_else(|x| x),
+            )
+            .unwrap_or_else(|x| x),
         );
     }
 
@@ -390,7 +398,8 @@ impl hardware_vt::HardwareVt for Vmx {
             adjust_vmx_control(
                 VmxControl::ProcessorBased,
                 primary & !vmcs::control::PrimaryControls::MONITOR_TRAP_FLAG.bits() as u64,
-            ).unwrap_or_else(|x| x),
+            )
+            .unwrap_or_else(|x| x),
         );
     }
 
@@ -813,7 +822,9 @@ impl Vmx {
             vmxon_region,
             vmcs_region,
             timer_scale: vmx_preemption_timer_scale(),
-            ..Default::default()
+            registers: GuestRegisters::default(),
+            launched: false,
+            host_gdt: HostGdt::default(),
         }
     }
 }

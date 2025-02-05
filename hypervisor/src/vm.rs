@@ -9,6 +9,7 @@ use crate::{
     Page,
 };
 use alloc::boxed::Box;
+use core::ops::{Deref, DerefMut};
 use core::ptr::addr_of;
 use log::trace;
 

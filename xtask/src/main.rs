@@ -32,6 +32,9 @@ struct Cli {
     /// The project name
     project: String,
 
+    #[arg(short, long, default_value = "false")]
+    ctrlc: bool,
+
     /// The subcommand to run
     #[command(subcommand)]
     command: Commands,
@@ -55,6 +58,7 @@ fn main() {
             },
             cli.release,
             &cli.project,
+            !cli.ctrlc,
         ),
         Commands::BochsAmd => start_vm(
             Bochs {
@@ -63,6 +67,7 @@ fn main() {
             },
             cli.release,
             &cli.project,
+            !cli.ctrlc,
         ),
     };
     if let Err(e) = result {
@@ -79,15 +84,15 @@ trait VM {
         config_directory: B,
         build_output: C,
     ) -> Result<Self::T, DynError>;
-    fn run(&self, environment: Self::T) -> Result<(), DynError>;
+    fn run(&self, environment: Self::T, ctrlc: bool) -> Result<(), DynError>;
 }
 
-fn start_vm<T: VM>(vm: T, release: bool, project: &str) -> Result<(), DynError> {
+fn start_vm<T: VM>(vm: T, release: bool, project: &str, ctrlc: bool) -> Result<(), DynError> {
     let build_output = build_app(project, release)?;
     let project_root = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
 
     let env = vm.deploy("/tmp", project_root.join("config"), build_output)?;
-    vm.run(env)?;
+    vm.run(env, ctrlc)?;
 
     Ok(())
 }

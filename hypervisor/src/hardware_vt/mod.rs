@@ -7,6 +7,7 @@ pub mod vmx;
 use crate::state::VmState;
 use bitfield::bitfield;
 use core::fmt;
+use uefi::println;
 use x86::{
     current::paging::{BASE_PAGE_SHIFT, PAGE_SIZE_ENTRIES},
     irq,
@@ -302,7 +303,7 @@ impl fmt::Debug for M128A {
 /// This is a extended page table on Intel and a nested page table on AMD. The
 /// details of the layout are not represented in this structure so that it may
 /// be used for any the structures (PML4, PDPT, PD and PT) across platforms.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 #[repr(C, align(4096))]
 pub struct NestedPagingStructure {
     /// An array of extended page table entry (8 bytes, 512 entries)

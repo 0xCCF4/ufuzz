@@ -310,6 +310,5 @@ pub mod safe {
         ) {
             unsafe { self.base.write_instruction_table_all(values) }
         }
-
     }
 }

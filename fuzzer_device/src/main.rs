@@ -14,6 +14,7 @@ use core::ops::DerefMut;
 use data_types::addresses::UCInstructionAddress;
 use fuzzer_device::cmos::CMOS;
 use fuzzer_device::executor::{ExecutionEvent, ExecutionResult, SampleExecutor};
+use fuzzer_device::genetic_breeding::{GeneticPool, GeneticPoolSettings};
 use fuzzer_device::{disassemble_code, PersistentApplicationData, PersistentApplicationState};
 use hypervisor::state::StateDifference;
 use log::{debug, error, info, trace, warn};
@@ -22,9 +23,8 @@ use rand_core::SeedableRng;
 use uefi::proto::loaded_image::LoadedImage;
 use uefi::proto::media::file::{File, FileAttribute, FileMode};
 use uefi::{entry, println, CString16, Error, Status};
-use fuzzer_device::genetic_breeding::{GeneticPool, GeneticPoolSettings};
 
-const MAX_ITERATIONS: usize = 1000;
+const MAX_ITERATIONS: usize = 10000;
 
 #[entry]
 unsafe fn main() -> Status {
@@ -93,7 +93,6 @@ unsafe fn main() -> Status {
     }
     info!("Executor selfcheck success");
 
-
     let mut random = random_source(0);
 
     // Declared global to avoid re-allocation
@@ -106,7 +105,8 @@ unsafe fn main() -> Status {
     let mut global_stats = GlobalStats::default();
 
     // Samples
-    let mut genetic_pool = GeneticPool::new_random_population(GeneticPoolSettings::default(), &mut random);
+    let mut genetic_pool =
+        GeneticPool::new_random_population(GeneticPoolSettings::default(), &mut random);
 
     // Execute initial sample to get ground truth coverage
     info!("Collecting ground truth coverage");
@@ -134,9 +134,9 @@ unsafe fn main() -> Status {
                 match event {
                     ExecutionEvent::CoverageCollectionError { error } => {
                         error!(
-                        "Failed to collect coverage: {:?}. This should not have happened.",
-                        error
-                    );
+                            "Failed to collect coverage: {:?}. This should not have happened.",
+                            error
+                        );
                     }
                     ExecutionEvent::VmExitMismatchCoverageCollection {
                         addresses,
@@ -198,21 +198,24 @@ unsafe fn main() -> Status {
             global_stats.maybe_print();
         }
 
-        genetic_pool.evolution(&mut random);
-
         // todo remove
         if global_stats.iteration_count > MAX_ITERATIONS {
             break;
         }
+
+        genetic_pool.evolution(&mut random);
     }
 
     println!("Best performing programs are:");
     for code in genetic_pool.result().iter().take(4) {
         println!("-----------------");
+        println!("Score: {}", code.rating().as_ref().unwrap_or_else(|| &0));
         disassemble_code(code.code());
+        println!();
     }
 
     warn!("Exiting...");
+
     drop(cmos);
 
     Status::SUCCESS
@@ -223,7 +226,9 @@ fn initial_execution_events_to_file(result: &ExecutionResult) {
     let mut root_dir = proto.open_volume().unwrap();
     let file = root_dir
         .open(
-            CString16::try_from("initial_execution_events.txt").unwrap().as_ref(),
+            CString16::try_from("initial_execution_events.txt")
+                .unwrap()
+                .as_ref(),
             FileMode::CreateReadWrite,
             FileAttribute::empty(),
         )
@@ -235,16 +240,24 @@ fn initial_execution_events_to_file(result: &ExecutionResult) {
             ExecutionEvent::CoverageCollectionError { .. } => {
                 data.push_str(&format!("{:#x?}\n", event));
             }
-            ExecutionEvent::VmExitMismatchCoverageCollection {.. } => {
+            ExecutionEvent::VmExitMismatchCoverageCollection { .. } => {
                 data.push_str(&format!("{:#x?}\n", event));
             }
-            ExecutionEvent::VmStateMismatchCoverageCollection {actual_state, expected_state, exit, addresses } => {
+            ExecutionEvent::VmStateMismatchCoverageCollection {
+                actual_state,
+                expected_state,
+                exit,
+                addresses,
+            } => {
                 data.push_str("VmStateMismatchCoverageCollection\n");
                 data.push_str(&format!("Addresses: {:#x?}\n", addresses));
                 data.push_str(&format!("Exit: {:#x?}\n", exit));
                 data.push_str("State mismatched:\n");
                 for (field, expected, result) in expected_state.difference(actual_state) {
-                    data.push_str(&format!(" - {:?}: expected {:x?}, got {:x?}\n", field, expected, result));
+                    data.push_str(&format!(
+                        " - {:?}: expected {:x?}, got {:x?}\n",
+                        field, expected, result
+                    ));
                 }
             }
         }

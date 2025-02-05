@@ -161,7 +161,7 @@ impl VM for Bochs {
         })
     }
 
-    fn run(&self, environment: Self::T) -> Result<(), DynError> {
+    fn run(&self, environment: Self::T, ctrlc: bool) -> Result<(), DynError> {
         // Start a threads that tries to connect to Bochs in an infinite loop.
         let port = environment.port;
         if self.port.is_none() {
@@ -232,7 +232,9 @@ impl VM for Bochs {
             tx2.send(()).unwrap();
         });
 
-        ctrlc::set_handler(move || tx.send(()).unwrap())?;
+        if ctrlc {
+            ctrlc::set_handler(move || tx.send(()).unwrap())?;
+        }
 
         rx.recv()?;
 

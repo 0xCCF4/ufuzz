@@ -5,9 +5,9 @@
 
 pub mod cmos;
 pub mod executor;
+pub mod genetic_breeding;
 pub mod heuristic;
 pub mod mutation_engine;
-pub mod genetic_breeding;
 
 extern crate alloc;
 

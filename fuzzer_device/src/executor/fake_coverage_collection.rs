@@ -6,7 +6,7 @@ use coverage::harness::coverage_harness::{
 };
 use coverage::harness::iteration_harness::IterationHarness;
 use data_types::addresses::{Address, UCInstructionAddress};
-use uefi::{println};
+use uefi::println;
 
 // Bochs stub for coverage collection
 pub struct CoverageCollector<'a> {

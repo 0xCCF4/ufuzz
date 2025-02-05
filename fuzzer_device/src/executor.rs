@@ -63,7 +63,7 @@ impl<'a> SampleExecutor<'a> {
 
         // do a trace
         self.hypervisor.prepare_vm_state();
-        self.hypervisor.trace_vm(&mut execution_result.trace, 10000);
+        self.hypervisor.trace_vm(&mut execution_result.trace, 1000);
 
         if let Some(coverage) = self.coverage.as_mut() {
             // plan the following executions to collect coverage
@@ -116,7 +116,10 @@ impl<'a> SampleExecutor<'a> {
                                     #[cfg(
                                         feature = "__debug_print_external_interrupt_notification"
                                     )]
-                                    trace!("External interrupt detected. Retrying... {}", iteration);
+                                    trace!(
+                                        "External interrupt detected. Retrying... {}",
+                                        iteration
+                                    );
                                     if iteration < 10 {
                                         continue;
                                     } else {

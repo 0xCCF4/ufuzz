@@ -277,7 +277,6 @@ impl Hypervisor {
 
     pub fn load_code_blob(&mut self, code_blob: &[u8]) {
         self.memory_code_page.fill(0x90) /* nop */;
-        self.memory_code_page.as_slice_mut()[4] = 0xF4;
 
         unsafe {
             core::ptr::copy_nonoverlapping(
@@ -292,7 +291,7 @@ impl Hypervisor {
         // is a full vm reset required? -> YES, interrupt state or smth is transferred across runs
         self.vm.initialize().expect("it also worked the first time");
         self.vm.vt.load_state(&self.initial_state);
-        self.vm.vt.set_preemption_timer(1e8 as u64);
+        self.vm.vt.set_preemption_timer(1e3 as u64);
 
         self.memory_stack_page.zero();
     }
@@ -305,8 +304,11 @@ impl Hypervisor {
         self.vm.vt.enable_tracing();
 
         let mut last_exit = VmExitReason::Unexpected(0);
-        for _ in 0..(if max_trace_length == 0 { usize::MAX } else { max_trace_length }) {
-
+        for _ in 0..(if max_trace_length == 0 {
+            usize::MAX
+        } else {
+            max_trace_length
+        }) {
             trace.push(self.vm.vt.registers().rip);
             last_exit = self.vm.vt.run();
 

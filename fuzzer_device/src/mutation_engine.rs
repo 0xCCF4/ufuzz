@@ -39,13 +39,15 @@ impl<R: RngCore> Default for MutationEngine<R> {
                 mutations.push(Box::new(RandomMutation::default()));
             }
 
-            assert_eq!(mutations.len(), NUMBER_OF_MUTATION_OPERATIONS, "Number of mutations does not match the expected number");
+            assert_eq!(
+                mutations.len(),
+                NUMBER_OF_MUTATION_OPERATIONS,
+                "Number of mutations does not match the expected number"
+            );
             mutations
         };
 
-        Self {
-            mutations
-        }
+        Self { mutations }
     }
 }
 
@@ -97,22 +99,27 @@ impl Drop for InstructionDecodeResult<'_> {
 impl InstructionDecoder {
     pub fn new() -> Self {
         Self {
-            buffer: Vec::default()
+            buffer: Vec::default(),
         }
     }
 
     /// Safety: safe, inputs must stay valid until output is dropped, which will invalidate the unsafe references created
-    pub fn decode<'output, 'this: 'output, 'instructions: 'output>(&'this mut self, instructions: &'instructions [u8]) -> InstructionDecodeResult<'output> {
+    pub fn decode<'output, 'this: 'output, 'instructions: 'output>(
+        &'this mut self,
+        instructions: &'instructions [u8],
+    ) -> InstructionDecodeResult<'output> {
         let mut decoder = Decoder::with_ip(64, instructions, 0, DecoderOptions::NONE);
-        
+
         let mut instruction_start_index = 0;
-        
+
         while decoder.can_decode() {
             let instruction = decoder.decode();
             let instruction_end_index = instruction_start_index + instruction.len();
 
-            let instruction_data: &'instructions [u8] = &instructions[instruction_start_index..instruction_end_index];
-            let instruction_data_static: &'static [u8] = unsafe { core::mem::transmute(instruction_data) };
+            let instruction_data: &'instructions [u8] =
+                &instructions[instruction_start_index..instruction_end_index];
+            let instruction_data_static: &'static [u8] =
+                unsafe { core::mem::transmute(instruction_data) };
 
             self.buffer.push(InstructionWithBytes {
                 instruction,
@@ -122,8 +129,6 @@ impl InstructionDecoder {
             instruction_start_index = instruction_end_index;
         }
 
-        InstructionDecodeResult {
-            decoder: self,
-        }
+        InstructionDecodeResult { decoder: self }
     }
 }

@@ -13,7 +13,7 @@ pub struct HookableAddressIterator {
 }
 
 impl HookableAddressIterator {
-     pub fn construct<F: Fn(UCInstructionAddress) -> bool>(
+    pub fn construct<F: Fn(UCInstructionAddress) -> bool>(
         rom: &RomDump,
         modification_engine_settings: &ModificationEngineSettings,
         chunk_size: usize,
