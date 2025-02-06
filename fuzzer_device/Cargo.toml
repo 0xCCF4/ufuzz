@@ -28,7 +28,7 @@ __debug_print_mutation_info = [] # print mutation info
 __debug_pretend_no_coverage = [] # pretend no coverage collection possible
 
 __device_brix = ["device_brix", "rand_isaac", "mutation_all", "__debug_print_dissassembly", "__debug_print_progress", "__debug_print_external_interrupt_notification", "__debug_print_mutation_info"]
-__device_bochs = ["device_bochs", "rand_isaac", "mutation_all", "__debug_print_external_interrupt_notification", "__debug_print_mutation_info", "__debug_print_dissassembly"]
+__device_bochs = ["device_bochs", "rand_isaac", "mutation_all", "__debug_print_external_interrupt_notification", "__debug_print_mutation_info"]
 
 [dependencies]
 hypervisor = { path = "../hypervisor" }

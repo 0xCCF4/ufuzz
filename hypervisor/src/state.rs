@@ -318,3 +318,16 @@ impl StateDifference for VmState {
         differences
     }
 }
+
+impl VmState {
+    pub fn null_addresses(mut self) -> VmState {
+        self.standard_registers.rip = 0;
+        self
+    }
+
+    pub fn is_equal_no_address_compare(&self, other: &Self) -> bool {
+        self.standard_registers
+            .is_equal_no_address_compare(&other.standard_registers)
+            && self.extended_registers == other.extended_registers
+    }
+}

@@ -15,6 +15,8 @@ use data_types::addresses::UCInstructionAddress;
 use fuzzer_device::cmos::CMOS;
 use fuzzer_device::executor::{ExecutionEvent, ExecutionResult, SampleExecutor};
 use fuzzer_device::genetic_breeding::{GeneticPool, GeneticPoolSettings};
+use fuzzer_device::mutation_engine::serialize::Serializer;
+use fuzzer_device::mutation_engine::InstructionDecoder;
 use fuzzer_device::{disassemble_code, PersistentApplicationData, PersistentApplicationState};
 use hypervisor::state::StateDifference;
 use log::{debug, error, info, trace, warn};
@@ -24,7 +26,7 @@ use uefi::proto::loaded_image::LoadedImage;
 use uefi::proto::media::file::{File, FileAttribute, FileMode};
 use uefi::{entry, println, CString16, Error, Status};
 
-const MAX_ITERATIONS: usize = 10000;
+const MAX_ITERATIONS: usize = 1000;
 
 #[entry]
 unsafe fn main() -> Status {
@@ -108,9 +110,11 @@ unsafe fn main() -> Status {
     let mut genetic_pool =
         GeneticPool::new_random_population(GeneticPoolSettings::default(), &mut random);
 
+    let mut serializer = Serializer::default();
+
     // Execute initial sample to get ground truth coverage
     info!("Collecting ground truth coverage");
-    executor.execute_sample(&[], &mut execution_result, &mut cmos);
+    executor.execute_sample(&[], None, &mut execution_result, &mut cmos);
     let ground_truth_coverage = execution_result.coverage.clone();
     if execution_result.events.len() > 0 {
         error!("Initial sample execution had events");
@@ -121,20 +125,35 @@ unsafe fn main() -> Status {
         //return Status::ABORTED;
     }
 
+    let mut trace_scratchpad = Vec::new();
+    let mut decoder = InstructionDecoder::new();
+
     // Main fuzzing loop
     loop {
         for sample in genetic_pool.all_samples_mut() {
             global_stats.iteration_count += 1;
 
             // Execute
-            executor.execute_sample(sample.code(), &mut execution_result, &mut cmos);
+            let serialized_sample = serializer
+                .serialize_code(&mut random, sample.code())
+                .map(Option::Some)
+                .unwrap_or_else(|e| {
+                    error!("Failed to serialize sample: {e}");
+                    None
+                });
+            executor.execute_sample(
+                sample.code(),
+                serialized_sample.as_ref(),
+                &mut execution_result,
+                &mut cmos,
+            );
 
             // Handle events
             for event in &execution_result.events {
                 match event {
                     ExecutionEvent::CoverageCollectionError { error } => {
                         error!(
-                            "Failed to collect coverage: {:?}. This should not have happened.",
+                            "Failed to collect coverage: {:x?}. This should not have happened.",
                             error
                         );
                     }
@@ -143,7 +162,7 @@ unsafe fn main() -> Status {
                         expected_exit,
                         actual_exit,
                     } => {
-                        error!("Expected result {:#?} but got {:#?}. This should not have happened. This is a ucode bug or implementation problem!", expected_exit, actual_exit);
+                        error!("Expected result {:#x?} but got {:#x?}. This should not have happened. This is a ucode bug or implementation problem!", expected_exit, actual_exit);
                         println!("We were hooking the following addresses:");
                         #[cfg(not(feature = "__debug_bochs_pretend"))]
                         for address in addresses.iter() {
@@ -162,7 +181,7 @@ unsafe fn main() -> Status {
                         for address in addresses.iter() {
                             println!(" - {:?}", address);
                         }
-                        println!("We exited with {:#?}", exit);
+                        println!("We exited with {:#x?}", exit);
                         println!("The difference was:");
                         for (field, expected, result) in expected_state.difference(actual_state) {
                             println!(
@@ -171,11 +190,63 @@ unsafe fn main() -> Status {
                             );
                         }
                     }
+                    ExecutionEvent::SerializedStateMismatch {
+                        expected_state,
+                        actual_state,
+                        exit,
+                    } => {
+                        error!("Expected state x but got y. Is this a CPU bug?");
+                        println!("We exited with {:#x?}", exit);
+                        println!("Code:");
+                        disassemble_code(sample.code());
+                        trace_scratchpad.clear();
+                        executor.trace_sample(sample.code(), &mut trace_scratchpad, 100);
+                        println!("Normal-Trace: {:x?}", trace_scratchpad);
+                        println!("Serialized code:");
+                        disassemble_code(&serialized_sample.as_ref().unwrap());
+                        trace_scratchpad.clear();
+                        executor.trace_sample(
+                            serialized_sample.as_ref().unwrap(),
+                            &mut trace_scratchpad,
+                            100,
+                        );
+                        println!("Serialized-Trace: {:x?}", trace_scratchpad);
+                        println!("The difference was:");
+                        for (field, expected, result) in expected_state.difference(actual_state) {
+                            println!(
+                                " - {:?}: expected {:x?}, got {:x?}",
+                                field, expected, result
+                            );
+                        }
+                    }
+                    ExecutionEvent::SerializedExitMismatch {
+                        expected_exit,
+                        actual_exit,
+                    } => {
+                        error!(
+                            "Expected exit {:#x?} but got {:#x?}. This should not have happened. Is this a bug?",
+                            expected_exit, actual_exit
+                        );
+                        println!("Code:");
+                        disassemble_code(sample.code());
+                        trace_scratchpad.clear();
+                        executor.trace_sample(sample.code(), &mut trace_scratchpad, 100);
+                        println!("Normal-Trace: {:x?}", trace_scratchpad);
+                        println!("Serialized code:");
+                        disassemble_code(&serialized_sample.as_ref().unwrap());
+                        trace_scratchpad.clear();
+                        executor.trace_sample(
+                            serialized_sample.as_ref().unwrap(),
+                            &mut trace_scratchpad,
+                            100,
+                        );
+                        println!("Serialized-Trace: {:x?}", trace_scratchpad);
+                    }
                 }
             }
 
             // Rate
-            sample.rate_from_execution(&execution_result);
+            sample.rate_from_execution(&execution_result, &mut decoder);
 
             let mut new_coverage = Vec::with_capacity(0);
             subtract_iter_btree(&mut execution_result.coverage, &ground_truth_coverage);
@@ -251,6 +322,24 @@ fn initial_execution_events_to_file(result: &ExecutionResult) {
             } => {
                 data.push_str("VmStateMismatchCoverageCollection\n");
                 data.push_str(&format!("Addresses: {:#x?}\n", addresses));
+                data.push_str(&format!("Exit: {:#x?}\n", exit));
+                data.push_str("State mismatched:\n");
+                for (field, expected, result) in expected_state.difference(actual_state) {
+                    data.push_str(&format!(
+                        " - {:?}: expected {:x?}, got {:x?}\n",
+                        field, expected, result
+                    ));
+                }
+            }
+            ExecutionEvent::SerializedExitMismatch { .. } => {
+                data.push_str(&format!("{:#x?}\n", event));
+            }
+            ExecutionEvent::SerializedStateMismatch {
+                expected_state,
+                actual_state,
+                exit,
+            } => {
+                data.push_str("SerializedStateMismatch\n");
                 data.push_str(&format!("Exit: {:#x?}\n", exit));
                 data.push_str("State mismatched:\n");
                 for (field, expected, result) in expected_state.difference(actual_state) {

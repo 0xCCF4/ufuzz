@@ -15,11 +15,9 @@ use super::{
     NestedPagingStructureEntryFlags, NestedPagingStructureEntryType, VmExitReason,
 };
 use crate::state::{DescriptorTablePointerWrapper, VmState};
-use crate::x86_instructions::bochs_breakpoint;
 use crate::{
     hardware_vt::{self, EPTPageFaultQualification, ExceptionQualification, GuestException},
     x86_instructions::{cr0, cr0_write, cr3, cr4, cr4_write, rdmsr, sgdt, sidt, wrmsr},
-    Page,
 };
 use alloc::{
     boxed::Box,

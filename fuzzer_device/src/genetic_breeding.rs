@@ -1,6 +1,8 @@
-use alloc::collections::BTreeSet;
 use crate::executor::ExecutionResult;
+use crate::mutation_engine::InstructionDecoder;
+use alloc::collections::BTreeSet;
 use alloc::vec::Vec;
+use iced_x86::FlowControl;
 use log::warn;
 use rand_core::RngCore;
 use uefi::println;
@@ -33,6 +35,8 @@ impl Default for GeneticPoolSettings {
 pub struct GeneticPool {
     population: Vec<Sample>,
     settings: GeneticPoolSettings,
+
+    decoder: InstructionDecoder,
 }
 
 impl GeneticPool {
@@ -47,6 +51,7 @@ impl GeneticPool {
         Self {
             population,
             settings,
+            decoder: InstructionDecoder::default(),
         }
     }
     pub fn all_samples(&self) -> &[Sample] {
@@ -137,7 +142,11 @@ impl Sample {
         self.rating = None;
     }
 
-    pub fn rate_from_execution(&mut self, execution_result: &ExecutionResult) {
+    pub fn rate_from_execution(
+        &mut self,
+        execution_result: &ExecutionResult,
+        decoder: &mut InstructionDecoder,
+    ) {
         let trace = execution_result
             .trace
             .iter()
@@ -146,12 +155,23 @@ impl Sample {
             .map(|x| x % 4096)
             .filter(|x| (*x as usize) < self.code_blob.len());
 
-        //todo remove
         let trace = trace.collect::<Vec<u64>>();
+        let unique = trace.iter().collect::<BTreeSet<_>>();
 
-        let unique = trace.iter().collect::<BTreeSet<_>>().len();
+        let decoded = decoder.decode(self.code_blob.as_slice());
+        let mut instructions = unique
+            .iter()
+            .filter_map(|&ip| decoded.instruction_by_ip(*ip as usize));
 
-        println!("Trace: {:x?}", trace);
-        self.rate((100.0*trace.len() as f32/unique as f32) as SampleRating);
+        let multiplier = if instructions.any(|i| i.instruction.flow_control() != FlowControl::Next)
+        {
+            0.1
+        } else {
+            1.0
+        };
+
+        drop(decoded);
+
+        self.rate((unique.len() as f32 * 100.0 * multiplier as f32) as SampleRating);
     }
 }

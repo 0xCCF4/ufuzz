@@ -22,6 +22,7 @@ pub fn disassemble_code(code: &[u8]) {
 
     formatter.options_mut().set_digit_separator("`");
     formatter.options_mut().set_first_operand_char_index(10);
+    formatter.options_mut().set_show_useless_prefixes(true);
 
     let mut output = String::new();
     let mut instruction = Instruction::default();

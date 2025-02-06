@@ -7,7 +7,6 @@ pub mod vmx;
 use crate::state::VmState;
 use bitfield::bitfield;
 use core::fmt;
-use uefi::println;
 use x86::{
     current::paging::{BASE_PAGE_SHIFT, PAGE_SIZE_ENTRIES},
     irq,
@@ -108,6 +107,90 @@ pub enum VmExitReason {
 
     /// If an SMM exit occurred that has a higher priority than a pending MTF Exit
     MonitorTrap,
+}
+
+impl VmExitReason {
+    pub fn null_addresses(mut self) -> VmExitReason {
+        match self {
+            VmExitReason::EPTPageFault(ref mut info) => {
+                info.rip = 0;
+                info.gpa = 0;
+            }
+            VmExitReason::Exception(ref mut info) => {
+                info.rip = 0;
+            }
+            _ => {}
+        }
+        self
+    }
+    pub fn is_same_kind(&self, other: &Self) -> bool {
+        match self {
+            VmExitReason::MonitorTrap => matches!(other, VmExitReason::MonitorTrap),
+            VmExitReason::Cpuid => matches!(other, VmExitReason::Cpuid),
+            VmExitReason::Hlt => matches!(other, VmExitReason::Hlt),
+            VmExitReason::Io => matches!(other, VmExitReason::Io),
+            VmExitReason::Rdmsr => matches!(other, VmExitReason::Rdmsr),
+            VmExitReason::Wrmsr => matches!(other, VmExitReason::Wrmsr),
+            VmExitReason::Rdrand => matches!(other, VmExitReason::Rdrand),
+            VmExitReason::Rdseed => matches!(other, VmExitReason::Rdseed),
+            VmExitReason::Rdtsc => matches!(other, VmExitReason::Rdtsc),
+            VmExitReason::Cr8Write => matches!(other, VmExitReason::Cr8Write),
+            VmExitReason::IoWrite => matches!(other, VmExitReason::IoWrite),
+            VmExitReason::MsrUse => matches!(other, VmExitReason::MsrUse),
+            VmExitReason::ExternalInterrupt => matches!(other, VmExitReason::ExternalInterrupt),
+            VmExitReason::TimerExpiration => matches!(other, VmExitReason::TimerExpiration),
+            VmExitReason::Shutdown(a) => {
+                if let VmExitReason::Shutdown(b) = other {
+                    a == b
+                } else {
+                    false
+                }
+            }
+            VmExitReason::EPTPageFault(info) => {
+                if let VmExitReason::EPTPageFault(other_info) = other {
+                    info.data_read == other_info.data_read
+                        && info.data_write == other_info.data_write
+                        && info.instruction_fetch == other_info.instruction_fetch
+                        && info.was_readable == other_info.was_readable
+                        && info.was_writable == other_info.was_writable
+                        && info.was_executable_user == other_info.was_executable_user
+                        && info.was_executable_supervisor == other_info.was_executable_supervisor
+                        && info.nmi_unblocking == other_info.nmi_unblocking
+                        && info.shadow_stack_access == other_info.shadow_stack_access
+                        && info.guest_paging_verification == other_info.guest_paging_verification
+                } else {
+                    false
+                }
+            }
+            VmExitReason::Exception(a) => {
+                if let VmExitReason::Exception(b) = other {
+                    a.exception_code == b.exception_code
+                } else {
+                    false
+                }
+            }
+            VmExitReason::Unexpected(a) => {
+                if let VmExitReason::Unexpected(b) = other {
+                    a == b
+                } else {
+                    false
+                }
+            }
+            VmExitReason::VMEntryFailure(a, b) => {
+                if let VmExitReason::VMEntryFailure(c, d) = other {
+                    a == c && b == d
+                } else {
+                    false
+                }
+            }
+        }
+    }
+}
+
+impl Default for VmExitReason {
+    fn default() -> Self {
+        VmExitReason::Unexpected(0xFFFF)
+    }
 }
 
 /// Details of the cause of nested page fault.
@@ -282,6 +365,45 @@ pub struct GuestRegisters {
     pub xmm13: M128A,
     pub xmm14: M128A,
     pub xmm15: M128A,
+}
+
+impl GuestRegisters {
+    // dont compare rip
+    pub fn is_equal_no_address_compare(&self, other: &Self) -> bool {
+        self.rax == other.rax
+            && self.rbx == other.rbx
+            && self.rcx == other.rcx
+            && self.rdx == other.rdx
+            && self.rdi == other.rdi
+            && self.rsi == other.rsi
+            && self.rbp == other.rbp
+            && self.r8 == other.r8
+            && self.r9 == other.r9
+            && self.r10 == other.r10
+            && self.r11 == other.r11
+            && self.r12 == other.r12
+            && self.r13 == other.r13
+            && self.r14 == other.r14
+            && self.r15 == other.r15
+            && self.rsp == other.rsp
+            && self.rflags == other.rflags
+            && self.xmm0 == other.xmm0
+            && self.xmm1 == other.xmm1
+            && self.xmm2 == other.xmm2
+            && self.xmm3 == other.xmm3
+            && self.xmm4 == other.xmm4
+            && self.xmm5 == other.xmm5
+            && self.xmm6 == other.xmm6
+            && self.xmm7 == other.xmm7
+            && self.xmm8 == other.xmm8
+            && self.xmm9 == other.xmm9
+            && self.xmm10 == other.xmm10
+            && self.xmm11 == other.xmm11
+            && self.xmm12 == other.xmm12
+            && self.xmm13 == other.xmm13
+            && self.xmm14 == other.xmm14
+            && self.xmm15 == other.xmm15
+    }
 }
 
 #[repr(C)]

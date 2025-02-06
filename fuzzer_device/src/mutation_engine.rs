@@ -1,8 +1,10 @@
 mod random_mutation;
+pub mod serialize;
 
 use crate::heuristic::Sample;
 use crate::mutation_engine::random_mutation::RandomMutation;
 use alloc::boxed::Box;
+use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 use iced_x86::{Decoder, DecoderOptions};
 use rand_core::RngCore;
@@ -75,6 +77,13 @@ pub struct InstructionWithBytes<'a> {
 #[derive(Default)]
 pub struct InstructionDecoder {
     buffer: Vec<InstructionWithBytes<'static>>,
+    instruction_map: BTreeMap<usize, usize>,
+}
+
+impl Clone for InstructionDecoder {
+    fn clone(&self) -> Self {
+        InstructionDecoder::default()
+    }
 }
 
 pub struct InstructionDecodeResult<'a> {
@@ -88,11 +97,18 @@ impl<'a> InstructionDecodeResult<'a> {
     pub fn get(&'a self, index: usize) -> Option<&'a InstructionWithBytes<'a>> {
         self.decoder.buffer.get(index)
     }
+    pub fn instruction_by_ip(&'a self, ip: usize) -> Option<&'a InstructionWithBytes<'a>> {
+        self.decoder
+            .instruction_map
+            .get(&ip)
+            .map(|index| self.get(*index).expect("index is valid"))
+    }
 }
 
 impl Drop for InstructionDecodeResult<'_> {
     fn drop(&mut self) {
         self.decoder.buffer.clear();
+        self.decoder.instruction_map.clear();
     }
 }
 
@@ -100,6 +116,7 @@ impl InstructionDecoder {
     pub fn new() -> Self {
         Self {
             buffer: Vec::default(),
+            instruction_map: BTreeMap::default(),
         }
     }
 
@@ -125,6 +142,10 @@ impl InstructionDecoder {
                 instruction,
                 bytes: instruction_data_static,
             });
+
+            for i in instruction_start_index..instruction_end_index {
+                self.instruction_map.insert(i, self.buffer.len() - 1);
+            }
 
             instruction_start_index = instruction_end_index;
         }

@@ -47,6 +47,7 @@ impl<'a> SampleExecutor<'a> {
     pub fn execute_sample(
         &mut self,
         sample: &[u8],
+        serialized_sample: Option<&Vec<u8>>,
         execution_result: &mut ExecutionResult,
         cmos: &mut cmos::CMOS<PersistentApplicationData>,
     ) {
@@ -64,6 +65,17 @@ impl<'a> SampleExecutor<'a> {
         // do a trace
         self.hypervisor.prepare_vm_state();
         self.hypervisor.trace_vm(&mut execution_result.trace, 1000);
+
+        // do a normal sample execution
+        self.hypervisor.prepare_vm_state();
+        let no_coverage_vm_exit = self.hypervisor.run_vm();
+        self.hypervisor
+            .capture_state(&mut execution_result.state_normal_execution);
+
+        execution_result
+            .exit_normal_execution
+            .clone_from(&no_coverage_vm_exit);
+        let no_coverage_execution_result = &execution_result.state_normal_execution;
 
         if let Some(coverage) = self.coverage.as_mut() {
             // plan the following executions to collect coverage
@@ -134,10 +146,6 @@ impl<'a> SampleExecutor<'a> {
                 },
             );
 
-            // since, we are executing the sample multiple times, we would expect the same output each time
-            let mut expected_vm_exit = None;
-            let mut expected_vm_state = None;
-
             // execute the planned coverage collection
             for iteration in execution_plan {
                 // save the vm current state
@@ -153,33 +161,24 @@ impl<'a> SampleExecutor<'a> {
                         hooks: coverage_information,
                     }) => {
                         // first check if the result of the execution is the same for the current iteration
-                        match (&mut expected_vm_exit, &mut expected_vm_state) {
-                            (None, None) => {
-                                expected_vm_exit = Some(current_vm_exit);
-                                expected_vm_state = Some(current_vm_state);
-                            }
-                            (Some(ref expected_vm_exit), Some(ref expected_vm_state)) => {
-                                if expected_vm_exit != &current_vm_exit {
-                                    execution_result.events.push(
-                                        ExecutionEvent::VmExitMismatchCoverageCollection {
-                                            addresses: hooked_addresses.to_vec(),
-                                            expected_exit: expected_vm_exit.clone(),
-                                            actual_exit: current_vm_exit.clone(),
-                                        },
-                                    );
-                                }
-                                if expected_vm_state != &current_vm_state {
-                                    execution_result.events.push(
-                                        ExecutionEvent::VmStateMismatchCoverageCollection {
-                                            addresses: hooked_addresses.to_vec(),
-                                            exit: current_vm_exit,
-                                            expected_state: expected_vm_state.clone(),
-                                            actual_state: current_vm_state,
-                                        },
-                                    );
-                                }
-                            }
-                            _ => unreachable!("both are set simultaneously"),
+                        if &no_coverage_vm_exit != &current_vm_exit {
+                            execution_result.events.push(
+                                ExecutionEvent::VmExitMismatchCoverageCollection {
+                                    addresses: hooked_addresses.to_vec(),
+                                    expected_exit: no_coverage_vm_exit.clone(),
+                                    actual_exit: current_vm_exit.clone(),
+                                },
+                            );
+                        }
+                        if no_coverage_execution_result != &current_vm_state {
+                            execution_result.events.push(
+                                ExecutionEvent::VmStateMismatchCoverageCollection {
+                                    addresses: hooked_addresses.to_vec(),
+                                    exit: current_vm_exit,
+                                    expected_state: no_coverage_execution_result.clone(),
+                                    actual_state: current_vm_state,
+                                },
+                            );
                         }
 
                         // extract the coverage information
@@ -203,12 +202,52 @@ impl<'a> SampleExecutor<'a> {
                     }
                 }
             }
-        } else {
-            self.hypervisor.prepare_vm_state();
-            let _vm_exit = self.hypervisor.run_vm();
+        }
 
-            // save the vm current state
-            self.hypervisor.capture_state(&mut execution_result.state);
+        // do a serialized execution
+        if let Some(serialized_code) = serialized_sample {
+            self.hypervisor.load_code_blob(serialized_code);
+            self.hypervisor.prepare_vm_state();
+            let serialized_vm_exit = self.hypervisor.run_vm();
+            self.hypervisor
+                .capture_state(&mut execution_result.state_serialized_execution);
+            execution_result
+                .exit_serialized_execution
+                .clone_from(&serialized_vm_exit);
+
+            if !execution_result
+                .exit_normal_execution
+                .is_same_kind(&serialized_vm_exit)
+            {
+                execution_result
+                    .events
+                    .push(ExecutionEvent::SerializedExitMismatch {
+                        expected_exit: execution_result
+                            .exit_normal_execution
+                            .clone()
+                            .null_addresses(),
+                        actual_exit: serialized_vm_exit.clone().null_addresses(),
+                    });
+            }
+
+            if !execution_result
+                .state_normal_execution
+                .is_equal_no_address_compare(&execution_result.state_serialized_execution)
+            {
+                execution_result
+                    .events
+                    .push(ExecutionEvent::SerializedStateMismatch {
+                        exit: serialized_vm_exit,
+                        expected_state: execution_result
+                            .state_normal_execution
+                            .clone()
+                            .null_addresses(),
+                        actual_state: execution_result
+                            .state_serialized_execution
+                            .clone()
+                            .null_addresses(),
+                    });
+            }
         }
 
         // re-enable Non-Maskable Interrupts
@@ -246,6 +285,17 @@ impl<'a> SampleExecutor<'a> {
         })
     }
 
+    pub fn trace_sample(
+        &mut self,
+        sample: &[u8],
+        trace_result: &mut Vec<u64>,
+        max_trace_length: usize,
+    ) -> VmExitReason {
+        self.hypervisor.load_code_blob(sample);
+        self.hypervisor.prepare_vm_state();
+        self.hypervisor.trace_vm(trace_result, max_trace_length)
+    }
+
     pub fn selfcheck(&mut self) -> bool {
         for _ in 0..10 {
             // can fail due to ExternalInterrupts
@@ -274,21 +324,39 @@ pub enum ExecutionEvent {
     CoverageCollectionError {
         error: coverage::harness::coverage_harness::CoverageError,
     },
+    SerializedExitMismatch {
+        expected_exit: VmExitReason,
+        actual_exit: VmExitReason,
+    },
+    SerializedStateMismatch {
+        exit: VmExitReason,
+        expected_state: VmState,
+        actual_state: VmState,
+    },
 }
 
 #[derive(Default)]
 pub struct ExecutionResult {
     pub coverage: BTreeMap<UCInstructionAddress, CoverageCount>, // mapping address -> count
     pub events: Vec<ExecutionEvent>,
-    pub state: VmState,
+
+    pub state_normal_execution: VmState,
+    pub exit_normal_execution: VmExitReason,
+
     pub trace: Vec<u64>,
+
+    pub state_serialized_execution: VmState,
+    pub exit_serialized_execution: VmExitReason,
 }
 
 impl ExecutionResult {
     pub fn reset(&mut self, initial_state: &VmState) {
         self.coverage.clear();
         self.events.clear();
-        self.state.clone_from(initial_state);
+        self.state_normal_execution.clone_from(initial_state);
         self.trace.clear();
+        self.exit_normal_execution = VmExitReason::default();
+        self.state_serialized_execution.clone_from(initial_state);
+        self.exit_serialized_execution = VmExitReason::default();
     }
 }
