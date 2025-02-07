@@ -11,7 +11,7 @@ use crate::cmos::NMIGuard;
 use crate::disassemble_code;
 use crate::executor::coverage_collection::CoverageCollector;
 use crate::executor::hypervisor::Hypervisor;
-use crate::{cmos, PersistentApplicationData, PersistentApplicationState};
+use crate::{cmos, PersistentApplicationData, PersistentApplicationState, Trace};
 use ::hypervisor::error::HypervisorError;
 use ::hypervisor::hardware_vt::VmExitReason;
 use ::hypervisor::state::VmState;
@@ -25,8 +25,10 @@ use data_types::addresses::{Address, UCInstructionAddress};
 #[cfg(feature = "__debug_print_external_interrupt_notification")]
 use log::trace;
 use log::{error, warn};
+use rand_core::RngCore;
 #[cfg(feature = "__debug_print_progress")]
 use uefi::print;
+use crate::mutation_engine::serialize::Serializer;
 
 struct CoverageCollectorData<'a> {
     pub collector: CoverageCollector<'a>,
@@ -36,6 +38,7 @@ struct CoverageCollectorData<'a> {
 pub struct SampleExecutor<'a> {
     hypervisor: Hypervisor,
     coverage: Option<CoverageCollectorData<'a>>,
+    serializer: Serializer,
 }
 
 fn disable_all_hooks() {
@@ -43,14 +46,18 @@ fn disable_all_hooks() {
     custom_processing_unit::disable_all_hooks();
 }
 
+pub struct ExecutionSampleResult {
+    pub serialized_sample: Option<Vec<u8>>,
+}
+
 impl<'a> SampleExecutor<'a> {
-    pub fn execute_sample(
+    pub fn execute_sample<R: RngCore>(
         &mut self,
         sample: &[u8],
-        serialized_sample: Option<&Vec<u8>>,
         execution_result: &mut ExecutionResult,
         cmos: &mut cmos::CMOS<PersistentApplicationData>,
-    ) {
+        random: &mut R,
+    ) -> ExecutionSampleResult {
         // try to disable Non-Maskable Interrupts
         let nmi_guard = NMIGuard::disable_nmi(true);
 
@@ -65,6 +72,14 @@ impl<'a> SampleExecutor<'a> {
         // do a trace
         self.hypervisor.prepare_vm_state();
         self.hypervisor.trace_vm(&mut execution_result.trace, 1000);
+
+        let serialized_sample = self.serializer
+            .serialize_code(random, sample, &execution_result.trace)
+            .map(Option::Some)
+            .unwrap_or_else(|e| {
+                error!("Failed to serialize sample: {e}");
+                None
+            });
 
         // do a normal sample execution
         self.hypervisor.prepare_vm_state();
@@ -205,8 +220,8 @@ impl<'a> SampleExecutor<'a> {
         }
 
         // do a serialized execution
-        if let Some(serialized_code) = serialized_sample {
-            self.hypervisor.load_code_blob(serialized_code);
+        if let Some(ref serialized_code) = serialized_sample {
+            self.hypervisor.load_code_blob(serialized_code.as_slice());
             self.hypervisor.prepare_vm_state();
             let serialized_vm_exit = self.hypervisor.run_vm();
             self.hypervisor
@@ -252,6 +267,10 @@ impl<'a> SampleExecutor<'a> {
 
         // re-enable Non-Maskable Interrupts
         drop(nmi_guard);
+
+        ExecutionSampleResult {
+            serialized_sample,
+        }
     }
 
     pub fn new(
@@ -282,13 +301,14 @@ impl<'a> SampleExecutor<'a> {
         Ok(Self {
             hypervisor,
             coverage: coverage_collector,
+            serializer: Serializer::default(),
         })
     }
 
     pub fn trace_sample(
         &mut self,
         sample: &[u8],
-        trace_result: &mut Vec<u64>,
+        trace_result: &mut Trace,
         max_trace_length: usize,
     ) -> VmExitReason {
         self.hypervisor.load_code_blob(sample);
@@ -343,7 +363,7 @@ pub struct ExecutionResult {
     pub state_normal_execution: VmState,
     pub exit_normal_execution: VmExitReason,
 
-    pub trace: Vec<u64>,
+    pub trace: Trace,
 
     pub state_serialized_execution: VmState,
     pub exit_serialized_execution: VmExitReason,

@@ -11,8 +11,11 @@ pub mod mutation_engine;
 
 extern crate alloc;
 
+use alloc::collections::BTreeMap;
 use crate::cmos::CMOS;
 use alloc::string::String;
+use alloc::vec::Vec;
+use core::fmt::Debug;
 use iced_x86::{Decoder, DecoderOptions, Formatter, Instruction, NasmFormatter};
 use uefi::{print, println};
 
@@ -88,4 +91,50 @@ const _: () = CMOS::<PersistentApplicationData>::size_check();
 pub enum PersistentApplicationState {
     Idle = 0,
     CollectingCoverage(u16) = 1,
+}
+
+
+#[derive(Default, Clone)]
+pub struct Trace {
+    pub data: Vec<u64>,
+    pub hit: BTreeMap<u64, u64>,
+}
+
+impl Debug for Trace {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        self.data.fmt(f)
+    }
+}
+
+impl Trace {
+    pub fn new(mut data: Vec<u64>) -> Self {
+        data.iter_mut().for_each(|x| *x = *x % (1u64 << 30)); // map to 1GB page
+
+        let mut hit = BTreeMap::new();
+        for &ip in data.iter() {
+            *hit.entry(ip).or_insert(0) += 1;
+        }
+
+        Self {
+            data,
+            hit,
+        }    }
+    pub fn was_executed(&self, ip: u64) -> bool {
+        self.hit.contains_key(&ip)
+    }
+
+    pub fn clear(&mut self) {
+        self.data.clear();
+        self.hit.clear();
+    }
+
+    pub fn push(&mut self, ip: u64) {
+        let ip = ip % (1u64 << 30);
+        self.data.push(ip);
+        *self.hit.entry(ip).or_insert(0) += 1;
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &u64> {
+        self.data.iter()
+    }
 }

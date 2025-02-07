@@ -23,6 +23,7 @@ use x86::segmentation::{
     GateDescriptorBuilder, SegmentDescriptorBuilder, SegmentSelector,
 };
 use x86::Ring;
+use crate::Trace;
 
 pub struct Hypervisor {
     memory_code_page: Box<Page>,
@@ -300,8 +301,10 @@ impl Hypervisor {
         self.vm.vt.run()
     }
 
-    pub fn trace_vm(&mut self, trace: &mut Vec<u64>, max_trace_length: usize) -> VmExitReason {
+    pub fn trace_vm(&mut self, trace: &mut Trace, max_trace_length: usize) -> VmExitReason {
         self.vm.vt.enable_tracing();
+
+        trace.clear();
 
         let mut last_exit = VmExitReason::Unexpected(0);
         for _ in 0..(if max_trace_length == 0 {

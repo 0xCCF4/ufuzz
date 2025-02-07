@@ -13,11 +13,11 @@ use core::fmt::Display;
 use core::ops::DerefMut;
 use data_types::addresses::UCInstructionAddress;
 use fuzzer_device::cmos::CMOS;
-use fuzzer_device::executor::{ExecutionEvent, ExecutionResult, SampleExecutor};
+use fuzzer_device::executor::{ExecutionEvent, ExecutionResult, ExecutionSampleResult, SampleExecutor};
 use fuzzer_device::genetic_breeding::{GeneticPool, GeneticPoolSettings};
 use fuzzer_device::mutation_engine::serialize::Serializer;
 use fuzzer_device::mutation_engine::InstructionDecoder;
-use fuzzer_device::{disassemble_code, PersistentApplicationData, PersistentApplicationState};
+use fuzzer_device::{disassemble_code, PersistentApplicationData, PersistentApplicationState, Trace};
 use hypervisor::state::StateDifference;
 use log::{debug, error, info, trace, warn};
 use num_traits::{ConstZero, SaturatingSub};
@@ -110,11 +110,9 @@ unsafe fn main() -> Status {
     let mut genetic_pool =
         GeneticPool::new_random_population(GeneticPoolSettings::default(), &mut random);
 
-    let mut serializer = Serializer::default();
-
     // Execute initial sample to get ground truth coverage
     info!("Collecting ground truth coverage");
-    executor.execute_sample(&[], None, &mut execution_result, &mut cmos);
+    let _ = executor.execute_sample(&[], &mut execution_result, &mut cmos, &mut random);
     let ground_truth_coverage = execution_result.coverage.clone();
     if execution_result.events.len() > 0 {
         error!("Initial sample execution had events");
@@ -125,7 +123,7 @@ unsafe fn main() -> Status {
         //return Status::ABORTED;
     }
 
-    let mut trace_scratchpad = Vec::new();
+    let mut trace_scratchpad = Trace::default();
     let mut decoder = InstructionDecoder::new();
 
     // Main fuzzing loop
@@ -134,18 +132,11 @@ unsafe fn main() -> Status {
             global_stats.iteration_count += 1;
 
             // Execute
-            let serialized_sample = serializer
-                .serialize_code(&mut random, sample.code())
-                .map(Option::Some)
-                .unwrap_or_else(|e| {
-                    error!("Failed to serialize sample: {e}");
-                    None
-                });
-            executor.execute_sample(
+            let ExecutionSampleResult {serialized_sample} = executor.execute_sample(
                 sample.code(),
-                serialized_sample.as_ref(),
                 &mut execution_result,
                 &mut cmos,
+                &mut random,
             );
 
             // Handle events

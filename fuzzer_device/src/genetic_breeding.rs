@@ -1,11 +1,9 @@
 use crate::executor::ExecutionResult;
 use crate::mutation_engine::InstructionDecoder;
-use alloc::collections::BTreeSet;
 use alloc::vec::Vec;
 use iced_x86::FlowControl;
 use log::warn;
 use rand_core::RngCore;
-use uefi::println;
 
 type SampleRating = u64;
 
@@ -35,8 +33,6 @@ impl Default for GeneticPoolSettings {
 pub struct GeneticPool {
     population: Vec<Sample>,
     settings: GeneticPoolSettings,
-
-    decoder: InstructionDecoder,
 }
 
 impl GeneticPool {
@@ -51,7 +47,6 @@ impl GeneticPool {
         Self {
             population,
             settings,
-            decoder: InstructionDecoder::default(),
         }
     }
     pub fn all_samples(&self) -> &[Sample] {
@@ -147,23 +142,13 @@ impl Sample {
         execution_result: &ExecutionResult,
         decoder: &mut InstructionDecoder,
     ) {
-        let trace = execution_result
-            .trace
-            .iter()
-            .map(|x| x % (1 << 30))
-            .filter(|x| (*x as usize) < 0x1000) // code segment
-            .map(|x| x % 4096)
-            .filter(|x| (*x as usize) < self.code_blob.len());
-
-        let trace = trace.collect::<Vec<u64>>();
-        let unique = trace.iter().collect::<BTreeSet<_>>();
-
         let decoded = decoder.decode(self.code_blob.as_slice());
-        let mut instructions = unique
-            .iter()
-            .filter_map(|&ip| decoded.instruction_by_ip(*ip as usize));
+        let mut instructions = execution_result.trace.hit.keys().into_iter()
+            .filter_map(|&ip| decoded.instruction_by_ip(ip as usize));
 
-        let multiplier = if instructions.any(|i| i.instruction.flow_control() != FlowControl::Next)
+        let unique_trace_points = execution_result.trace.hit.keys().len();
+
+        let multiplier = if instructions.any(|i| i.instruction.flow_control() != FlowControl::IndirectBranch)
         {
             0.1
         } else {
@@ -172,6 +157,6 @@ impl Sample {
 
         drop(decoded);
 
-        self.rate((unique.len() as f32 * 100.0 * multiplier as f32) as SampleRating);
+        self.rate((unique_trace_points as f32 * 100.0 * multiplier as f32) as SampleRating);
     }
 }
