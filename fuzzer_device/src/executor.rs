@@ -12,7 +12,7 @@ use crate::disassemble_code;
 use crate::executor::coverage_collection::CoverageCollector;
 use crate::executor::hypervisor::Hypervisor;
 use crate::mutation_engine::serialize::{SerializeError, Serializer};
-use crate::{cmos, PersistentApplicationData, PersistentApplicationState, Trace};
+use crate::{cmos, PersistentApplicationData, PersistentApplicationState, StateTrace, Trace};
 use ::hypervisor::error::HypervisorError;
 use ::hypervisor::hardware_vt::VmExitReason;
 use ::hypervisor::state::VmState;
@@ -87,8 +87,27 @@ impl<'a> SampleExecutor<'a> {
             });
 
         // do a normal sample execution
-        self.hypervisor.prepare_vm_state();
-        let no_coverage_vm_exit = self.hypervisor.run_vm();
+        let no_coverage_vm_exit = {
+            let mut iteration = 0;
+            loop {
+                iteration += 1;
+
+                self.hypervisor.prepare_vm_state();
+                let no_coverage_vm_exit = self.hypervisor.run_vm();
+
+                if iteration < 100 && no_coverage_vm_exit == VmExitReason::ExternalInterrupt {
+                    #[cfg(feature = "__debug_print_external_interrupt_notification")]
+                    trace!(
+                        "External interrupt detected (serialized). Retrying... {}",
+                        iteration
+                    );
+                    continue;
+                } else {
+                    break no_coverage_vm_exit;
+                }
+            }
+        };
+
         self.hypervisor
             .capture_state(&mut execution_result.state_normal_execution);
 
@@ -227,8 +246,28 @@ impl<'a> SampleExecutor<'a> {
         // do a serialized execution
         if let Some(ref serialized_code) = serialized_sample {
             self.hypervisor.load_code_blob(serialized_code.as_slice());
-            self.hypervisor.prepare_vm_state();
-            let serialized_vm_exit = self.hypervisor.run_vm();
+
+            let serialized_vm_exit = {
+                let mut iteration = 0;
+                loop {
+                    iteration += 1;
+
+                    self.hypervisor.prepare_vm_state();
+                    let serialized_vm_exit = self.hypervisor.run_vm();
+
+                    if iteration < 100 && serialized_vm_exit == VmExitReason::ExternalInterrupt {
+                        #[cfg(feature = "__debug_print_external_interrupt_notification")]
+                        trace!(
+                            "External interrupt detected (serialized). Retrying... {}",
+                            iteration
+                        );
+                        continue;
+                    } else {
+                        break serialized_vm_exit;
+                    }
+                }
+            };
+
             self.hypervisor
                 .capture_state(&mut execution_result.state_serialized_execution);
             execution_result
@@ -309,6 +348,18 @@ impl<'a> SampleExecutor<'a> {
         self.hypervisor.load_code_blob(sample);
         self.hypervisor.prepare_vm_state();
         self.hypervisor.trace_vm(trace_result, max_trace_length)
+    }
+
+    pub fn state_trace_sample(
+        &mut self,
+        sample: &[u8],
+        trace_result: &mut StateTrace,
+        max_trace_length: usize,
+    ) -> VmExitReason {
+        self.hypervisor.load_code_blob(sample);
+        self.hypervisor.prepare_vm_state();
+        self.hypervisor
+            .state_trace_vm(trace_result, max_trace_length)
     }
 
     pub fn selfcheck(&mut self) -> bool {

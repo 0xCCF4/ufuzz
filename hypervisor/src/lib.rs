@@ -27,8 +27,6 @@ pub mod error;
 pub use error::HypervisorError as Error;
 pub use error::Result;
 
-pub mod hypervisor;
-
 pub mod state;
 
 pub mod x86_data;

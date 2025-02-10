@@ -3,7 +3,9 @@ use crate::Trace;
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 use core::fmt::Display;
-use iced_x86::{BlockEncoder, BlockEncoderOptions, Code, FlowControl, IcedError, Instruction, InstructionBlock};
+use iced_x86::{
+    BlockEncoder, BlockEncoderOptions, Code, FlowControl, IcedError, Instruction, InstructionBlock,
+};
 use log::{info, warn};
 use num_traits::WrappingSub;
 use rand_core::RngCore;
@@ -161,7 +163,8 @@ impl Serializer {
 
                     if buffer.len() < data.original_instruction_length as usize {
                         // prefix was deleted
-                        let mut new_buf = Vec::with_capacity(data.original_instruction_length as usize);
+                        let mut new_buf =
+                            Vec::with_capacity(data.original_instruction_length as usize);
                         for _ in 0..(data.original_instruction_length as usize - buffer.len()) {
                             new_buf.push(0x90);
                         }
@@ -245,14 +248,11 @@ impl Serializer {
         data: &InstructionInfo,
     ) -> Result<Option<Instruction>, SerializeError> {
         if instruction.is_ip_rel_memory_operand() {
-            let target_ip = instruction
-                .memory_displacement64();
+            let target_ip = instruction.memory_displacement64();
             let new_target_ip = target_ip;
 
             let mut instruction = instruction.clone();
-            instruction.set_memory_displacement64(
-                new_target_ip,
-            );
+            instruction.set_memory_displacement64(new_target_ip);
 
             Ok(Some(instruction))
         } else {
@@ -282,8 +282,7 @@ impl Serializer {
             FlowControl::UnconditionalBranch => {
                 if instruction.is_jmp_near() {
                     // `JMP NEAR relX`
-                    let target_ip = instruction
-                        .near_branch_target();
+                    let target_ip = instruction.near_branch_target();
                     let new_target_ip = Serializer::source_to_target_address(
                         target_ip,
                         &map_old_to_new_ip,
@@ -292,9 +291,7 @@ impl Serializer {
                     );
 
                     let mut instruction = instruction.clone();
-                    instruction.set_near_branch64(
-                        new_target_ip,
-                    );
+                    instruction.set_near_branch64(new_target_ip);
 
                     Some(instruction)
                 } else if instruction.is_jmp_far() {
@@ -313,8 +310,7 @@ impl Serializer {
 
                     Some(instruction)
                 } else if instruction.is_jmp_short() {
-                    let target_ip = instruction
-                        .memory_displacement64();
+                    let target_ip = instruction.memory_displacement64();
                     let new_target_ip = Serializer::source_to_target_address(
                         target_ip,
                         &map_old_to_new_ip,
@@ -323,9 +319,7 @@ impl Serializer {
                     );
 
                     let mut instruction = instruction.clone();
-                    instruction.set_memory_displacement64(
-                        new_target_ip,
-                    );
+                    instruction.set_memory_displacement64(new_target_ip);
 
                     Some(instruction)
                 } else {
@@ -350,10 +344,10 @@ impl Serializer {
             FlowControl::ConditionalBranch => {
                 if instruction.is_jcc_short() | instruction.is_loop() | instruction.is_loopcc()
                     // todo report this bug to rust iced-x86 crate
-                | (instruction.code() >= Code::Jecxz_rel8_16 && instruction.code() <= Code::Jrcxz_rel8_64){
+                | (instruction.code() >= Code::Jecxz_rel8_16 && instruction.code() <= Code::Jrcxz_rel8_64)
+                {
                     // `Jcc SHORT relX`, `LOOP rel8`, `LOOPcc rel8`
-                    let target_ip = instruction
-                        .memory_displacement64();
+                    let target_ip = instruction.memory_displacement64();
                     let new_target_ip = Serializer::source_to_target_address(
                         target_ip as u64,
                         &map_old_to_new_ip,
@@ -362,15 +356,12 @@ impl Serializer {
                     );
 
                     let mut instruction = instruction.clone();
-                    instruction.set_memory_displacement64(
-                        new_target_ip,
-                    );
+                    instruction.set_memory_displacement64(new_target_ip);
 
                     Some(instruction)
                 } else if instruction.is_jcc_near() {
                     // `Jcc NEAR`
-                    let target_ip = instruction
-                        .near_branch_target();
+                    let target_ip = instruction.near_branch_target();
                     let new_target_ip = Serializer::source_to_target_address(
                         target_ip,
                         &map_old_to_new_ip,
@@ -379,9 +370,7 @@ impl Serializer {
                     );
 
                     let mut instruction = instruction.clone();
-                    instruction.set_near_branch64(
-                        new_target_ip,
-                    );
+                    instruction.set_near_branch64(new_target_ip);
 
                     Some(instruction)
                 } else {
@@ -406,8 +395,7 @@ impl Serializer {
             FlowControl::Call => {
                 if instruction.is_call_near() {
                     // `CALL NEAR relX`
-                    let target_ip = instruction
-                        .near_branch_target();
+                    let target_ip = instruction.near_branch_target();
                     let new_target_ip = Serializer::source_to_target_address(
                         target_ip,
                         &map_old_to_new_ip,
@@ -416,9 +404,7 @@ impl Serializer {
                     );
 
                     let mut instruction = instruction.clone();
-                    instruction.set_near_branch64(
-                        new_target_ip,
-                    );
+                    instruction.set_near_branch64(new_target_ip);
 
                     Some(instruction)
                 } else if instruction.is_call_far() {
@@ -485,7 +471,9 @@ mod test {
 
             assembler.jns(0x38).unwrap();
 
-            assembler.lea(code_asm::edx, code_asm::ptr(0x4509A11)).unwrap();
+            assembler
+                .lea(code_asm::edx, code_asm::ptr(0x4509A11))
+                .unwrap();
 
             assembler.assemble(0).unwrap()
         };

@@ -1,4 +1,4 @@
-use crate::Trace;
+use crate::{StateTrace, Trace};
 use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -305,6 +305,8 @@ impl Hypervisor {
 
         trace.clear();
 
+        let mut eti_count = 0;
+
         let mut last_exit = VmExitReason::Unexpected(0);
         for _ in 0..(if max_trace_length == 0 {
             usize::MAX
@@ -314,7 +316,58 @@ impl Hypervisor {
             trace.push(self.vm.vt.registers().rip);
             last_exit = self.vm.vt.run();
 
+            if last_exit == VmExitReason::MonitorTrap
+                || last_exit == VmExitReason::ExternalInterrupt
+            {
+                eti_count = 0;
+                continue;
+            } else if last_exit == VmExitReason::ExternalInterrupt {
+                eti_count += 1;
+                if eti_count > 100 {
+                    break;
+                }
+                continue;
+            } else {
+                break;
+            }
+        }
+
+        self.vm.vt.disable_tracing();
+        last_exit
+    }
+
+    pub fn state_trace_vm(
+        &mut self,
+        trace: &mut StateTrace,
+        max_trace_length: usize,
+    ) -> VmExitReason {
+        self.vm.vt.enable_tracing();
+
+        trace.clear();
+
+        let mut eti_count = 0;
+
+        let mut state = self.initial_state.clone();
+        trace.push(state.clone());
+
+        let mut last_exit = VmExitReason::Unexpected(0);
+        for _ in 0..(if max_trace_length == 0 {
+            usize::MAX
+        } else {
+            max_trace_length
+        }) {
+            last_exit = self.vm.vt.run();
+            self.vm.vt.save_state(&mut state);
+            trace.push(state.clone());
+
             if last_exit == VmExitReason::MonitorTrap {
+                eti_count = 0;
+                continue;
+            } else if last_exit == VmExitReason::ExternalInterrupt {
+                eti_count += 1;
+                if eti_count > 100 {
+                    break;
+                }
                 continue;
             } else {
                 break;

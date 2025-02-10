@@ -18,6 +18,7 @@ use alloc::vec::Vec;
 use core::fmt::Debug;
 use iced_x86::{Decoder, DecoderOptions, Formatter, Instruction, NasmFormatter};
 
+use hypervisor::state::VmState;
 #[cfg(feature = "uefi")]
 use uefi::{print, println};
 
@@ -135,5 +136,79 @@ impl Trace {
 
     pub fn iter(&self) -> impl Iterator<Item = &u64> {
         self.data.iter()
+    }
+}
+
+#[derive(Default, Clone)]
+pub struct StateTrace {
+    pub state: Vec<VmState>,
+}
+
+impl StateTrace {
+    pub fn new(state: Vec<VmState>) -> Self {
+        Self { state }
+    }
+
+    pub fn push(&mut self, state: VmState) {
+        self.state.push(state);
+    }
+
+    fn difference<A: Fn(&VmState, &VmState) -> bool>(
+        &self,
+        other: &Self,
+        equal: A,
+    ) -> Option<usize> {
+        for (i, state) in self.state.iter().enumerate() {
+            let other = other.state.get(i);
+
+            if other.is_none() {
+                return Some(i);
+            }
+
+            if equal(state, other.unwrap()) {
+                return Some(i);
+            }
+        }
+
+        if self.state.len() != other.state.len() {
+            return Some(self.state.len());
+        }
+
+        None
+    }
+
+    pub fn first_difference(&self, other: &Self) -> Option<usize> {
+        self.difference(other, |a, b| a == b)
+    }
+
+    pub fn first_difference_no_addresses(&self, other: &Self) -> Option<usize> {
+        self.difference(other, |a, b| a.is_equal_no_address_compare(b))
+    }
+
+    pub fn get(&self, index: usize) -> Option<&VmState> {
+        self.state.get(index)
+    }
+
+    pub fn clear(&mut self) {
+        self.state.clear();
+    }
+
+    pub fn to_trace(&self, trace: &mut Trace) {
+        trace.clear();
+        for state in self.state.iter() {
+            trace.push(state.standard_registers.rip);
+        }
+    }
+
+    pub fn trace_vec(&self) -> Vec<u64> {
+        let mut trace = Vec::with_capacity(self.state.len());
+        for state in self.state.iter() {
+            trace.push(state.standard_registers.rip);
+        }
+        trace
+    }
+
+    pub fn len(&self) -> usize {
+        self.state.len()
     }
 }

@@ -19,7 +19,7 @@ use fuzzer_device::executor::{
 use fuzzer_device::genetic_breeding::{GeneticPool, GeneticPoolSettings};
 use fuzzer_device::mutation_engine::InstructionDecoder;
 use fuzzer_device::{
-    disassemble_code, PersistentApplicationData, PersistentApplicationState, Trace,
+    disassemble_code, PersistentApplicationData, PersistentApplicationState, StateTrace, Trace,
 };
 use hypervisor::state::StateDifference;
 use log::{debug, error, info, trace, warn};
@@ -133,6 +133,8 @@ unsafe fn main() -> Status {
     );
 
     let mut trace_scratchpad = Trace::default();
+    let mut state_trace_scratchpad_normal = StateTrace::default();
+    let mut state_trace_scratchpad_serialized = StateTrace::default();
     let mut decoder = InstructionDecoder::new();
 
     // Main fuzzing loop
@@ -208,18 +210,28 @@ unsafe fn main() -> Status {
                         );
                         println!("Code:");
                         disassemble_code(sample.code());
-                        trace_scratchpad.clear();
-                        executor.trace_sample(sample.code(), &mut trace_scratchpad, 100);
-                        println!("Normal-Trace: {:x?}", trace_scratchpad);
-                        println!("Serialized code:");
-                        disassemble_code(&serialized_sample.as_ref().unwrap());
-                        trace_scratchpad.clear();
-                        executor.trace_sample(
-                            serialized_sample.as_ref().unwrap(),
-                            &mut trace_scratchpad,
+                        state_trace_scratchpad_normal.clear();
+                        executor.state_trace_sample(
+                            sample.code(),
+                            &mut state_trace_scratchpad_normal,
                             100,
                         );
-                        println!("Serialized-Trace: {:x?}", trace_scratchpad);
+                        println!(
+                            "Normal-Trace: {:x?}",
+                            state_trace_scratchpad_normal.trace_vec()
+                        );
+                        println!("Serialized code:");
+                        disassemble_code(&serialized_sample.as_ref().unwrap());
+                        state_trace_scratchpad_serialized.clear();
+                        executor.state_trace_sample(
+                            serialized_sample.as_ref().unwrap(),
+                            &mut state_trace_scratchpad_serialized,
+                            100,
+                        );
+                        println!(
+                            "Serialized-Trace: {:x?}",
+                            state_trace_scratchpad_serialized.trace_vec()
+                        );
                         println!("The difference was:");
                         for (field, expected, result) in normal_state.difference(serialized_state) {
                             let symbol = if field == "rip" { "*" } else { "-" };
@@ -227,6 +239,41 @@ unsafe fn main() -> Status {
                                 " {} {:?}: normal {:x?}, serialized {:x?}",
                                 symbol, field, expected, result
                             );
+                        }
+                        println!("Difference occurred at:");
+                        let difference = state_trace_scratchpad_normal
+                            .first_difference_no_addresses(&state_trace_scratchpad_serialized);
+                        match difference {
+                            None => println!("No difference found -> This is very odd! CPU bug?"),
+                            Some(index) => {
+                                for i in index
+                                    ..state_trace_scratchpad_normal
+                                        .len()
+                                        .max(state_trace_scratchpad_serialized.len())
+                                {
+                                    let normal = state_trace_scratchpad_normal.get(i);
+                                    let serialized = state_trace_scratchpad_serialized.get(i);
+
+                                    if let Some(normal) = normal {
+                                        println!(" -- {:x?} --", normal.standard_registers.rip);
+                                    }
+
+                                    if let (Some(normal), Some(serialized)) = (normal, serialized) {
+                                        for (field, expected, result) in
+                                            normal.difference(serialized)
+                                        {
+                                            let symbol = if field == "rip" { "*" } else { "-" };
+                                            println!(
+                                                " {} {:?}: normal {:x?}, serialized {:x?}",
+                                                symbol, field, expected, result
+                                            );
+                                        }
+                                    } else {
+                                        println!("Execution for one of the traces stopped");
+                                        break;
+                                    }
+                                }
+                            }
                         }
                         println!();
                     }
