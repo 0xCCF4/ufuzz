@@ -1,3 +1,4 @@
+use crate::Trace;
 use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -13,7 +14,6 @@ use hypervisor::Page;
 use iced_x86::code_asm::CodeAssembler;
 use iced_x86::{code_asm, Decoder, DecoderOptions, Formatter, Instruction, NasmFormatter};
 use log::error;
-use uefi::{print, println};
 use x86::bits64::paging::{PAddr, PDPTEntry, PDPTFlags, PML4Entry, PML4Flags, BASE_PAGE_SHIFT};
 use x86::bits64::rflags::RFlags;
 use x86::controlregs::{Cr0, Cr4};
@@ -23,7 +23,6 @@ use x86::segmentation::{
     GateDescriptorBuilder, SegmentDescriptorBuilder, SegmentSelector,
 };
 use x86::Ring;
-use crate::Trace;
 
 pub struct Hypervisor {
     memory_code_page: Box<Page>,
@@ -222,7 +221,7 @@ impl Hypervisor {
             vm.build_translation(
                 CODE_PAGE_INDEX << BASE_PAGE_SHIFT,
                 code_page.as_ptr(),
-                NestedPagingStructureEntryType::Rx,
+                NestedPagingStructureEntryType::X,
             ),
             vm.build_translation(
                 STACK_PAGE_INDEX << BASE_PAGE_SHIFT,
@@ -358,7 +357,7 @@ impl Hypervisor {
             .assemble(0)
             .expect("failed to assemble selfcheck code");
 
-        disassemble_code(&code);
+        crate::disassemble_code(&code);
 
         self.load_code_blob(&code);
         self.prepare_vm_state();
@@ -409,37 +408,6 @@ impl Hypervisor {
         assembler
             .assemble(current_rip)
             .expect("failed to assemble code entry")
-    }
-}
-
-fn disassemble_code(code: &[u8]) {
-    let mut decoder = Decoder::with_ip(64, code, 0, DecoderOptions::NONE);
-    let mut formatter = NasmFormatter::new();
-
-    formatter.options_mut().set_digit_separator("`");
-    formatter.options_mut().set_first_operand_char_index(10);
-
-    let mut output = String::new();
-    let mut instruction = Instruction::default();
-
-    while decoder.can_decode() {
-        decoder.decode_out(&mut instruction);
-        output.clear();
-        formatter.format(&instruction, &mut output);
-
-        // Eg. "00007FFAC46ACDB2 488DAC2400FFFFFF     lea       rbp,[rsp-100h]"
-        print!("{:016X} ", instruction.ip());
-        let start_index = (instruction.ip() - 0) as usize;
-        let instr_bytes = &code[start_index..start_index + instruction.len()];
-        for b in instr_bytes.iter() {
-            print!("{:02X}", b);
-        }
-        if instr_bytes.len() < 10 {
-            for _ in 0..10 - instr_bytes.len() {
-                print!("  ");
-            }
-        }
-        println!(" {}", output);
     }
 }
 

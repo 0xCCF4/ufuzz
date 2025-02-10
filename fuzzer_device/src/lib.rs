@@ -1,7 +1,7 @@
 #![feature(new_zeroed_alloc)]
 #![allow(incomplete_features)]
 #![feature(generic_const_exprs)]
-#![no_std]
+#![cfg_attr(feature = "no_std", no_std)]
 
 pub mod cmos;
 pub mod executor;
@@ -11,12 +11,14 @@ pub mod mutation_engine;
 
 extern crate alloc;
 
-use alloc::collections::BTreeMap;
 use crate::cmos::CMOS;
+use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt::Debug;
 use iced_x86::{Decoder, DecoderOptions, Formatter, Instruction, NasmFormatter};
+
+#[cfg(feature = "uefi")]
 use uefi::{print, println};
 
 pub fn disassemble_code(code: &[u8]) {
@@ -93,7 +95,6 @@ pub enum PersistentApplicationState {
     CollectingCoverage(u16) = 1,
 }
 
-
 #[derive(Default, Clone)]
 pub struct Trace {
     pub data: Vec<u64>,
@@ -115,10 +116,8 @@ impl Trace {
             *hit.entry(ip).or_insert(0) += 1;
         }
 
-        Self {
-            data,
-            hit,
-        }    }
+        Self { data, hit }
+    }
     pub fn was_executed(&self, ip: u64) -> bool {
         self.hit.contains_key(&ip)
     }

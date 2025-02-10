@@ -44,15 +44,16 @@ impl<'a> CoverageCollector<'a> {
         let cpu = Box::pin(cpu);
         let rom = cpu.rom();
 
-        let interface = match ComInterface::new(&interface_definition::COM_INTERFACE_DESCRIPTION) {
-            Ok(interface) => interface,
-            Err(e) => {
-                return Err(custom_processing_unit::Error::Other(format!(
-                    "Failed to create COM interface: {:?}",
-                    e
-                )));
-            }
-        };
+        let interface =
+            match unsafe { ComInterface::new(&interface_definition::COM_INTERFACE_DESCRIPTION) } {
+                Ok(interface) => interface,
+                Err(e) => {
+                    return Err(custom_processing_unit::Error::Other(format!(
+                        "Failed to create COM interface: {:?}",
+                        e
+                    )));
+                }
+            };
         let mut interface = Box::pin(interface);
         let hooks = {
             let max_hooks = interface.description().max_number_of_hooks;

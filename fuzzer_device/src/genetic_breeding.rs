@@ -143,17 +143,21 @@ impl Sample {
         decoder: &mut InstructionDecoder,
     ) {
         let decoded = decoder.decode(self.code_blob.as_slice());
-        let mut instructions = execution_result.trace.hit.keys().into_iter()
+        let mut instructions = execution_result
+            .trace
+            .hit
+            .keys()
+            .into_iter()
             .filter_map(|&ip| decoded.instruction_by_ip(ip as usize));
 
         let unique_trace_points = execution_result.trace.hit.keys().len();
 
-        let multiplier = if instructions.any(|i| i.instruction.flow_control() != FlowControl::IndirectBranch)
-        {
-            0.1
-        } else {
-            1.0
-        };
+        let multiplier =
+            if instructions.any(|i| i.instruction.flow_control() != FlowControl::IndirectBranch) {
+                0.1
+            } else {
+                1.0
+            };
 
         drop(decoded);
 

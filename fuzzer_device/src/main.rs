@@ -13,17 +13,22 @@ use core::fmt::Display;
 use core::ops::DerefMut;
 use data_types::addresses::UCInstructionAddress;
 use fuzzer_device::cmos::CMOS;
-use fuzzer_device::executor::{ExecutionEvent, ExecutionResult, ExecutionSampleResult, SampleExecutor};
+use fuzzer_device::executor::{
+    ExecutionEvent, ExecutionResult, ExecutionSampleResult, SampleExecutor,
+};
 use fuzzer_device::genetic_breeding::{GeneticPool, GeneticPoolSettings};
-use fuzzer_device::mutation_engine::serialize::Serializer;
 use fuzzer_device::mutation_engine::InstructionDecoder;
-use fuzzer_device::{disassemble_code, PersistentApplicationData, PersistentApplicationState, Trace};
+use fuzzer_device::{
+    disassemble_code, PersistentApplicationData, PersistentApplicationState, Trace,
+};
 use hypervisor::state::StateDifference;
 use log::{debug, error, info, trace, warn};
 use num_traits::{ConstZero, SaturatingSub};
 use rand_core::SeedableRng;
 use uefi::proto::loaded_image::LoadedImage;
 use uefi::proto::media::file::{File, FileAttribute, FileMode};
+#[cfg(feature = "device_bochs")]
+use uefi::runtime::ResetType;
 use uefi::{entry, println, CString16, Error, Status};
 
 const MAX_ITERATIONS: usize = 1000;
@@ -122,6 +127,10 @@ unsafe fn main() -> Status {
         }
         //return Status::ABORTED;
     }
+    info!(
+        "Ground truth coverage collected: {:x?}",
+        ground_truth_coverage
+    );
 
     let mut trace_scratchpad = Trace::default();
     let mut decoder = InstructionDecoder::new();
@@ -132,7 +141,7 @@ unsafe fn main() -> Status {
             global_stats.iteration_count += 1;
 
             // Execute
-            let ExecutionSampleResult {serialized_sample} = executor.execute_sample(
+            let ExecutionSampleResult { serialized_sample } = executor.execute_sample(
                 sample.code(),
                 &mut execution_result,
                 &mut cmos,
@@ -153,12 +162,13 @@ unsafe fn main() -> Status {
                         expected_exit,
                         actual_exit,
                     } => {
-                        error!("Expected result {:#x?} but got {:#x?}. This should not have happened. This is a ucode bug or implementation problem!", expected_exit, actual_exit);
+                        error!("CoverageCollection: Expected result {:#x?} but got {:#x?}. This should not have happened. This is a ucode bug or implementation problem!", expected_exit, actual_exit);
                         println!("We were hooking the following addresses:");
                         #[cfg(not(feature = "__debug_bochs_pretend"))]
                         for address in addresses.iter() {
                             println!(" - {:?}", address);
                         }
+                        println!();
                     }
                     ExecutionEvent::VmStateMismatchCoverageCollection {
                         addresses,
@@ -166,7 +176,7 @@ unsafe fn main() -> Status {
                         expected_state,
                         actual_state,
                     } => {
-                        error!("Expected architectural state x but got y. This should not have happened. This is a ucode bug or implementation problem!");
+                        error!("CoverageCollection: Expected architectural state x but got y. This should not have happened. This is a ucode bug or implementation problem!");
                         println!("We were hooking the following addresses:");
                         #[cfg(not(feature = "__debug_bochs_pretend"))]
                         for address in addresses.iter() {
@@ -180,14 +190,22 @@ unsafe fn main() -> Status {
                                 field, expected, result
                             );
                         }
+                        println!();
                     }
                     ExecutionEvent::SerializedStateMismatch {
-                        expected_state,
-                        actual_state,
-                        exit,
+                        normal_exit,
+                        normal_state,
+                        serialized_exit,
+                        serialized_state,
                     } => {
-                        error!("Expected state x but got y. Is this a CPU bug?");
-                        println!("We exited with {:#x?}", exit);
+                        error!(
+                            "SerializedExecution: Expected state x but got y. Is this a CPU bug?"
+                        );
+                        println!("In normal execution we exited with {:#x?}", normal_exit);
+                        println!(
+                            "We exited in serialized execution with {:#x?}",
+                            serialized_exit
+                        );
                         println!("Code:");
                         disassemble_code(sample.code());
                         trace_scratchpad.clear();
@@ -203,20 +221,22 @@ unsafe fn main() -> Status {
                         );
                         println!("Serialized-Trace: {:x?}", trace_scratchpad);
                         println!("The difference was:");
-                        for (field, expected, result) in expected_state.difference(actual_state) {
+                        for (field, expected, result) in normal_state.difference(serialized_state) {
+                            let symbol = if field == "rip" { "*" } else { "-" };
                             println!(
-                                " - {:?}: expected {:x?}, got {:x?}",
-                                field, expected, result
+                                " {} {:?}: normal {:x?}, serialized {:x?}",
+                                symbol, field, expected, result
                             );
                         }
+                        println!();
                     }
                     ExecutionEvent::SerializedExitMismatch {
-                        expected_exit,
-                        actual_exit,
+                        normal_exit,
+                        serialized_exit,
                     } => {
                         error!(
-                            "Expected exit {:#x?} but got {:#x?}. This should not have happened. Is this a bug?",
-                            expected_exit, actual_exit
+                            "SerializedExecution: Normal exit {:#x?} but got serialized exit {:#x?}. This should not have happened. Is this a bug?",
+                            normal_exit, serialized_exit
                         );
                         println!("Code:");
                         disassemble_code(sample.code());
@@ -232,6 +252,7 @@ unsafe fn main() -> Status {
                             100,
                         );
                         println!("Serialized-Trace: {:x?}", trace_scratchpad);
+                        println!();
                     }
                 }
             }
@@ -280,6 +301,9 @@ unsafe fn main() -> Status {
 
     drop(cmos);
 
+    #[cfg(feature = "device_bochs")]
+    uefi::runtime::reset(ResetType::SHUTDOWN, Status::SUCCESS, None);
+
     Status::SUCCESS
 }
 
@@ -326,16 +350,17 @@ fn initial_execution_events_to_file(result: &ExecutionResult) {
                 data.push_str(&format!("{:#x?}\n", event));
             }
             ExecutionEvent::SerializedStateMismatch {
-                expected_state,
-                actual_state,
-                exit,
+                normal_exit: _,
+                normal_state,
+                serialized_exit,
+                serialized_state,
             } => {
                 data.push_str("SerializedStateMismatch\n");
-                data.push_str(&format!("Exit: {:#x?}\n", exit));
+                data.push_str(&format!("Exit: {:#x?}\n", serialized_exit));
                 data.push_str("State mismatched:\n");
-                for (field, expected, result) in expected_state.difference(actual_state) {
+                for (field, expected, result) in normal_state.difference(serialized_state) {
                     data.push_str(&format!(
-                        " - {:?}: expected {:x?}, got {:x?}\n",
+                        " - {:?}: normal {:x?}, serialized {:x?}\n",
                         field, expected, result
                     ));
                 }

@@ -301,6 +301,9 @@ pub enum NestedPagingStructureEntryType {
     /// None
     None,
 
+    /// Execute
+    X,
+
     /// Read, execute
     Rx,
 

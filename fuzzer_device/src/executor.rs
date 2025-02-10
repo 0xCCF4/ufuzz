@@ -11,6 +11,7 @@ use crate::cmos::NMIGuard;
 use crate::disassemble_code;
 use crate::executor::coverage_collection::CoverageCollector;
 use crate::executor::hypervisor::Hypervisor;
+use crate::mutation_engine::serialize::{SerializeError, Serializer};
 use crate::{cmos, PersistentApplicationData, PersistentApplicationState, Trace};
 use ::hypervisor::error::HypervisorError;
 use ::hypervisor::hardware_vt::VmExitReason;
@@ -28,7 +29,6 @@ use log::{error, warn};
 use rand_core::RngCore;
 #[cfg(feature = "__debug_print_progress")]
 use uefi::print;
-use crate::mutation_engine::serialize::Serializer;
 
 struct CoverageCollectorData<'a> {
     pub collector: CoverageCollector<'a>,
@@ -73,11 +73,16 @@ impl<'a> SampleExecutor<'a> {
         self.hypervisor.prepare_vm_state();
         self.hypervisor.trace_vm(&mut execution_result.trace, 1000);
 
-        let serialized_sample = self.serializer
+        let serialized_sample = self
+            .serializer
             .serialize_code(random, sample, &execution_result.trace)
             .map(Option::Some)
             .unwrap_or_else(|e| {
-                error!("Failed to serialize sample: {e}");
+                if !matches!(e, SerializeError::IndirectBranch) {
+                    error!("Failed to serialize sample: {e}");
+                    crate::disassemble_code(sample);
+                    error!("--------------------- END OF DISASSEMBLY ---------------------");
+                }
                 None
             });
 
@@ -237,11 +242,8 @@ impl<'a> SampleExecutor<'a> {
                 execution_result
                     .events
                     .push(ExecutionEvent::SerializedExitMismatch {
-                        expected_exit: execution_result
-                            .exit_normal_execution
-                            .clone()
-                            .null_addresses(),
-                        actual_exit: serialized_vm_exit.clone().null_addresses(),
+                        normal_exit: execution_result.exit_normal_execution.clone(),
+                        serialized_exit: serialized_vm_exit.clone(),
                     });
             }
 
@@ -252,15 +254,10 @@ impl<'a> SampleExecutor<'a> {
                 execution_result
                     .events
                     .push(ExecutionEvent::SerializedStateMismatch {
-                        exit: serialized_vm_exit,
-                        expected_state: execution_result
-                            .state_normal_execution
-                            .clone()
-                            .null_addresses(),
-                        actual_state: execution_result
-                            .state_serialized_execution
-                            .clone()
-                            .null_addresses(),
+                        normal_exit: execution_result.exit_normal_execution.clone(),
+                        serialized_exit: serialized_vm_exit.clone(),
+                        normal_state: execution_result.state_normal_execution.clone(),
+                        serialized_state: execution_result.state_serialized_execution.clone(),
                     });
             }
         }
@@ -268,9 +265,7 @@ impl<'a> SampleExecutor<'a> {
         // re-enable Non-Maskable Interrupts
         drop(nmi_guard);
 
-        ExecutionSampleResult {
-            serialized_sample,
-        }
+        ExecutionSampleResult { serialized_sample }
     }
 
     pub fn new(
@@ -345,13 +340,14 @@ pub enum ExecutionEvent {
         error: coverage::harness::coverage_harness::CoverageError,
     },
     SerializedExitMismatch {
-        expected_exit: VmExitReason,
-        actual_exit: VmExitReason,
+        normal_exit: VmExitReason,
+        serialized_exit: VmExitReason,
     },
     SerializedStateMismatch {
-        exit: VmExitReason,
-        expected_state: VmState,
-        actual_state: VmState,
+        normal_exit: VmExitReason,
+        serialized_exit: VmExitReason,
+        normal_state: VmState,
+        serialized_state: VmState,
     },
 }
 
