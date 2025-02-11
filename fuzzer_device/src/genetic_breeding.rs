@@ -1,11 +1,8 @@
 use crate::executor::ExecutionResult;
 use crate::mutation_engine::InstructionDecoder;
 use alloc::vec::Vec;
-use iced_x86::FlowControl;
-use log::warn;
+use core::cmp::Ordering;
 use rand_core::RngCore;
-
-type SampleRating = u64;
 
 #[derive(Clone)]
 pub struct GeneticPoolSettings {
@@ -56,12 +53,7 @@ impl GeneticPool {
         &mut self.population
     }
     pub fn evolution<R: RngCore>(&mut self, random: &mut R) {
-        self.population.sort_by_key(|s| {
-            s.rating.unwrap_or_else(|| {
-                warn!("Sample not rated!");
-                0
-            })
-        });
+        self.population.sort();
         self.population.reverse();
 
         self.population
@@ -96,21 +88,16 @@ impl GeneticPool {
         }
     }
     pub fn result(mut self) -> Vec<Sample> {
-        self.population.sort_by_key(|s| {
-            s.rating.unwrap_or_else(|| {
-                warn!("Sample not rated!");
-                0
-            })
-        });
+        self.population.sort();
         self.population.reverse();
         self.population
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Sample {
     code_blob: Vec<u8>,
-    rating: Option<SampleRating>,
+    pub rating: Option<SampleRating>,
 }
 
 impl Sample {
@@ -124,43 +111,106 @@ impl Sample {
             rating: None,
         }
     }
-    pub fn rate(&mut self, rating: SampleRating) {
-        self.rating = Some(rating);
-    }
-    pub fn rating(&self) -> Option<SampleRating> {
-        self.rating
-    }
     pub fn code(&self) -> &[u8] {
         &self.code_blob
-    }
-    pub fn unrate(&mut self) {
-        self.rating = None;
     }
 
     pub fn rate_from_execution(
         &mut self,
         execution_result: &ExecutionResult,
-        decoder: &mut InstructionDecoder,
+        _decoder: &mut InstructionDecoder,
     ) {
-        let decoded = decoder.decode(self.code_blob.as_slice());
-        let mut instructions = execution_result
+        // expects existing entries to all have values >0
+        let unique_address_coverage = execution_result.coverage.keys().count();
+        let total_address_coverage = execution_result
+            .coverage
+            .values()
+            .map(|val| *val as usize)
+            .sum();
+        let unique_trace_addresses = execution_result
             .trace
             .hit
             .keys()
-            .into_iter()
-            .filter_map(|&ip| decoded.instruction_by_ip(ip as usize));
+            .filter(|&ip| *ip < self.code_blob.len() as u64)
+            .count();
+        let program_utilization = (f32::clamp(
+            unique_trace_addresses as f32 / self.code_blob.len() as f32,
+            0.0,
+            1.0,
+        ) * 100.0) as usize;
+        let loop_count = execution_result.trace.hit.values().max().unwrap_or(&1) - 1;
 
-        let unique_trace_points = execution_result.trace.hit.keys().len();
+        self.rating = Some(SampleRating {
+            unique_address_coverage,
+            total_address_coverage,
+            program_utilization,
+            loop_count,
+        });
+    }
+}
 
-        let multiplier =
-            if instructions.any(|i| i.instruction.flow_control() != FlowControl::IndirectBranch) {
-                0.1
-            } else {
-                1.0
-            };
+impl Ord for Sample {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.rating.cmp(&other.rating)
+    }
+}
 
-        drop(decoded);
+impl PartialOrd for Sample {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        self.rating.partial_cmp(&other.rating)
+    }
+}
 
-        self.rate((unique_trace_points as f32 * 100.0 * multiplier as f32) as SampleRating);
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct SampleRating {
+    unique_address_coverage: usize,
+    total_address_coverage: usize,
+    program_utilization: usize, // in range 0 = 0% to 100 = 100%
+    loop_count: u64,
+}
+
+impl SampleRating {
+    pub const MIN: Self = Self {
+        unique_address_coverage: 0,
+        total_address_coverage: 0,
+        program_utilization: 0,
+        loop_count: 0,
+    };
+}
+
+impl Ord for SampleRating {
+    fn cmp(&self, other: &Self) -> Ordering {
+        let unique_address_coverage_order = self
+            .unique_address_coverage
+            .cmp(&other.unique_address_coverage);
+
+        if unique_address_coverage_order != Ordering::Equal {
+            return unique_address_coverage_order;
+        }
+
+        let total_address_coverage_order = self
+            .total_address_coverage
+            .cmp(&other.total_address_coverage);
+
+        if total_address_coverage_order != Ordering::Equal {
+            return total_address_coverage_order;
+        }
+
+        let program_utilization_order = self
+            .program_utilization
+            .partial_cmp(&other.program_utilization)
+            .unwrap_or(Ordering::Equal);
+
+        if program_utilization_order != Ordering::Equal {
+            return program_utilization_order;
+        }
+
+        self.loop_count.cmp(&other.loop_count)
+    }
+}
+
+impl PartialOrd for SampleRating {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        self.cmp(other).into()
     }
 }

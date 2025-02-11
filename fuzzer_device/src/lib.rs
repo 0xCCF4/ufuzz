@@ -98,13 +98,13 @@ pub enum PersistentApplicationState {
 
 #[derive(Default, Clone)]
 pub struct Trace {
-    pub data: Vec<u64>,
+    pub sequence: Vec<u64>,
     pub hit: BTreeMap<u64, u64>,
 }
 
 impl Debug for Trace {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        self.data.fmt(f)
+        self.sequence.fmt(f)
     }
 }
 
@@ -117,25 +117,28 @@ impl Trace {
             *hit.entry(ip).or_insert(0) += 1;
         }
 
-        Self { data, hit }
+        Self {
+            sequence: data,
+            hit,
+        }
     }
     pub fn was_executed(&self, ip: u64) -> bool {
         self.hit.contains_key(&ip)
     }
 
     pub fn clear(&mut self) {
-        self.data.clear();
+        self.sequence.clear();
         self.hit.clear();
     }
 
     pub fn push(&mut self, ip: u64) {
         let ip = ip % (1u64 << 30);
-        self.data.push(ip);
+        self.sequence.push(ip);
         *self.hit.entry(ip).or_insert(0) += 1;
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &u64> {
-        self.data.iter()
+        self.sequence.iter()
     }
 }
 

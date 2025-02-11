@@ -339,7 +339,7 @@ unsafe fn main() -> Status {
     println!("Best performing programs are:");
     for code in genetic_pool.result().iter().take(4) {
         println!("-----------------");
-        println!("Score: {}", code.rating().as_ref().unwrap_or_else(|| &0));
+        println!("Score: {:?}", code.rating);
         disassemble_code(code.code());
         println!();
     }

@@ -226,7 +226,11 @@ impl Serializer {
             }
             None => {
                 let address = target_address_absolute % (1 << 30);
-                if address >= 4096 {
+                if address >= 7 * 4096 {
+                    // point to outside of physical memory
+
+                    -16i64 as u64
+                } else if address >= 4096 {
                     // point to outside of code segment
 
                     // just keep it
@@ -513,9 +517,8 @@ struct InstructionInfo {
 mod test {
     use crate::mutation_engine::serialize::Serializer;
     use crate::{disassemble_code, Trace};
-    use alloc::vec::Vec;
+    use iced_x86::code_asm;
     use iced_x86::code_asm::CodeAssembler;
-    use iced_x86::{code_asm, Encoder};
     use rand_core::SeedableRng;
     use rand_isaac::isaac64;
     use std::println;
@@ -525,7 +528,7 @@ mod test {
         let mut serializer = Serializer::default();
         let mut rnd = &mut isaac64::Isaac64Rng::seed_from_u64(0);
 
-        let code = {
+        let mut code = {
             let mut assembler = CodeAssembler::new(64).unwrap();
 
             let mut label = assembler.create_label();
@@ -535,21 +538,21 @@ mod test {
             assembler.jmp(label).unwrap();
 
             assembler.nop().unwrap();
-            assembler.nop().unwrap();
-            assembler.nop().unwrap();
 
             assembler.jns(0x38).unwrap();
-
-            assembler
-                .lea(code_asm::edx, code_asm::ptr(0x4509A11))
-                .unwrap();
 
             assembler.assemble(0).unwrap()
         };
 
+        code.clear();
+        code.extend_from_slice(&[0x9E, 0x97, 0x5D, 0x55, 0x39, 0xD2, 0xE0, 0x8E, 0x50, 0x0F]);
+
         disassemble_code(&code);
 
-        let trace = Trace::default();
+        let mut trace = Trace::default();
+        for i in 0..code.len() {
+            trace.push(i as u64);
+        }
         let serialized = serializer.serialize_code(&mut rnd, &code, &trace).unwrap();
 
         println!();
