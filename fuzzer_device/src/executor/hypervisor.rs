@@ -1,6 +1,5 @@
 use crate::{StateTrace, Trace};
 use alloc::boxed::Box;
-use alloc::string::String;
 use alloc::vec::Vec;
 use hypervisor::error::HypervisorError;
 use hypervisor::hardware_vt::{
@@ -11,8 +10,8 @@ use hypervisor::state::{VmState, VmStateExtendedRegisters};
 use hypervisor::vm::Vm;
 use hypervisor::x86_instructions::sgdt;
 use hypervisor::Page;
+use iced_x86::code_asm;
 use iced_x86::code_asm::CodeAssembler;
-use iced_x86::{code_asm, Decoder, DecoderOptions, Formatter, Instruction, NasmFormatter};
 use log::error;
 use x86::bits64::paging::{PAddr, PDPTEntry, PDPTFlags, PML4Entry, PML4Flags, BASE_PAGE_SHIFT};
 use x86::bits64::rflags::RFlags;
@@ -291,7 +290,7 @@ impl Hypervisor {
         // is a full vm reset required? -> YES, interrupt state or smth is transferred across runs
         self.vm.initialize().expect("it also worked the first time");
         self.vm.vt.load_state(&self.initial_state);
-        self.vm.vt.set_preemption_timer(1e3 as u64);
+        self.vm.vt.set_preemption_timer(1e6 as u64);
 
         self.memory_stack_page.zero();
     }

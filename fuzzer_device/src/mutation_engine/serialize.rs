@@ -6,8 +6,7 @@ use core::fmt::Display;
 use iced_x86::{
     BlockEncoder, BlockEncoderOptions, Code, FlowControl, IcedError, Instruction, InstructionBlock,
 };
-use log::{info, warn};
-use num_traits::WrappingSub;
+use log::warn;
 use rand_core::RngCore;
 
 const FENCE_INSTRUCTIONS: &[&[u8]] = &[
@@ -118,13 +117,7 @@ impl Serializer {
             // paradigma: do best effort for non-executed instructions
             // if an instruction that was executed can not be changed -> abort
 
-            let mut new_instruction = Serializer::patch_ip_rel_memory_oop(
-                code,
-                &map_old_to_new_ip,
-                current_ip,
-                instruction,
-                data,
-            )?;
+            let mut new_instruction = Serializer::patch_ip_rel_memory_oop(instruction)?;
 
             if new_instruction.is_none() {
                 new_instruction = Serializer::patch_special_instructions(
@@ -215,10 +208,20 @@ impl Serializer {
         map: &BTreeMap<u64, InstructionInfo>,
         source_end_ip: u64,
         target_end_ip: u64,
-    ) -> u64 {
-        match map.get(&target_address_absolute) {
+    ) -> Result<u64, SerializeError> {
+        // todo mid-instruction jumps
+
+        Ok(match map.get(&target_address_absolute) {
             Some(info) => {
                 // this address maps to an existing instruction
+
+                if info.ip_original_instruction != target_address_absolute {
+                    // this address maps to an existing instruction, but is misaligned
+                    return Err(SerializeError::Unknown(
+                        "Address maps to an existing instruction, but is misaligned",
+                    ));
+                }
+
                 info.new_ip_serialize_operation
             }
             None => {
@@ -237,15 +240,11 @@ impl Serializer {
                     unreachable!("Address points to inside of code segment, but not mapped to an existing instruction: {:X}", address);
                 }
             }
-        }
+        })
     }
 
     fn patch_ip_rel_memory_oop(
-        code: &[u8],
-        map_old_to_new_ip: &BTreeMap<u64, InstructionInfo>,
-        current_ip: u64,
         instruction: &Instruction,
-        data: &InstructionInfo,
     ) -> Result<Option<Instruction>, SerializeError> {
         if instruction.is_ip_rel_memory_operand() {
             let target_ip = instruction.memory_displacement64();
@@ -283,12 +282,22 @@ impl Serializer {
                 if instruction.is_jmp_near() {
                     // `JMP NEAR relX`
                     let target_ip = instruction.near_branch_target();
-                    let new_target_ip = Serializer::source_to_target_address(
+                    let new_target_ip = match Serializer::source_to_target_address(
                         target_ip,
                         &map_old_to_new_ip,
                         code.len() as u64,
                         current_ip,
-                    );
+                    ) {
+                        Ok(ip) => ip,
+                        Err(e) => {
+                            if data.was_executed {
+                                return Err(e);
+                            } else {
+                                warn!("Failed to serialize JMP NEAR instruction: {}", e);
+                                return Ok(None);
+                            }
+                        }
+                    };
 
                     let mut instruction = instruction.clone();
                     instruction.set_near_branch64(new_target_ip);
@@ -298,12 +307,22 @@ impl Serializer {
                     // `JMP FAR ptrXY`
                     let target_ip = instruction.far_branch32();
                     // ignore selector
-                    let new_target_ip = Serializer::source_to_target_address(
+                    let new_target_ip = match Serializer::source_to_target_address(
                         target_ip as u64,
                         &map_old_to_new_ip,
                         code.len() as u64,
                         current_ip,
-                    );
+                    ) {
+                        Ok(ip) => ip,
+                        Err(e) => {
+                            if data.was_executed {
+                                return Err(e);
+                            } else {
+                                warn!("Failed to serialize JMP FAR instruction: {}", e);
+                                return Ok(None);
+                            }
+                        }
+                    };
 
                     let mut instruction = instruction.clone();
                     instruction.set_far_branch32(new_target_ip as u32); // may produce error?
@@ -311,12 +330,22 @@ impl Serializer {
                     Some(instruction)
                 } else if instruction.is_jmp_short() {
                     let target_ip = instruction.memory_displacement64();
-                    let new_target_ip = Serializer::source_to_target_address(
+                    let new_target_ip = match Serializer::source_to_target_address(
                         target_ip,
                         &map_old_to_new_ip,
                         code.len() as u64,
                         current_ip,
-                    );
+                    ) {
+                        Ok(ip) => ip,
+                        Err(e) => {
+                            if data.was_executed {
+                                return Err(e);
+                            } else {
+                                warn!("Failed to serialize JMP SHORT instruction: {}", e);
+                                return Ok(None);
+                            }
+                        }
+                    };
 
                     let mut instruction = instruction.clone();
                     instruction.set_memory_displacement64(new_target_ip);
@@ -348,12 +377,22 @@ impl Serializer {
                 {
                     // `Jcc SHORT relX`, `LOOP rel8`, `LOOPcc rel8`
                     let target_ip = instruction.memory_displacement64();
-                    let new_target_ip = Serializer::source_to_target_address(
+                    let new_target_ip = match Serializer::source_to_target_address(
                         target_ip as u64,
                         &map_old_to_new_ip,
                         code.len() as u64,
                         current_ip,
-                    );
+                    ) {
+                        Ok(ip) => ip,
+                        Err(e) => {
+                            if data.was_executed {
+                                return Err(e);
+                            } else {
+                                warn!("Failed to serialize conditional branch instruction: {}", e);
+                                return Ok(None);
+                            }
+                        }
+                    };
 
                     let mut instruction = instruction.clone();
                     instruction.set_memory_displacement64(new_target_ip);
@@ -362,12 +401,22 @@ impl Serializer {
                 } else if instruction.is_jcc_near() {
                     // `Jcc NEAR`
                     let target_ip = instruction.near_branch_target();
-                    let new_target_ip = Serializer::source_to_target_address(
+                    let new_target_ip = match Serializer::source_to_target_address(
                         target_ip,
                         &map_old_to_new_ip,
                         code.len() as u64,
                         current_ip,
-                    );
+                    ) {
+                        Ok(ip) => ip,
+                        Err(e) => {
+                            if data.was_executed {
+                                return Err(e);
+                            } else {
+                                warn!("Failed to serialize conditional branch instruction: {}", e);
+                                return Ok(None);
+                            }
+                        }
+                    };
 
                     let mut instruction = instruction.clone();
                     instruction.set_near_branch64(new_target_ip);
@@ -396,12 +445,22 @@ impl Serializer {
                 if instruction.is_call_near() {
                     // `CALL NEAR relX`
                     let target_ip = instruction.near_branch_target();
-                    let new_target_ip = Serializer::source_to_target_address(
+                    let new_target_ip = match Serializer::source_to_target_address(
                         target_ip,
                         &map_old_to_new_ip,
                         code.len() as u64,
                         current_ip,
-                    );
+                    ) {
+                        Ok(ip) => ip,
+                        Err(e) => {
+                            if data.was_executed {
+                                return Err(e);
+                            } else {
+                                warn!("Failed to serialize CALL NEAR instruction: {}", e);
+                                return Ok(None);
+                            }
+                        }
+                    };
 
                     let mut instruction = instruction.clone();
                     instruction.set_near_branch64(new_target_ip);
@@ -411,12 +470,22 @@ impl Serializer {
                     // `CALL FAR ptrXY`
                     let target_ip = instruction.far_branch32();
                     // ignore selector
-                    let new_target_ip = Serializer::source_to_target_address(
+                    let new_target_ip = match Serializer::source_to_target_address(
                         target_ip as u64,
                         &map_old_to_new_ip,
                         code.len() as u64,
                         current_ip,
-                    );
+                    ) {
+                        Ok(ip) => ip,
+                        Err(e) => {
+                            if data.was_executed {
+                                return Err(e);
+                            } else {
+                                warn!("Failed to serialize CALL FAR instruction: {}", e);
+                                return Ok(None);
+                            }
+                        }
+                    };
 
                     let mut instruction = instruction.clone();
                     instruction.set_far_branch32(new_target_ip as u32); // may produce error?

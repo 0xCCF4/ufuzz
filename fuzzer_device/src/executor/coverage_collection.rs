@@ -44,6 +44,7 @@ impl<'a> CoverageCollector<'a> {
         let cpu = Box::pin(cpu);
         let rom = cpu.rom();
 
+        #[allow(unused_unsafe)]
         let interface =
             match unsafe { ComInterface::new(&interface_definition::COM_INTERFACE_DESCRIPTION) } {
                 Ok(interface) => interface,
