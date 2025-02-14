@@ -140,6 +140,17 @@ fn build_app(project: &str, release: bool) -> Result<PathBuf, DynError> {
             "--no-default-features",
         ]);
         "examples/test_cmos"
+    } else if project == "test_udp" {
+            status.args([
+                "-p",
+                "fuzzer_device",
+                "--example",
+                "test_udp",
+                "--features",
+                "device_bochs,mutation_all",
+                "--no-default-features",
+            ]);
+            "examples/test_udp"
     } else {
         status.args(["-p", project]);
         project
