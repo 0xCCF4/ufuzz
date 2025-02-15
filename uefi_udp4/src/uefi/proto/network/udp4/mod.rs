@@ -1,2 +1,2 @@
-pub mod proto;
 pub mod managed_event;
+pub mod proto;

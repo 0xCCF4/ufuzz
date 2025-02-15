@@ -2,12 +2,10 @@ use core::ffi::c_void;
 use core::mem::ManuallyDrop;
 use core::ops::Deref;
 use core::ptr::NonNull;
-use log::warn;
-use uefi::boot::ScopedProtocol;
-use uefi::{Event, Handle};
+use log::{trace, warn};
 use uefi::proto::unsafe_protocol;
+use uefi::Handle;
 use uefi_raw::{Ipv4Address, Status};
-use crate::uefi_raw::protocol::network::ip4::Ip4ModeData;
 
 #[derive(Debug)]
 #[repr(C)]
@@ -79,12 +77,23 @@ pub struct Udp4ReceiveDataWrapperScoped(pub NonNull<Udp4ReceiveData>);
 
 impl Udp4ReceiveDataWrapperScoped {
     pub unsafe fn new(data: &ManuallyDrop<Udp4ReceiveData>) -> Self {
-        let data = NonNull::new(data.deref() as *const Udp4ReceiveData as *mut Udp4ReceiveData).expect("Failed to create NonNull");
+        let data = NonNull::new(data.deref() as *const Udp4ReceiveData as *mut Udp4ReceiveData)
+            .expect("Failed to create NonNull");
         Self(data)
     }
+}
 
-    pub fn as_ref(&self) -> &Udp4ReceiveData {
+impl AsRef<Udp4ReceiveData> for Udp4ReceiveDataWrapperScoped {
+    fn as_ref(&self) -> &Udp4ReceiveData {
         unsafe { self.0.as_ref() }
+    }
+}
+
+impl Deref for Udp4ReceiveDataWrapperScoped {
+    type Target = Udp4ReceiveData;
+
+    fn deref(&self) -> &Self::Target {
+        self.as_ref()
     }
 }
 
@@ -94,10 +103,15 @@ impl Drop for Udp4ReceiveDataWrapperScoped {
         let bt = unsafe { bt.as_ref() };
 
         let event = self.as_ref().recycle_signal.as_ptr();
+
+        trace!("Recycling UDP packet data");
         let status = unsafe { ((*bt.boot_services).signal_event)(event) };
 
         if status != Status::SUCCESS {
-            warn!("Failed to signal event for UDP Packet disposal: {:?}", status);
+            warn!(
+                "Failed to signal event for UDP Packet disposal: {:?}",
+                status
+            );
         }
     }
 }
@@ -119,15 +133,9 @@ pub union Udp4Packet<'a> {
 #[repr(C)]
 #[unsafe_protocol("83f01464-99bd-45e5-b383-af6305d8e9e6")]
 pub struct UDP4ServiceBindingProtocol {
-    create_child: extern "efiapi" fn(
-        this: &Self,
-        out_child_handle: &mut *mut c_void,
-    ) -> Status,
+    create_child: extern "efiapi" fn(this: &Self, out_child_handle: &mut *mut c_void) -> Status,
 
-    destroy_child: extern "efiapi" fn(
-        this: &Self,
-        child_handle: Handle,
-    ) -> Status,
+    destroy_child: extern "efiapi" fn(this: &Self, child_handle: Handle) -> Status,
 }
 
 impl UDP4ServiceBindingProtocol {

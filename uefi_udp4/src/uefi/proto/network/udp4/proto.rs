@@ -1,20 +1,20 @@
-use alloc::boxed::Box;
+use crate::uefi::proto::network::udp4::managed_event::ManagedEvent;
+use crate::uefi_raw::protocol::network::ip4::{
+    Ip4ConfigData, Ip4IcmpType, Ip4ModeData, Ip4RouteTable, ManagedNetworkConfigData,
+};
+use crate::uefi_raw::protocol::network::udp4::{
+    Udp4CompletionToken, Udp4ConfigData, Udp4FragmentData, Udp4Packet,
+    Udp4ReceiveDataWrapperScoped, Udp4SessionData, Udp4TransmitData,
+};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::ffi::c_void;
-use core::mem::ManuallyDrop;
-use core::ops::Deref;
-use core::ptr::NonNull;
 use core::sync::atomic::AtomicBool;
-use uefi::{println, Event};
-use uefi::proto::unsafe_protocol;
-use uefi_raw::{Ipv4Address, Status};
-use uefi_raw::table::boot::{EventType, Tpl};
-use log::trace;
+use log::{trace, warn};
 use uefi::boot::TimerTrigger;
-use crate::uefi::proto::network::udp4::managed_event::ManagedEvent;
-use crate::uefi_raw::protocol::network::ip4::{Ip4ConfigData, Ip4IcmpType, Ip4ModeData, Ip4RouteTable, ManagedNetworkConfigData};
-use crate::uefi_raw::protocol::network::udp4::{Udp4CompletionToken, Udp4ConfigData, Udp4FragmentData, Udp4Packet, Udp4ReceiveData, Udp4ReceiveDataWrapperScoped, Udp4SessionData, Udp4TransmitData};
+use uefi::proto::unsafe_protocol;
+use uefi_raw::table::boot::{EventType, Tpl};
+use uefi_raw::{Ipv4Address, Status};
 
 #[derive(Debug)]
 #[repr(C)]
@@ -28,10 +28,8 @@ pub struct UDP4Protocol {
         out_simple_network_mode: Option<&mut core::ffi::c_void>,
     ) -> Status,
 
-    configure_fn: extern "efiapi" fn(
-        this: &mut Self,
-        config_data: Option<&Udp4ConfigData>,
-    ) -> Status,
+    configure_fn:
+        extern "efiapi" fn(this: &mut Self, config_data: Option<&Udp4ConfigData>) -> Status,
 
     groups_fn: extern "efiapi" fn(
         this: &mut Self,
@@ -47,27 +45,18 @@ pub struct UDP4Protocol {
         gateway_address: &Ipv4Address,
     ) -> Status,
 
-    transmit_fn: extern "efiapi" fn(
-        this: &mut Self,
-        token: &mut Udp4CompletionToken,
-    ) -> Status,
+    transmit_fn: extern "efiapi" fn(this: &mut Self, token: &mut Udp4CompletionToken) -> Status,
 
-    receive_fn: extern "efiapi" fn(
-        this: &mut Self,
-        token: &mut Udp4CompletionToken,
-    ) -> Status,
+    receive_fn: extern "efiapi" fn(this: &mut Self, token: &mut Udp4CompletionToken) -> Status,
 
-    cancel_fn: extern "efiapi" fn(
-        this: &mut Self,
-        token: Option<&mut Udp4CompletionToken>,
-    ) -> Status,
+    cancel_fn:
+        extern "efiapi" fn(this: &mut Self, token: Option<&mut Udp4CompletionToken>) -> Status,
 
-    poll_fn: extern "efiapi" fn(
-        this: &mut Self,
-    ) -> Status,
+    poll_fn: extern "efiapi" fn(this: &mut Self) -> Status,
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct Ip4ModeDataSafe<'a> {
     is_started: bool,
     max_packet_size: u32,
@@ -82,9 +71,18 @@ impl From<Ip4ModeData> for Ip4ModeDataSafe<'_> {
     fn from(value: Ip4ModeData) -> Self {
         unsafe {
             Ip4ModeDataSafe {
-                group_table: &*core::ptr::slice_from_raw_parts(value.group_table, value.group_count as usize),
-                ip4_route_table: &*core::ptr::slice_from_raw_parts(value.ip4_route_table, value.route_count as usize),
-                icmp_type_list: &*core::ptr::slice_from_raw_parts(value.icmp_type_list, value.icmp_type_count as usize),
+                group_table: &*core::ptr::slice_from_raw_parts(
+                    value.group_table,
+                    value.group_count as usize,
+                ),
+                ip4_route_table: &*core::ptr::slice_from_raw_parts(
+                    value.ip4_route_table,
+                    value.route_count as usize,
+                ),
+                icmp_type_list: &*core::ptr::slice_from_raw_parts(
+                    value.icmp_type_list,
+                    value.icmp_type_count as usize,
+                ),
                 is_started: value.is_started,
                 max_packet_size: value.max_packet_size,
                 config_data: value.config_data,
@@ -102,7 +100,7 @@ pub struct UdpConfiguration<'a> {
 }
 
 impl UDP4Protocol {
-    pub fn reset(&mut self) ->  Result<(), Status> {
+    pub fn reset(&mut self) -> Result<(), Status> {
         let result = (self.configure_fn)(self, None);
         if result != Status::SUCCESS {
             return Err(result);
@@ -110,7 +108,7 @@ impl UDP4Protocol {
         Ok(())
     }
 
-    pub fn configure(&mut self, connection_mode: &Udp4ConfigData) ->  Result<(), Status> {
+    pub fn configure(&mut self, connection_mode: &Udp4ConfigData) -> Result<(), Status> {
         let result = (self.configure_fn)(self, Some(connection_mode));
         if result != Status::SUCCESS {
             return Err(result);
@@ -123,7 +121,13 @@ impl UDP4Protocol {
         let mut ip4_mode_data = Ip4ModeData::default();
         let mut managed_network_config_data = ManagedNetworkConfigData::default();
 
-        let result = (self.get_mode_data_fn)(self, Some(&mut config_data), Some(&mut ip4_mode_data), Some(&mut managed_network_config_data), None);
+        let result = (self.get_mode_data_fn)(
+            self,
+            Some(&mut config_data),
+            Some(&mut ip4_mode_data),
+            Some(&mut managed_network_config_data),
+            None,
+        );
         if result != Status::SUCCESS {
             return Err(result);
         }
@@ -135,16 +139,15 @@ impl UDP4Protocol {
         })
     }
 
-    pub fn leave_all_multicast_groups(&mut self) ->  Result<(), Status> {
+    pub fn leave_all_multicast_groups(&mut self) -> Result<(), Status> {
         let result = (self.groups_fn)(self, false, None);
         if result != Status::SUCCESS {
             return Err(result);
         }
         Ok(())
-
     }
 
-    pub fn join_multicast_group(&mut self, multicast_address: &Ipv4Address) ->  Result<(), Status> {
+    pub fn join_multicast_group(&mut self, multicast_address: &Ipv4Address) -> Result<(), Status> {
         let result = (self.groups_fn)(self, true, Some(multicast_address));
         if result != Status::SUCCESS {
             return Err(result);
@@ -152,7 +155,7 @@ impl UDP4Protocol {
         Ok(())
     }
 
-    pub fn leave_multicast_group(&mut self, multicast_address: &Ipv4Address) ->  Result<(), Status> {
+    pub fn leave_multicast_group(&mut self, multicast_address: &Ipv4Address) -> Result<(), Status> {
         let result = (self.groups_fn)(self, false, Some(multicast_address));
         if result != Status::SUCCESS {
             return Err(result);
@@ -160,7 +163,12 @@ impl UDP4Protocol {
         Ok(())
     }
 
-    pub fn add_route(&mut self, subnet_address: &Ipv4Address, subnet_mask: &Ipv4Address, gateway_address: &Ipv4Address) ->  Result<(), Status> {
+    pub fn add_route(
+        &mut self,
+        subnet_address: &Ipv4Address,
+        subnet_mask: &Ipv4Address,
+        gateway_address: &Ipv4Address,
+    ) -> Result<(), Status> {
         let result = (self.routes_fn)(self, false, subnet_address, subnet_mask, gateway_address);
         if result != Status::SUCCESS {
             return Err(result);
@@ -168,7 +176,12 @@ impl UDP4Protocol {
         Ok(())
     }
 
-    pub fn delete_route(&mut self, subnet_address: &Ipv4Address, subnet_mask: &Ipv4Address, gateway_address: &Ipv4Address) ->  Result<(), Status> {
+    pub fn delete_route(
+        &mut self,
+        subnet_address: &Ipv4Address,
+        subnet_mask: &Ipv4Address,
+        gateway_address: &Ipv4Address,
+    ) -> Result<(), Status> {
         let result = (self.routes_fn)(self, true, subnet_address, subnet_mask, gateway_address);
         if result != Status::SUCCESS {
             return Err(result);
@@ -183,11 +196,16 @@ impl UDP4Protocol {
         }
     }
 
-    pub fn transmit(&mut self, session_data: Option<&Udp4SessionData>, gateway: Option<&Ipv4Address>, data: &[u8]) -> Result<(), Status> {
+    pub fn transmit(
+        &mut self,
+        session_data: Option<&Udp4SessionData>,
+        gateway: Option<&Ipv4Address>,
+        data: &[u8],
+    ) -> Result<(), Status> {
         let sent = Arc::new(AtomicBool::new(false));
         let sent_clone = sent.clone();
 
-        let event = ManagedEvent::new(EventType::NOTIFY_SIGNAL, move |e| {
+        let event = ManagedEvent::new(EventType::NOTIFY_SIGNAL, move |_| {
             sent_clone.swap(true, core::sync::atomic::Ordering::Relaxed);
         });
 
@@ -199,7 +217,7 @@ impl UDP4Protocol {
             fragment_table: [Udp4FragmentData {
                 fragment_buffer: data.as_ptr() as *mut c_void,
                 fragment_length: data.len() as u32,
-            }]
+            }],
         };
 
         let packet = Udp4Packet {
@@ -239,17 +257,20 @@ impl UDP4Protocol {
         let timeout = Arc::new(AtomicBool::new(false));
         let timeout_clone = timeout.clone();
 
-        let event = ManagedEvent::new(EventType::NOTIFY_SIGNAL, move |e| {
+        let event = ManagedEvent::new(EventType::NOTIFY_SIGNAL, move |_| {
             receive_clone.swap(true, core::sync::atomic::Ordering::Relaxed);
         });
 
-        let timeout_event = timeout_millis.map(|timeout| (timeout, ManagedEvent::new(EventType::TIMER, move |e| {
-            timeout_clone.swap(true, core::sync::atomic::Ordering::Relaxed);
-        })));
-        
-        let mut packet = Udp4Packet {
-            rx_data: None,
-        };
+        let timeout_event = timeout_millis.map(|timeout| {
+            (
+                timeout,
+                ManagedEvent::new(EventType::TIMER, move |_| {
+                    timeout_clone.swap(true, core::sync::atomic::Ordering::Relaxed);
+                }),
+            )
+        });
+
+        let packet = Udp4Packet { rx_data: None };
 
         let mut token = Udp4CompletionToken {
             event: unsafe { event.event.unsafe_clone() },
@@ -265,21 +286,35 @@ impl UDP4Protocol {
         }
 
         if let Some((timeout_millis, timer_event)) = &timeout_event {
-            uefi::boot::set_timer(&timer_event.event, TimerTrigger::Relative(timeout_millis * 10)).expect("timer setup failed");
+            uefi::boot::set_timer(
+                &timer_event.event,
+                TimerTrigger::Relative(timeout_millis * 10),
+            )
+            .expect("timer setup failed");
         }
 
-        while receive.load(core::sync::atomic::Ordering::Relaxed) == false && timeout.load(core::sync::atomic::Ordering::Relaxed) == false {
+        while receive.load(core::sync::atomic::Ordering::Relaxed) == false
+            && timeout.load(core::sync::atomic::Ordering::Relaxed) == false
+        {
             let _ = self.poll();
         }
 
         if let Some((_timeout_millis, timer_event)) = &timeout_event {
-            uefi::boot::set_timer(&timer_event.event, TimerTrigger::Cancel).expect("timer setup failed");
+            uefi::boot::set_timer(&timer_event.event, TimerTrigger::Cancel)
+                .expect("timer setup failed");
         }
 
-        if receive.load(core::sync::atomic::Ordering::Relaxed) == false && timeout.load(core::sync::atomic::Ordering::Relaxed) == true {
-            trace!("Receive timed out");
+        let guard = unsafe { uefi::boot::raise_tpl(Tpl::HIGH_LEVEL) }; // we do not want the packet to be processed while we are canceling it
+        if receive.load(core::sync::atomic::Ordering::Relaxed) == false
+            && timeout.load(core::sync::atomic::Ordering::Relaxed) == true
+        {
+            trace!(
+                "Receive timed out: {:?}",
+                (self.cancel_fn)(self, Some(&mut token))
+            );
             return Err(Status::TIMEOUT);
         }
+        drop(guard);
 
         drop(timeout_event);
         drop(event);
@@ -291,29 +326,41 @@ impl UDP4Protocol {
 
         assert!(unsafe { token.packet.rx_data }.is_some());
 
-        let rx_data = unsafe {
-            Udp4ReceiveDataWrapperScoped::new(token.packet.rx_data.unwrap())
+        let rx_data = unsafe { Udp4ReceiveDataWrapperScoped::new(token.packet.rx_data.unwrap()) };
+
+        let data_length = rx_data.data_length;
+        if data_length > 8192 {
+            warn!("Buffer too small for received data");
+            return Err(Status::BUFFER_TOO_SMALL);
+        }
+        let mut result = Vec::with_capacity(data_length as usize);
+
+        let fragment_count = rx_data.fragment_count;
+        let fragment_table = unsafe {
+            &*core::ptr::slice_from_raw_parts(
+                rx_data.fragment_table.as_ptr(),
+                fragment_count as usize,
+            )
         };
 
-        // todo
+        for fragment in fragment_table {
+            let fragment_buffer = unsafe {
+                &*core::ptr::slice_from_raw_parts(
+                    fragment.fragment_buffer as *const u8,
+                    fragment.fragment_length as usize,
+                )
+            };
 
-        Ok(Vec::new())
+            if result.len() + fragment_buffer.len() > result.capacity() {
+                warn!("Buffer too small for received fragment data");
+                return Err(Status::BUFFER_TOO_SMALL);
+            }
+
+            result.extend_from_slice(fragment_buffer);
+        }
+
+        assert_eq!(result.len(), data_length as usize);
+
+        Ok(result)
     }
-}
-
-unsafe extern "efiapi" fn call_closure<F>(
-    event: Event,
-    raw_context: Option<NonNull<c_void>>,
-) where F: FnMut(Event) + 'static {
-    let unwrapped_context = cast_ctx(raw_context);
-    let callback_ptr = unwrapped_context as *mut F;
-    let callback = &mut *callback_ptr;
-    callback(event);
-    // Safety: *Don't drop the box* that carries the closure yet, because
-    // the closure might be invoked again.
-}
-
-unsafe fn cast_ctx<T>(raw_val: Option<NonNull<c_void>>) -> &'static mut T {
-    let val_ptr = raw_val.unwrap().as_ptr() as *mut c_void as *mut T;
-    &mut *val_ptr
 }

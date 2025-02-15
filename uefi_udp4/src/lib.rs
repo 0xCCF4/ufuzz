@@ -30,8 +30,8 @@ pub mod uefi {
 pub mod uefi_raw {
     pub mod protocol {
         pub mod network {
-            pub mod udp4;
             pub mod ip4;
+            pub mod udp4;
         }
     }
 }

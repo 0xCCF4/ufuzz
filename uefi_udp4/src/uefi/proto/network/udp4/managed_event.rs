@@ -1,9 +1,8 @@
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 use core::ffi::c_void;
-use uefi::Event;
 use core::ptr::NonNull;
-use uefi_raw::Status;
+use uefi::Event;
 use uefi_raw::table::boot::{EventType, Tpl};
 
 pub struct ManagedEvent {
@@ -15,12 +14,10 @@ pub struct ManagedEvent {
 /// The wrapper as-is can't be used because the wrapper can be cheaply cloned and passed around,
 /// whereas we need there to be a single instance per event (so the destructor only runs once).
 impl ManagedEvent {
-    pub fn new<F>(
-        event_type: EventType,
-        callback: F,
-    ) -> Self
+    pub fn new<F>(event_type: EventType, callback: F) -> Self
     where
-        F: FnMut(Event) + 'static {
+        F: FnMut(Event) + 'static,
+    {
         let boxed_closure = Box::into_raw(Box::new(callback));
         unsafe {
             let event = uefi::boot::create_event(
@@ -28,7 +25,8 @@ impl ManagedEvent {
                 Tpl::CALLBACK,
                 Some(call_closure::<F>),
                 Some(NonNull::new(boxed_closure as *mut _ as *mut c_void).unwrap()),
-            ).expect("Failed to create event");
+            )
+            .expect("Failed to create event");
             Self {
                 event,
                 boxed_closure,
@@ -38,18 +36,17 @@ impl ManagedEvent {
 
     pub fn wait(&self) -> uefi::Result<usize, Option<usize>> {
         // Safety: The event clone is discarded after being passed to the UEFI function.
-        unsafe {
-            uefi::boot::wait_for_event(
-                &mut [self.event.unsafe_clone()]
-            )
-        }
+        unsafe { uefi::boot::wait_for_event(&mut [self.event.unsafe_clone()]) }
     }
 
     pub fn wait_for_events(events: &[&Self]) -> uefi::Result<usize, Option<usize>> {
         // Safety: The event clone is discarded after being passed to the UEFI function.
         Ok(unsafe {
             uefi::boot::wait_for_event(
-                &mut events.iter().map(|e| e.event.unsafe_clone()).collect::<Vec<Event>>()
+                &mut events
+                    .iter()
+                    .map(|e| e.event.unsafe_clone())
+                    .collect::<Vec<Event>>(),
             )?
         })
     }
@@ -69,10 +66,10 @@ impl Drop for ManagedEvent {
     }
 }
 
-unsafe extern "efiapi" fn call_closure<F>(
-    event: Event,
-    raw_context: Option<NonNull<c_void>>,
-) where F: FnMut(Event) + 'static {
+unsafe extern "efiapi" fn call_closure<F>(event: Event, raw_context: Option<NonNull<c_void>>)
+where
+    F: FnMut(Event) + 'static,
+{
     let unwrapped_context = cast_ctx(raw_context);
     let callback_ptr = unwrapped_context as *mut F;
     let callback = &mut *callback_ptr;

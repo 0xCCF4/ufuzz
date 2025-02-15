@@ -1,30 +1,21 @@
 #![no_main]
 #![no_std]
-#![feature(generic_const_exprs)]
 
 extern crate alloc;
 
-use alloc::string::{String, ToString};
-use alloc::vec::Vec;
-use core::fmt::{Debug, Write};
 use log::info;
-use fuzzer_device::cmos;
-use fuzzer_device::cmos::CMOS;
-use uefi::boot::ScopedProtocol;
-use uefi::proto::loaded_image::LoadedImage;
-use uefi::{entry, guid, println, Guid, Status};
-use uefi::proto::unsafe_protocol;
+use uefi::{entry, Status};
 use uefi_raw::Ipv4Address;
-use uefi_raw::protocol::console::serial::SerialIoProtocol;
-use uefi_raw::protocol::network::http;
+use uefi_udp4::uefi_raw::protocol::network::udp4::Udp4ConfigData;
 use uefi_udp4::Ipv4AddressExt;
-use uefi_udp4::uefi_raw::protocol::network::udp4::{Udp4ConfigData, Udp4SessionData};
 
 #[entry]
 unsafe fn main() -> Status {
     uefi::helpers::init().unwrap();
 
-    let network_handles = match uefi::boot::find_handles::<uefi_udp4::uefi_raw::protocol::network::udp4::UDP4ServiceBindingProtocol>() {
+    let network_handles = match uefi::boot::find_handles::<
+        uefi_udp4::uefi_raw::protocol::network::udp4::UDP4ServiceBindingProtocol,
+    >() {
         Ok(handles) => handles,
         Err(e) => {
             info!("Failed to find network binding protocol handles: {:?}", e);
@@ -34,7 +25,10 @@ unsafe fn main() -> Status {
 
     for (i, handle) in network_handles.iter().enumerate() {
         info!("Found network binding protocol handle {}: {:?}", i, handle);
-        let mut net = match uefi::boot::open_protocol_exclusive::<uefi_udp4::uefi_raw::protocol::network::udp4::UDP4ServiceBindingProtocol>(*handle) {
+        let net = match uefi::boot::open_protocol_exclusive::<
+            uefi_udp4::uefi_raw::protocol::network::udp4::UDP4ServiceBindingProtocol,
+        >(*handle)
+        {
             Ok(net) => net,
             Err(e) => {
                 info!("Failed to open network binding protocol: {:?}", e);
@@ -50,7 +44,10 @@ unsafe fn main() -> Status {
             }
         };
 
-        let mut net = match uefi::boot::open_protocol_exclusive::<uefi_udp4::uefi::proto::network::udp4::proto::UDP4Protocol>(udp_handle.handle()) {
+        let mut net = match uefi::boot::open_protocol_exclusive::<
+            uefi_udp4::uefi::proto::network::udp4::proto::UDP4Protocol,
+        >(udp_handle.handle())
+        {
             Ok(net) => net,
             Err(e) => {
                 info!("Failed to open network protocol: {:?}", e);
@@ -70,7 +67,7 @@ unsafe fn main() -> Status {
         let remote_port = 4444;
         let source_port = 4444;
 
-        let mut config_data = Udp4ConfigData {
+        let config_data = Udp4ConfigData {
             accept_any_port: true,
             accept_broadcast: true,
             accept_promiscuous: true,
@@ -107,7 +104,5 @@ unsafe fn main() -> Status {
         info!("Receive result: {:?}", result);
     }
 
-
     Status::SUCCESS
-
 }
