@@ -3,6 +3,7 @@
 
 extern crate alloc;
 
+use alloc::string::String;
 use log::info;
 use uefi::{entry, Status};
 use uefi_raw::Ipv4Address;
@@ -68,7 +69,7 @@ unsafe fn main() -> Status {
         let source_port = 4444;
 
         let config_data = Udp4ConfigData {
-            accept_any_port: true,
+            accept_any_port: false,
             accept_broadcast: true,
             accept_promiscuous: true,
             allow_duplicate_port: true,
@@ -101,7 +102,8 @@ unsafe fn main() -> Status {
         }
 
         let result = net.receive(None);
-        info!("Receive result: {:?}", result);
+        info!("Receive result: {:x?}", result);
+        info!("Lossy string: {:?}", result.as_ref().map(|v| String::from_utf8_lossy(v)));
     }
 
     Status::SUCCESS

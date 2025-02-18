@@ -264,7 +264,7 @@ impl UDP4Protocol {
         let timeout_event = timeout_millis.map(|timeout| {
             (
                 timeout,
-                ManagedEvent::new(EventType::TIMER, move |_| {
+                ManagedEvent::new(EventType::TIMER | EventType::NOTIFY_SIGNAL, move |_| {
                     timeout_clone.swap(true, core::sync::atomic::Ordering::Relaxed);
                 }),
             )
@@ -288,7 +288,7 @@ impl UDP4Protocol {
         if let Some((timeout_millis, timer_event)) = &timeout_event {
             uefi::boot::set_timer(
                 &timer_event.event,
-                TimerTrigger::Relative(timeout_millis * 10),
+                TimerTrigger::Relative(timeout_millis * 1000 * 10),
             )
             .expect("timer setup failed");
         }
