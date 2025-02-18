@@ -113,14 +113,14 @@ impl UcodeCompiler {
             return Err(ErrorKind::SourceFileDoesNotExist(input.to_owned()).into());
         }
 
-        let mut command = Command::new("python3");
-
-        match self.compiler_path.to_str() {
+        let compiler = match self.compiler_path.to_str() {
             None => {
                 return Err(ErrorKind::LossyFilenameConversion(self.compiler_path.clone()).into())
             }
-            Some(path) => command.arg(path),
+            Some(path) => path,
         };
+
+        let mut command = Command::new(compiler);
 
         if let Some(cpuid) = compiler_options.as_ref().clone().cpuid {
             command.arg("--cpuid").arg(cpuid);
@@ -317,7 +317,7 @@ pub fn build_script_compile_folder<P: AsRef<Path>, Q: AsRef<Path>, C: AsRef<Comp
     }
 
     let ucode_compiler = if let Ok(path) = env::var("UASM") {
-        PathBuf::from(path).join("uasm.py")
+        PathBuf::from(path)
     } else {
         current_directory
             .parent()
