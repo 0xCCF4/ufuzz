@@ -13,6 +13,8 @@ use std::{
     path::{Path, PathBuf},
     process::Command,
 };
+use std::process::Stdio;
+use std::io::Write;
 
 mod bochs;
 
@@ -20,7 +22,17 @@ type DynError = Box<dyn std::error::Error>;
 
 #[derive(Parser)]
 #[command(author, about, long_about = None)]
-struct Cli {
+enum Cli {
+    Emulate(EmulateCli),
+    PutRemote {
+        /// name of the target
+        name: String,
+    },
+    UpdateNode,
+}
+
+#[derive(Parser)]
+struct EmulateCli {
     /// Build the hypervisor with the release profile
     #[arg(short, long)]
     release: bool,
@@ -50,6 +62,87 @@ enum Commands {
 
 fn main() {
     let cli = Cli::parse();
+    match cli {
+        Cli::Emulate(cli) => main_run(cli),
+        Cli::UpdateNode => main_update_node(),
+        Cli::PutRemote {name} => main_put_remote(&name),
+    }
+}
+
+fn main_put_remote(name: &str) {
+    let app = build_app(name, false, true).expect("Failed to build the app");
+    let name = app.file_name().expect("Failed to get the app file name").to_str().unwrap();
+
+    let mut sftp = Command::new("sftp")
+        .arg("thesis@192.168.0.6:/tmp")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .spawn()
+        .expect("Failed to start sftp");
+
+    let sftp_stdin = sftp.stdin.as_mut().expect("Failed to open sftp stdin");
+    writeln!(sftp_stdin, "put {}", app.as_os_str().to_str().unwrap()).expect("Failed to write to sftp stdin");
+    writeln!(sftp_stdin, "exit").expect("Failed to write to sftp stdin");
+
+    let status = sftp.wait().expect("Failed to wait on sftp");
+
+    let mut ssh = Command::new("ssh")
+        .arg("thesis@192.168.0.6")
+        .stdin(Stdio::piped())
+        .spawn()
+        .expect("Failed to start ssh");
+
+    {
+        let ssh_stdin = ssh.stdin.as_mut().expect("Failed to open ssh stdin");
+        writeln!(ssh_stdin, "sudo sync").expect("Failed to write to ssh stdin");
+        writeln!(ssh_stdin, "sudo configure_usb off").expect("Failed to write to ssh stdin");
+        writeln!(ssh_stdin, "if [ ! -f ~/disk.img ]; then echo 'Creating disk image' && dd if=/dev/zero of=~/disk.img bs=1M count=1024 && echo 'Formatting disk image' && mkfs.fat -F 32 ~/disk.img; fi").expect("Failed to write to ssh stdin");
+        writeln!(ssh_stdin, "sudo mkdir -p /mnt ; sudo mount ~/disk.img /mnt").expect("Failed to write to ssh stdin");
+        writeln!(ssh_stdin, "sudo cp \"/tmp/{}\" /mnt/{}", name, name).expect("Failed to write to ssh stdin");
+        writeln!(ssh_stdin, "sudo umount /mnt").expect("Failed to write to ssh stdin");
+        writeln!(ssh_stdin, "sudo rm /tmp/{}", name).expect("Failed to write to ssh stdin");
+        writeln!(ssh_stdin, "sudo sync").expect("Failed to write to ssh stdin");
+        writeln!(ssh_stdin, "sudo configure_usb on ~/disk.img").expect("Failed to write to ssh stdin");
+        writeln!(ssh_stdin, "exit").expect("Failed to write to ssh stdin");
+
+    }
+
+    let status = ssh.wait().expect("Failed to wait on ssh");
+
+    if !status.success() {
+        eprintln!("Failed to execute remote commands");
+        std::process::exit(-1);
+    }
+}
+
+fn main_update_node() {
+    let project_root = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
+
+    let mut status = Command::new("distrobox-host-exec");
+
+    status
+        .args([
+            "nixos-rebuild",
+            "switch",
+            "--use-remote-sudo",
+            "--flake",
+            ".#node",
+            "--target-host",
+            "thesis@192.168.0.6",
+        ])
+        .current_dir(project_root.parent().unwrap().join("nix"));
+
+    let status = status
+        .status()
+        .expect("Failed to update the node");
+
+    if !status.success() {
+        eprintln!("Failed to update the node");
+        std::process::exit(-1);
+    }
+}
+
+fn main_run(cli: EmulateCli) {
     let result = match &cli.command {
         Commands::BochsIntel => start_vm(
             Bochs {
@@ -88,7 +181,7 @@ trait VM {
 }
 
 fn start_vm<T: VM>(vm: T, release: bool, project: &str, ctrlc: bool) -> Result<(), DynError> {
-    let build_output = build_app(project, release)?;
+    let build_output = build_app(project, release, false)?;
     let project_root = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
 
     let env = vm.deploy("/tmp", project_root.join("config"), build_output)?;
@@ -97,7 +190,7 @@ fn start_vm<T: VM>(vm: T, release: bool, project: &str, ctrlc: bool) -> Result<(
     Ok(())
 }
 
-fn build_app(project: &str, release: bool) -> Result<PathBuf, DynError> {
+fn build_app(project: &str, release: bool, device: bool) -> Result<PathBuf, DynError> {
     let cargo = env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
 
     let mut status = Command::new(cargo);
@@ -122,7 +215,8 @@ fn build_app(project: &str, release: bool) -> Result<PathBuf, DynError> {
             project,
             "--bins",
             "--features",
-            "__device_bochs",
+            if device { "__device_brix"} else {
+            "__device_bochs"},
             "--no-default-features",
         ]);
         "fuzzer_device"

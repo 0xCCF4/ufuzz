@@ -15,19 +15,24 @@
       pkgsFor = nixpkgs.legacyPackages;
     in
     rec {
-      nixosConfigurations.rpi4 = nixpkgs.lib.nixosSystem {
+      nixosConfigurations.node = nixpkgs.lib.nixosSystem {
         system = "aarch64-linux";
         modules = [
           nixos-hardware.nixosModules.raspberry-pi-4
           "${nixpkgs}/nixos/modules/installer/sd-card/sd-image-aarch64.nix"
           ./fuzzer_node/system.nix
+          ./system.nix
         ];
+        specialArgs = {
+          settings.hostName = "fuzzer-node";
+          inherit packages;
+        };
       };
-      images.rpi4 = nixosConfigurations.rpi4.config.system.build.sdImage;
+      images.node = nixosConfigurations.node.config.system.build.sdImage;
 
       packages = forAllSystems (system: {
-        fuzzer_device = pkgsFor.${system}.callPackage ./fuzzer_device/package.nix { inherit nixpkgs system rust-overlay; };
-        #fuzzer_node = pkgsFor.${system}.callPackage ./fuzzer_node/package.nix {};
+        fuzzer_node = pkgsFor.${system}.callPackage ./fuzzer_node/package.nix { inherit nixpkgs system rust-overlay; };
+        fuzzer_master = pkgsFor.${system}.callPackage ./fuzzer_master/package.nix { inherit nixpkgs system rust-overlay; };
       });
 
       formatter.x86_64-linux = nixpkgs.legacyPackages.x86_64-linux.nixpkgs-fmt;

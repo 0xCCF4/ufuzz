@@ -61,6 +61,8 @@ unsafe fn main() -> Status {
             continue;
         }
 
+        // connect using: nc -p 4444 -u 192.168.0.44 4444
+
         let remote_address = Ipv4Address::new(192, 168, 0, 4);
         let source_address = Ipv4Address::new(192, 168, 0, 44);
         let subnet_mask = Ipv4Address::new(255, 255, 255, 0);
@@ -70,8 +72,8 @@ unsafe fn main() -> Status {
 
         let config_data = Udp4ConfigData {
             accept_any_port: false,
-            accept_broadcast: true,
-            accept_promiscuous: true,
+            accept_broadcast: false,
+            accept_promiscuous: false,
             allow_duplicate_port: true,
             do_not_fragment: true,
             receive_timeout: 0,
@@ -101,7 +103,7 @@ unsafe fn main() -> Status {
             continue;
         }
 
-        let result = net.receive(None);
+        let result = net.receive(Some(10_000));
         info!("Receive result: {:x?}", result);
         info!("Lossy string: {:?}", result.as_ref().map(|v| String::from_utf8_lossy(v)));
     }
