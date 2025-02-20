@@ -1,10 +1,11 @@
+use hypervisor::state::{ExceptionQualification, GuestException, GuestRegisters, VmExitReason};
 use crate::{StateTrace, Trace};
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 use hypervisor::error::HypervisorError;
 use hypervisor::hardware_vt::{
-    ExceptionQualification, GuestException, GuestRegisters, NestedPagingStructureEntryType,
-    VmExitReason,
+    NestedPagingStructureEntryType,
+
 };
 use hypervisor::state::{VmState, VmStateExtendedRegisters};
 use hypervisor::vm::Vm;

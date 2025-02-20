@@ -42,7 +42,7 @@ in
         serviceConfig.Type = "oneshot";
         serviceConfig.ExecStart = "${pkgs.writeScriptBin "create-nixtmp" ''
           #!${pkgs.stdenv.shell}
-          rm -Rf /nixtmp
+          rm -Rf /nixtmp || true
           mkdir -p /nixtmp
         ''}/bin/create-nixtmp";
         requiredBy = [ "nix-daemon.service" ];

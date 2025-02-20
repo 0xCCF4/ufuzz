@@ -185,12 +185,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "383d29d513d8764dcdc42ea295d979eb99c3c9f00607b3692cf68a431f7dca72"
 
 [[package]]
-name = "bit-vec"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5e764a1d40d510daf35e07be9eb06e75770908c27d411ee6c92109c9840eaaf7"
-
-[[package]]
 name = "bit_field"
 version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -750,15 +744,20 @@ dependencies = [
 [[package]]
 name = "fuzzer_master"
 version = "0.1.0"
+dependencies = [
+ "fuzzer_data",
+ "log",
+ "reqwest",
+ "serde_json",
+ "tokio",
+]
 
 [[package]]
 name = "fuzzer_node"
 version = "0.1.0"
 dependencies = [
- "fuzzer_data",
  "lazy_static",
  "rocket",
- "serde",
 ]
 
 [[package]]
@@ -1041,14 +1040,11 @@ dependencies = [
 name = "hypervisor"
 version = "0.1.0"
 dependencies = [
- "bit-vec",
  "bitfield",
  "derivative",
  "iced-x86",
  "log",
  "serde",
- "serde_json",
- "spin",
  "thiserror-no-std",
  "uefi 0.33.0",
  "x86",
@@ -2284,9 +2280,6 @@ name = "spin"
 version = "0.9.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6980e8d7511241f8acf4aebddbb1ff938df5eebe98691418c4468d0b72a96a67"
-dependencies = [
- "lock_api",
-]
 
 [[package]]
 name = "stable-pattern"
@@ -2524,6 +2517,7 @@ dependencies = [
  "bytes",
  "libc",
  "mio",
+ "parking_lot",
  "pin-project-lite",
  "signal-hook-registry",
  "socket2",

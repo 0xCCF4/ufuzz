@@ -28,6 +28,9 @@ enum Cli {
         /// name of the target
         name: String,
     },
+    ControlRemote {
+      args: Vec<String>,
+    },
     UpdateNode,
 }
 
@@ -66,6 +69,32 @@ fn main() {
         Cli::Emulate(cli) => main_run(cli),
         Cli::UpdateNode => main_update_node(),
         Cli::PutRemote {name} => main_put_remote(&name),
+        Cli::ControlRemote {args} => main_control_remote(args),
+    }
+}
+
+fn main_control_remote(args: Vec<String>) {
+    let mut ssh = Command::new("ssh")
+        .arg("thesis@192.168.0.6")
+        .stdin(Stdio::piped())
+        .spawn()
+        .expect("Failed to start ssh");
+
+    {
+        let ssh_stdin = ssh.stdin.as_mut().expect("Failed to open ssh stdin");
+        writeln!(ssh_stdin, "device_control").expect("Failed to write to ssh stdin");
+        for arg in args {
+            write!(ssh_stdin, "{:?} ", arg).expect("Failed to write to ssh stdin");
+        }
+        writeln!(ssh_stdin).expect("Failed to write to ssh stdin");
+        writeln!(ssh_stdin, "exit").expect("Failed to write to ssh stdin");
+    }
+
+    let status = ssh.wait().expect("Failed to wait on ssh");
+
+    if !status.success() {
+        eprintln!("Failed to execute remote commands");
+        std::process::exit(-1);
     }
 }
 

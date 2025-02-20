@@ -6,5 +6,3 @@ edition = "2021"
 [dependencies]
 rocket = { version = "0.5.1", features = ["json"] }
 lazy_static = "1.5.0"
-fuzzer_data = { path = "../fuzzer_data" }
-serde = { version = "1.0.218", features = ["derive"] }

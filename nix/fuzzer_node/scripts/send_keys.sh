@@ -5,7 +5,7 @@
 send_keycode() {
     local keycode=$1
     local modifier=${2:-0}
-    echo -ne "\x${modifier}\0\x${keycode}\0\0\0\0\0" > /dev/hidg0
+    echo -ne "\x${modifier}\0\x${keycode}\0\0\0\0\0" | sudo tee /dev/hidg0
 }
 
 send_string() {

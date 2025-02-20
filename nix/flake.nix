@@ -3,12 +3,9 @@
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-24.11";
     nixos-hardware.url = "github:nixos/nixos-hardware";
-    rust-overlay = {
-      url = "github:oxalica/rust-overlay";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
+    crate2nix.url = "github:nix-community/crate2nix";
   };
-  outputs = { self, nixpkgs, nixos-hardware, rust-overlay }:
+  outputs = { self, nixpkgs, nixos-hardware, crate2nix }:
     let
       supportedSystems = [ "x86_64-linux" "aarch64-linux" ];
       forAllSystems = nixpkgs.lib.genAttrs supportedSystems;
@@ -31,8 +28,8 @@
       images.node = nixosConfigurations.node.config.system.build.sdImage;
 
       packages = forAllSystems (system: {
-        fuzzer_node = pkgsFor.${system}.callPackage ./fuzzer_node/package.nix { inherit nixpkgs system rust-overlay; };
-        fuzzer_master = pkgsFor.${system}.callPackage ./fuzzer_master/package.nix { inherit nixpkgs system rust-overlay; };
+        fuzzer_node = pkgsFor.${system}.callPackage ./fuzzer_node/package.nix { inherit nixpkgs system crate2nix; };
+        fuzzer_master = pkgsFor.${system}.callPackage ./fuzzer_master/package.nix { inherit nixpkgs system crate2nix; };
       });
 
       formatter.x86_64-linux = nixpkgs.legacyPackages.x86_64-linux.nixpkgs-fmt;

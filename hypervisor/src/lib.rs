@@ -14,12 +14,16 @@
 extern crate alloc;
 
 use alloc::boxed::Box;
-use x86::bits64::paging::BASE_PAGE_SIZE;
 
+const BASE_PAGE_SIZE: usize = 4096;
+
+#[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
 pub mod hardware_vt;
 
+#[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
 pub mod x86_instructions;
 
+#[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
 pub mod vm;
 
 pub mod error;

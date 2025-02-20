@@ -10,7 +10,7 @@
 
       environment.systemPackages = with pkgs; [ packages."${system}".fuzzer_node ] ++ scripts;
 
-      networking.firewall.allowedTCPPorts = [ 4444 ];
+      networking.firewall.allowedTCPPorts = [ 8000 ];
 
       systemd.services.fuzzer_node = {
         description = "Fuzzer Node Service";
@@ -22,6 +22,16 @@
           Restart = "always";
           RestartSec = 5;
         };
+      };
+
+      systemd.services.fuzzer_start = {
+        description = "Setup platform";
+        wantedBy = [ "local-fs.target" ];
+        serviceConfig.Type = "oneshot";
+        serviceConfig.ExecStart = "${pkgs.writeScriptBin "platform-setup" ''
+          #!${pkgs.stdenv.shell}
+          /run/current-system/sw/bin/device_control init
+        ''}/bin/platform-setup";
       };
     };
 }

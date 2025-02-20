@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+PATH=$PATH:/run/current-system/sw/bin/
+
 case "${1:-}" in
     send_keys)
         send_keys "${2:-}" "${3:-}" "${4:-}" "${5:-}"
@@ -13,20 +15,32 @@ case "${1:-}" in
     configure_usb)
         configure_usb "${2:-}" "${3:-}" "${4:-}" "${5:-}"
         ;;
+    init)
+        power_button release
+        if [ -f /home/thesis/disk.img ]; then
+            if ! configure_usb check; then
+                configure_usb on /home/thesis/disk.img
+            fi
+        fi
+        ;;
+    check)
+        curl 127.0.0.1:8000/alive
+        ;;
     *)
-        echo "Invalid argument: $1"
-        echo "Usage: manage {send_keys|power_button|skip_bios|configure_usb} [...]"
+        echo "$0 {send_keys|power_button|skip_bios|configure_usb|check|init} [...]"
 
-        echo -n " "
-        send_keys
+        echo -n "     "
+        send_keys || true
 
-        echo -n " "
-        power_button
+        echo -n "     "
+        power_button || true
 
-        echo " skipbios"
+        echo "     skipbios"
 
-        echo -n " "
-        configure_usb
+        echo -n "     "
+        configure_usb || true
+
+        echo "     check"
 
         exit 1
         ;;

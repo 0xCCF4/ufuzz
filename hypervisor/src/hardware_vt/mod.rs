@@ -4,10 +4,9 @@
 //pub mod svm;
 pub mod vmx;
 
-use crate::state::VmState;
+use crate::state::{EPTPageFaultQualification, GuestException, GuestRegisters, VmExitReason, VmState};
 use bitfield::bitfield;
 use core::fmt;
-use serde::{Deserialize, Serialize};
 use x86::{
     current::paging::{BASE_PAGE_SHIFT, PAGE_SIZE_ENTRIES},
     irq,
@@ -59,161 +58,10 @@ pub trait HardwareVt: fmt::Debug {
     fn registers(&self) -> &GuestRegisters;
 }
 
-/// Reasons of VM exit.
-#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
-pub enum VmExitReason {
-    /// An address translation failure with nested paging. GPA->LA. Contains a guest
-    /// physical address that failed translation and whether the access was
-    /// write access.
-    EPTPageFault(EPTPageFaultQualification),
 
-    /// An exception happened. Contains an exception code.
-    Exception(ExceptionQualification),
-
-    Cpuid,
-
-    Hlt,
-
-    Io,
-
-    Rdmsr,
-
-    Wrmsr,
-
-    Rdrand,
-
-    Rdseed,
-
-    Rdtsc,
-
-    Cr8Write,
-
-    IoWrite,
-
-    MsrUse,
-
-    ExternalInterrupt,
-
-    /// The guest ran long enough to use up its time slice.
-    TimerExpiration,
-
-    /// The logical processor entered the shutdown state, eg, triple fault.
-    Shutdown(u64),
-
-    /// An unhandled VM exit happened. Contains a vendor specific VM exit code.
-    Unexpected(u64),
-
-    /// VM entry failure: reason, qualification
-    VMEntryFailure(u32, u64),
-
-    /// If an SMM exit occurred that has a higher priority than a pending MTF Exit
-    MonitorTrap,
-}
-
-impl VmExitReason {
-    pub fn null_addresses(mut self) -> VmExitReason {
-        match self {
-            VmExitReason::EPTPageFault(ref mut info) => {
-                info.rip = 0;
-                info.gpa = 0;
-            }
-            VmExitReason::Exception(ref mut info) => {
-                info.rip = 0;
-            }
-            _ => {}
-        }
-        self
-    }
-    pub fn is_same_kind(&self, other: &Self) -> bool {
-        match self {
-            VmExitReason::MonitorTrap => matches!(other, VmExitReason::MonitorTrap),
-            VmExitReason::Cpuid => matches!(other, VmExitReason::Cpuid),
-            VmExitReason::Hlt => matches!(other, VmExitReason::Hlt),
-            VmExitReason::Io => matches!(other, VmExitReason::Io),
-            VmExitReason::Rdmsr => matches!(other, VmExitReason::Rdmsr),
-            VmExitReason::Wrmsr => matches!(other, VmExitReason::Wrmsr),
-            VmExitReason::Rdrand => matches!(other, VmExitReason::Rdrand),
-            VmExitReason::Rdseed => matches!(other, VmExitReason::Rdseed),
-            VmExitReason::Rdtsc => matches!(other, VmExitReason::Rdtsc),
-            VmExitReason::Cr8Write => matches!(other, VmExitReason::Cr8Write),
-            VmExitReason::IoWrite => matches!(other, VmExitReason::IoWrite),
-            VmExitReason::MsrUse => matches!(other, VmExitReason::MsrUse),
-            VmExitReason::ExternalInterrupt => matches!(other, VmExitReason::ExternalInterrupt),
-            VmExitReason::TimerExpiration => matches!(other, VmExitReason::TimerExpiration),
-            VmExitReason::Shutdown(a) => {
-                if let VmExitReason::Shutdown(b) = other {
-                    a == b
-                } else {
-                    false
-                }
-            }
-            VmExitReason::EPTPageFault(info) => {
-                if let VmExitReason::EPTPageFault(other_info) = other {
-                    info.data_read == other_info.data_read
-                        && info.data_write == other_info.data_write
-                        && info.instruction_fetch == other_info.instruction_fetch
-                        && info.was_readable == other_info.was_readable
-                        && info.was_writable == other_info.was_writable
-                        && info.was_executable_user == other_info.was_executable_user
-                        && info.was_executable_supervisor == other_info.was_executable_supervisor
-                        && info.nmi_unblocking == other_info.nmi_unblocking
-                        && info.shadow_stack_access == other_info.shadow_stack_access
-                        && info.guest_paging_verification == other_info.guest_paging_verification
-                } else {
-                    false
-                }
-            }
-            VmExitReason::Exception(a) => {
-                if let VmExitReason::Exception(b) = other {
-                    a.exception_code == b.exception_code
-                } else {
-                    false
-                }
-            }
-            VmExitReason::Unexpected(a) => {
-                if let VmExitReason::Unexpected(b) = other {
-                    a == b
-                } else {
-                    false
-                }
-            }
-            VmExitReason::VMEntryFailure(a, b) => {
-                if let VmExitReason::VMEntryFailure(c, d) = other {
-                    a == c && b == d
-                } else {
-                    false
-                }
-            }
-        }
-    }
-}
-
-impl Default for VmExitReason {
-    fn default() -> Self {
-        VmExitReason::Unexpected(0xFFFF)
-    }
-}
-
-/// Details of the cause of nested page fault.
-#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
-pub struct EPTPageFaultQualification {
-    pub rip: usize,
-    pub gpa: usize,
-    pub data_read: bool,
-    pub data_write: bool,
-    pub instruction_fetch: bool,
-    pub was_readable: bool,
-    pub was_writable: bool,
-    pub was_executable_user: bool,
-    pub was_executable_supervisor: bool,
-    pub gla_valid: bool,
-    pub nmi_unblocking: bool,
-    pub shadow_stack_access: bool,
-    pub guest_paging_verification: bool,
-}
 
 impl EPTPageFaultQualification {
-    pub fn from(qualification: u64, rip: usize, gpa: usize) -> Self {
+    fn from(qualification: u64, rip: usize, gpa: usize) -> Self {
         EPTPageFaultQualification {
             data_read: (qualification & (1 << 0)) != 0,
             data_write: (qualification & (1 << 1)) != 0,
@@ -230,40 +78,6 @@ impl EPTPageFaultQualification {
             gpa,
         }
     }
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
-pub struct ExceptionQualification {
-    pub rip: u64,
-    pub exception_code: GuestException,
-}
-
-/// The cause of guest exception.
-#[derive(Clone, Copy, PartialEq, Debug, Eq, Serialize, Deserialize)]
-pub enum GuestException {
-    DivideError,
-    DebugException,
-    NMIInterrupt,
-    BreakPoint,
-    Overflow,
-    BoundRangeExceeded,
-    InvalidOpcode,
-    DeviceNotAvailable,
-    DoubleFault,
-    CoprocessorSegmentOverrun,
-    InvalidTSS,
-    SegmentNotPresent,
-    StackSegmentFault,
-    GeneralProtection,
-    PageFault,
-    FloatingPointError,
-    AlignmentCheck,
-    MachineCheck,
-    SIMDException,
-    VirtualizationException,
-    ControlProtection,
-    Reserved(u8),
-    User(u8),
 }
 
 impl From<u8> for GuestException {
@@ -329,99 +143,6 @@ pub enum NestedPagingStructureEntryType {
 pub struct NestedPagingStructureEntryFlags {
     pub permission: u8,
     pub memory_type: u8,
-}
-
-/// The collection of the guest general purpose register values.
-#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[repr(C)]
-pub struct GuestRegisters {
-    pub rax: u64,
-    pub rbx: u64,
-    pub rcx: u64,
-    pub rdx: u64,
-    pub rdi: u64,
-    pub rsi: u64,
-    pub rbp: u64,
-    pub r8: u64,
-    pub r9: u64,
-    pub r10: u64,
-    pub r11: u64,
-    pub r12: u64,
-    pub r13: u64,
-    pub r14: u64,
-    pub r15: u64,
-    pub rip: u64,
-    pub rsp: u64,
-    pub rflags: u64,
-    pub xmm0: M128A,
-    pub xmm1: M128A,
-    pub xmm2: M128A,
-    pub xmm3: M128A,
-    pub xmm4: M128A,
-    pub xmm5: M128A,
-    pub xmm6: M128A,
-    pub xmm7: M128A,
-    pub xmm8: M128A,
-    pub xmm9: M128A,
-    pub xmm10: M128A,
-    pub xmm11: M128A,
-    pub xmm12: M128A,
-    pub xmm13: M128A,
-    pub xmm14: M128A,
-    pub xmm15: M128A,
-}
-
-impl GuestRegisters {
-    // dont compare rip
-    pub fn is_equal_no_address_compare(&self, other: &Self) -> bool {
-        self.rax == other.rax
-            && self.rbx == other.rbx
-            && self.rcx == other.rcx
-            && self.rdx == other.rdx
-            && self.rdi == other.rdi
-            && self.rsi == other.rsi
-            && self.rbp == other.rbp
-            && self.r8 == other.r8
-            && self.r9 == other.r9
-            && self.r10 == other.r10
-            && self.r11 == other.r11
-            && self.r12 == other.r12
-            && self.r13 == other.r13
-            && self.r14 == other.r14
-            && self.r15 == other.r15
-            && self.rsp == other.rsp
-            && self.rflags == other.rflags
-            && self.xmm0 == other.xmm0
-            && self.xmm1 == other.xmm1
-            && self.xmm2 == other.xmm2
-            && self.xmm3 == other.xmm3
-            && self.xmm4 == other.xmm4
-            && self.xmm5 == other.xmm5
-            && self.xmm6 == other.xmm6
-            && self.xmm7 == other.xmm7
-            && self.xmm8 == other.xmm8
-            && self.xmm9 == other.xmm9
-            && self.xmm10 == other.xmm10
-            && self.xmm11 == other.xmm11
-            && self.xmm12 == other.xmm12
-            && self.xmm13 == other.xmm13
-            && self.xmm14 == other.xmm14
-            && self.xmm15 == other.xmm15
-    }
-}
-
-#[repr(C)]
-#[repr(align(16))]
-#[derive(Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct M128A {
-    pub low: u64,
-    pub high: i64,
-}
-
-impl fmt::Debug for M128A {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "({:#018x}, {:#018x})", self.low, self.high)
-    }
 }
 
 /// A single nested paging structure.

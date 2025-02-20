@@ -12,11 +12,11 @@
 
 use super::{
     get_segment_descriptor_value, get_segment_limit, GuestRegisters,
-    NestedPagingStructureEntryFlags, NestedPagingStructureEntryType, VmExitReason,
+    NestedPagingStructureEntryFlags, NestedPagingStructureEntryType,
 };
-use crate::state::{DescriptorTablePointerWrapper, VmState};
+use crate::state::{DescriptorTablePointerWrapper, ExceptionQualification, GuestException, VmExitReason, VmState};
 use crate::{
-    hardware_vt::{self, EPTPageFaultQualification, ExceptionQualification, GuestException},
+    hardware_vt::{self, EPTPageFaultQualification},
     x86_instructions::{cr0, cr0_write, cr3, cr4, cr4_write, rdmsr, sgdt, sidt, wrmsr},
 };
 use alloc::{

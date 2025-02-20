@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 
 press() {
-    pinctrl set 0 op pn dh
+    sudo pinctrl set 0 op pn dh
 }
 
 release() {
-    pinctrl set 0 ip pd
+    sudo pinctrl set 0 ip pd
 }
 
 case "${1:-}" in
@@ -30,8 +30,7 @@ case "${1:-}" in
         release
         ;;
     *)
-        echo "Invalid argument: $PRESS"
-        echo "Usage: power_button {press|release|long|short}"
+        echo "Usage: $0 {press|release|long|short}"
         exit 1
         ;;
 esac
