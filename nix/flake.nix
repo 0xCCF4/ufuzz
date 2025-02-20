@@ -15,7 +15,7 @@
       pkgsFor = nixpkgs.legacyPackages;
     in
     rec {
-      nixosConfigurations.node = nixpkgs.lib.nixosSystem {
+      nixosConfigurations.node = nixpkgs.lib.nixosSystem rec {
         system = "aarch64-linux";
         modules = [
           nixos-hardware.nixosModules.raspberry-pi-4
@@ -25,7 +25,7 @@
         ];
         specialArgs = {
           settings.hostName = "fuzzer-node";
-          inherit packages;
+          inherit packages system;
         };
       };
       images.node = nixosConfigurations.node.config.system.build.sdImage;

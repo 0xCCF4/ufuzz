@@ -30,23 +30,45 @@ send_string() {
     send_keycode "0"
 }
 
-enter() {
+send_enter() {
     send_keycode "28"
     sleep 0.1s
     send_keycode "0"
-    sleep 1s
-    send_keycode "0"
-    sleep 1s
-    echo
+    sleep 0.1s
 }
 
-set -x
+send_left() {
+    send_keycode "50"
+    sleep 0.1s
+    send_keycode "0"
+    sleep 0.1s
+}
 
-send_string "map -r"
-enter
+send_right() {
+    send_keycode "51"
+    sleep 0.1s
+    send_keycode "0"
+    sleep 0.1s
+}
 
-send_string "fs0:"
-enter
-
-send_string "startup"
-enter
+case "${1:-}" in
+    enter)
+        send_enter
+        ;;
+    left)
+        send_left
+        ;;
+    right)
+        send_right
+        ;;
+    keycode)
+        send_keycode "${2:-0}" "${3:-}"
+        ;;
+    string)
+        send_string "${2:-}"
+        ;;
+    *)
+        echo "Usage: $0 {enter|left|right|keycode <code> [modifier]|string <string>}"
+        exit 1
+        ;;
+esac

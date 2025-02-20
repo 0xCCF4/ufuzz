@@ -3,16 +3,18 @@ use alloc::boxed::Box;
 use alloc::vec::Vec;
 use core::fmt::Debug;
 use core::ops::{Deref, DerefMut};
+use core::ptr;
+use serde::{Deserialize, Serialize};
 use x86::dtables::DescriptorTablePointer;
 
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VmState {
     pub standard_registers: GuestRegisters,
     pub extended_registers: VmStateExtendedRegisters,
 }
 
 /// 26.4.1 Guest Register State
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VmStateExtendedRegisters {
     pub gdtr: DescriptorTablePointerWrapper<u64>,
     pub idtr: DescriptorTablePointerWrapper<u64>,
@@ -88,6 +90,27 @@ impl<T> Clone for DescriptorTablePointerWrapper<T> {
 }
 
 impl<T> Eq for DescriptorTablePointerWrapper<T> {}
+
+impl<T> Serialize for DescriptorTablePointerWrapper<T> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::ser::Serializer,
+    {
+        0.serialize(serializer)
+    }
+}
+
+impl<'de, T> Deserialize<'de> for DescriptorTablePointerWrapper<T> {
+    fn deserialize<D>(_deserializer: D) -> Result<DescriptorTablePointerWrapper<T>, D::Error>
+    where
+        D: serde::de::Deserializer<'de>,
+    {
+        Ok(DescriptorTablePointerWrapper(DescriptorTablePointer {
+            base: ptr::null(),
+            limit: 0,
+        }))
+    }
+}
 
 pub trait StateDifference {
     fn difference<'a, 'b>(
