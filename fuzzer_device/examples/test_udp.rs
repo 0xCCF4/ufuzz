@@ -71,7 +71,7 @@ unsafe fn main() -> Status {
         let source_port = 4444;
 
         let config_data = Udp4ConfigData {
-            accept_any_port: false,
+            accept_any_port: true,
             accept_broadcast: false,
             accept_promiscuous: false,
             allow_duplicate_port: true,
@@ -105,7 +105,10 @@ unsafe fn main() -> Status {
 
         let result = net.receive(Some(10_000));
         info!("Receive result: {:x?}", result);
-        info!("Lossy string: {:?}", result.as_ref().map(|v| String::from_utf8_lossy(v)));
+        info!(
+            "Lossy string: {:?}",
+            result.as_ref().map(|v| String::from_utf8_lossy(v))
+        );
     }
 
     Status::SUCCESS

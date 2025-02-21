@@ -8,13 +8,13 @@
 
 use bochs::{Bochs, Cpu};
 use clap::{Parser, Subcommand};
+use std::io::Write;
+use std::process::Stdio;
 use std::{
     env,
     path::{Path, PathBuf},
     process::Command,
 };
-use std::process::Stdio;
-use std::io::Write;
 
 mod bochs;
 
@@ -29,7 +29,7 @@ enum Cli {
         name: String,
     },
     ControlRemote {
-      args: Vec<String>,
+        args: Vec<String>,
     },
     UpdateNode,
 }
@@ -68,8 +68,8 @@ fn main() {
     match cli {
         Cli::Emulate(cli) => main_run(cli),
         Cli::UpdateNode => main_update_node(),
-        Cli::PutRemote {name} => main_put_remote(&name),
-        Cli::ControlRemote {args} => main_control_remote(args),
+        Cli::PutRemote { name } => main_put_remote(&name),
+        Cli::ControlRemote { args } => main_control_remote(args),
     }
 }
 
@@ -100,7 +100,11 @@ fn main_control_remote(args: Vec<String>) {
 
 fn main_put_remote(name: &str) {
     let app = build_app(name, false, true).expect("Failed to build the app");
-    let name = app.file_name().expect("Failed to get the app file name").to_str().unwrap();
+    let name = app
+        .file_name()
+        .expect("Failed to get the app file name")
+        .to_str()
+        .unwrap();
 
     let mut sftp = Command::new("sftp")
         .arg("thesis@192.168.0.6:/tmp")
@@ -110,7 +114,8 @@ fn main_put_remote(name: &str) {
         .expect("Failed to start sftp");
 
     let sftp_stdin = sftp.stdin.as_mut().expect("Failed to open sftp stdin");
-    writeln!(sftp_stdin, "put {}", app.as_os_str().to_str().unwrap()).expect("Failed to write to sftp stdin");
+    writeln!(sftp_stdin, "put {}", app.as_os_str().to_str().unwrap())
+        .expect("Failed to write to sftp stdin");
     writeln!(sftp_stdin, "exit").expect("Failed to write to sftp stdin");
 
     let status = sftp.wait().expect("Failed to wait on sftp");
@@ -126,14 +131,16 @@ fn main_put_remote(name: &str) {
         writeln!(ssh_stdin, "sudo sync").expect("Failed to write to ssh stdin");
         writeln!(ssh_stdin, "sudo configure_usb off").expect("Failed to write to ssh stdin");
         writeln!(ssh_stdin, "if [ ! -f ~/disk.img ]; then echo 'Creating disk image' && dd if=/dev/zero of=~/disk.img bs=1M count=1024 && echo 'Formatting disk image' && mkfs.fat -F 32 ~/disk.img; fi").expect("Failed to write to ssh stdin");
-        writeln!(ssh_stdin, "sudo mkdir -p /mnt ; sudo mount ~/disk.img /mnt").expect("Failed to write to ssh stdin");
-        writeln!(ssh_stdin, "sudo cp \"/tmp/{}\" /mnt/{}", name, name).expect("Failed to write to ssh stdin");
+        writeln!(ssh_stdin, "sudo mkdir -p /mnt ; sudo mount ~/disk.img /mnt")
+            .expect("Failed to write to ssh stdin");
+        writeln!(ssh_stdin, "sudo cp \"/tmp/{}\" /mnt/{}", name, name)
+            .expect("Failed to write to ssh stdin");
         writeln!(ssh_stdin, "sudo umount /mnt").expect("Failed to write to ssh stdin");
         writeln!(ssh_stdin, "sudo rm /tmp/{}", name).expect("Failed to write to ssh stdin");
         writeln!(ssh_stdin, "sudo sync").expect("Failed to write to ssh stdin");
-        writeln!(ssh_stdin, "sudo configure_usb on ~/disk.img").expect("Failed to write to ssh stdin");
+        writeln!(ssh_stdin, "sudo configure_usb on ~/disk.img")
+            .expect("Failed to write to ssh stdin");
         writeln!(ssh_stdin, "exit").expect("Failed to write to ssh stdin");
-
     }
 
     let status = ssh.wait().expect("Failed to wait on ssh");
@@ -161,9 +168,7 @@ fn main_update_node() {
         ])
         .current_dir(project_root.parent().unwrap().join("nix"));
 
-    let status = status
-        .status()
-        .expect("Failed to update the node");
+    let status = status.status().expect("Failed to update the node");
 
     if !status.success() {
         eprintln!("Failed to update the node");
@@ -244,8 +249,11 @@ fn build_app(project: &str, release: bool, device: bool) -> Result<PathBuf, DynE
             project,
             "--bins",
             "--features",
-            if device { "__device_brix"} else {
-            "__device_bochs"},
+            if device {
+                "__device_brix"
+            } else {
+                "__device_bochs"
+            },
             "--no-default-features",
         ]);
         "fuzzer_device"

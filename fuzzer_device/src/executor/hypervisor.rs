@@ -1,12 +1,9 @@
-use hypervisor::state::{ExceptionQualification, GuestException, GuestRegisters, VmExitReason};
 use crate::{StateTrace, Trace};
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 use hypervisor::error::HypervisorError;
-use hypervisor::hardware_vt::{
-    NestedPagingStructureEntryType,
-
-};
+use hypervisor::hardware_vt::NestedPagingStructureEntryType;
+use hypervisor::state::{ExceptionQualification, GuestException, GuestRegisters, VmExitReason};
 use hypervisor::state::{VmState, VmStateExtendedRegisters};
 use hypervisor::vm::Vm;
 use hypervisor::x86_instructions::sgdt;

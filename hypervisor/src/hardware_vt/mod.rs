@@ -4,7 +4,9 @@
 //pub mod svm;
 pub mod vmx;
 
-use crate::state::{EPTPageFaultQualification, GuestException, GuestRegisters, VmExitReason, VmState};
+use crate::state::{
+    EPTPageFaultQualification, GuestException, GuestRegisters, VmExitReason, VmState,
+};
 use bitfield::bitfield;
 use core::fmt;
 use x86::{
@@ -57,8 +59,6 @@ pub trait HardwareVt: fmt::Debug {
 
     fn registers(&self) -> &GuestRegisters;
 }
-
-
 
 impl EPTPageFaultQualification {
     fn from(qualification: u64, rip: usize, gpa: usize) -> Self {

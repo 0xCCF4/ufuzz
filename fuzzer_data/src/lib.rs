@@ -4,8 +4,8 @@ use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::vec::Vec;
-use serde::{Deserialize, Serialize};
 use hypervisor::state::{VmExitReason, VmState};
+use serde::{Deserialize, Serialize};
 
 extern crate alloc;
 
@@ -38,7 +38,7 @@ pub struct Sample {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub enum OverTheAirCommunicationDeviceToController {
+pub enum OTADeviceToController {
     Alive {
         timestamp: u64,
         current_iteration: u64,
@@ -57,11 +57,11 @@ pub enum OverTheAirCommunicationDeviceToController {
         processor_version_ecx: u64, // cpuid 1:ecx
         processor_version_edx: u64, // cpuid 1:edx
     },
-    Ack(Box<OverTheAirCommunicationControllerToDevice>)
+    Ack(Box<OTAControllerToDevice>),
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub enum OverTheAirCommunicationControllerToDevice {
+pub enum OTAControllerToDevice {
     GetCapabilities,
     Blacklist {
         address: Vec<usize>,
@@ -77,5 +77,6 @@ pub enum OverTheAirCommunicationControllerToDevice {
         keep_best_x_solutions: usize,
         random_mutation_chance: f64,
     },
-    Ack(Box<OverTheAirCommunicationDeviceToController>)
+    NOP,
+    Ack(Box<OTADeviceToController>),
 }

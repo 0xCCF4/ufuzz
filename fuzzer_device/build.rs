@@ -5,7 +5,8 @@ fn main() {
     let git_hash = Command::new("git")
         .args(&["rev-parse", "HEAD"])
         .output()
-        .map(|output| String::from_utf8(output.stdout).unwrap()).expect("Failed to get git hash");
+        .map(|output| String::from_utf8(output.stdout).unwrap())
+        .expect("Failed to get git hash");
     let hash = chrono::Utc::now().to_rfc2822();
 
     let mut hasher = Sha256::new();

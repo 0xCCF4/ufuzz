@@ -14,13 +14,13 @@ impl FuzzerNodeInterface {
     }
 
     pub async fn power_button_long(&self) -> Result<bool, reqwest::Error> {
-        let url = format!("{}/powerbutton/long", self.host);
+        let url = format!("{}/power_button/long", self.host);
         let response = self.client.post(&url).send().await?;
         Ok(response.status().is_success())
     }
 
     pub async fn power_button_short(&self) -> Result<bool, reqwest::Error> {
-        let url = format!("{}/powerbutton/short", self.host);
+        let url = format!("{}/power_button/short", self.host);
         let response = self.client.post(&url).send().await?;
         Ok(response.status().is_success())
     }

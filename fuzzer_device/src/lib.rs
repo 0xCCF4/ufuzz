@@ -4,6 +4,7 @@
 #![cfg_attr(feature = "no_std", no_std)]
 
 pub mod cmos;
+pub mod controller_connection;
 pub mod executor;
 pub mod genetic_breeding;
 pub mod heuristic;

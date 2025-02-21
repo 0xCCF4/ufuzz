@@ -1,8 +1,12 @@
+use fuzzer_data::OTAControllerToDevice;
+use fuzzer_master::device_connection::DeviceConnection;
 use fuzzer_master::fuzzer_node_bridge::FuzzerNodeInterface;
+use std::net::UdpSocket;
 
 #[tokio::main]
 async fn main() {
-    let interface = FuzzerNodeInterface::new("http://192.168.0.6:8000");
+    env_logger::init();
 
-    println!("{:?}", interface.power_button_long().await.unwrap());
+    let interface = FuzzerNodeInterface::new("http://192.168.0.6:8000");
+    let mut udp = DeviceConnection::new("192.168.0.44:4444").await.unwrap();
 }

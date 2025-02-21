@@ -1,17 +1,22 @@
-#[macro_use] extern crate rocket;
+#[macro_use]
+extern crate rocket;
 
-use std::process::{Command};
 use lazy_static::lazy_static;
+use rocket::config::Config;
+use rocket::figment::providers::Format;
 use rocket::http::Status;
 use rocket::response::status;
-use rocket::config::{Config};
-use rocket::figment::providers::Format;
 use rocket::serde::json::Json;
+use std::process::Command;
 
 lazy_static! {
     static ref CMD: Vec<String> = {
-        let env = std::env::var("CMD").unwrap_or_else(|_| "/run/current-system/sw/bin/device_control".to_string());
-        let env = env.split_whitespace().map(|v|v.to_string()).collect::<Vec<String>>();
+        let env = std::env::var("CMD")
+            .unwrap_or_else(|_| "/run/current-system/sw/bin/device_control".to_string());
+        let env = env
+            .split_whitespace()
+            .map(|v| v.to_string())
+            .collect::<Vec<String>>();
 
         env
     };
@@ -22,16 +27,25 @@ fn execute_command(mut command: Command) -> Result<status::Custom<String>, statu
     match command.output() {
         Ok(output) => {
             if output.status.success() {
-                Ok(status::Custom(Status::Ok, String::from_utf8_lossy(&output.stdout).to_string()))
+                Ok(status::Custom(
+                    Status::Ok,
+                    String::from_utf8_lossy(&output.stdout).to_string(),
+                ))
             } else {
-                Err(status::Custom(Status::InternalServerError, String::from_utf8_lossy(&output.stderr).to_string()))
+                Err(status::Custom(
+                    Status::InternalServerError,
+                    String::from_utf8_lossy(&output.stderr).to_string(),
+                ))
             }
-        },
-        Err(err) => Err(status::Custom(Status::InternalServerError, format!("Failed to execute command: {err:?}"))),
+        }
+        Err(err) => Err(status::Custom(
+            Status::InternalServerError,
+            format!("Failed to execute command: {err:?}"),
+        )),
     }
 }
 
-#[post("/powerbutton/long")]
+#[post("/power_button/long")]
 fn power_button_long() -> Result<status::Custom<String>, status::Custom<String>> {
     let mut command = Command::new(&CMD[0]);
     command.args(&CMD[1..]);
@@ -40,7 +54,7 @@ fn power_button_long() -> Result<status::Custom<String>, status::Custom<String>>
     execute_command(command)
 }
 
-#[post("/powerbutton/short")]
+#[post("/power_button/short")]
 fn power_button_short() -> Result<status::Custom<String>, status::Custom<String>> {
     let mut command = Command::new(&CMD[0]);
     command.args(&CMD[1..]);
@@ -56,7 +70,9 @@ fn alive() -> Result<status::Custom<Json<bool>>, status::Custom<String>> {
 
 #[launch]
 fn rocket() -> _ {
-    let config = Config::figment().merge(rocket::figment::providers::Toml::string(include_str!("../rocket.toml")));
+    let config = Config::figment().merge(rocket::figment::providers::Toml::string(include_str!(
+        "../rocket.toml"
+    )));
 
     rocket::custom(config).mount("/", routes![power_button_long, power_button_short, alive])
 }

@@ -635,7 +635,6 @@ pub enum GuestException {
     User(u8),
 }
 
-
 // from x86 crate
 
 /// A struct describing a pointer to a descriptor table (GDT / IDT).

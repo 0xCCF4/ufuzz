@@ -1,9 +1,11 @@
+use alloc::vec::Vec;
 use core::ffi::c_void;
+use core::marker::PhantomData;
 use core::mem::ManuallyDrop;
 use core::ops::Deref;
 use core::ptr::NonNull;
 use log::{trace, warn};
-use uefi::proto::unsafe_protocol;
+use uefi::proto::{unsafe_protocol, Protocol};
 use uefi::Handle;
 use uefi_raw::{Ipv4Address, Status};
 
@@ -139,13 +141,17 @@ pub struct UDP4ServiceBindingProtocol {
 }
 
 impl UDP4ServiceBindingProtocol {
-    pub fn create_child(&self) -> Result<BindingProtocol<UDP4ServiceBindingProtocol>, Status> {
+    pub fn create_child(
+        &self,
+    ) -> Result<ScopedBindingProtocol<UDP4ServiceBindingProtocol>, Status> {
         let mut handle = core::ptr::null_mut();
         let result = (self.create_child)(self, &mut handle);
         if result == Status::SUCCESS {
-            Ok(BindingProtocol {
-                binder: self,
+            Ok(ScopedBindingProtocol {
+                binders: uefi::boot::find_handles::<UDP4ServiceBindingProtocol>()
+                    .expect("We are calling from this"),
                 handle: unsafe { Handle::from_ptr(handle).unwrap() },
+                phantom_data: PhantomData,
             })
         } else {
             Err(result)
@@ -153,7 +159,7 @@ impl UDP4ServiceBindingProtocol {
     }
 }
 
-pub trait BindingProtocolTrait {
+pub trait BindingProtocolTrait: Protocol {
     fn destroy_child(&self, child_handle: Handle) -> Status;
 }
 
@@ -163,19 +169,25 @@ impl BindingProtocolTrait for UDP4ServiceBindingProtocol {
     }
 }
 
-pub struct BindingProtocol<'a, B: BindingProtocolTrait> {
-    binder: &'a B,
+pub struct ScopedBindingProtocol<B: BindingProtocolTrait> {
+    binders: Vec<Handle>,
     handle: Handle,
+    phantom_data: PhantomData<B>,
 }
 
-impl<'a, B: BindingProtocolTrait> BindingProtocol<'a, B> {
+impl<B: BindingProtocolTrait> ScopedBindingProtocol<B> {
     pub fn handle(&self) -> Handle {
         self.handle.clone()
     }
 }
 
-impl<'a, B: BindingProtocolTrait> Drop for BindingProtocol<'a, B> {
+impl<B: BindingProtocolTrait> Drop for ScopedBindingProtocol<B> {
     fn drop(&mut self) {
-        let _ = self.binder.destroy_child(self.handle);
+        for binder in &self.binders {
+            let binder = uefi::boot::open_protocol_exclusive::<B>(*binder)
+                .expect("Failed to open protocol: is it already opened?");
+
+            let _ = binder.destroy_child(self.handle);
+        }
     }
 }
