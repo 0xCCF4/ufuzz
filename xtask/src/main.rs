@@ -282,6 +282,14 @@ fn build_app(project: &str, release: bool, device: bool) -> Result<PathBuf, DynE
             "--no-default-features",
         ]);
         "examples/test_udp"
+    } else if project == "test_hypervisor" {
+        status.args([
+            "-p",
+            "hypervisor",
+            "--example",
+            "test_hypervisor",
+            ]);
+        "examples/test_hypervisor"
     } else {
         status.args(["-p", project]);
         project

@@ -243,7 +243,7 @@ impl Hypervisor {
             vm.build_translation(
                 PAGE_TABLE_3_INDEX << BASE_PAGE_SHIFT,
                 page_table_3_page.as_ptr(),
-                NestedPagingStructureEntryType::Rw,
+                NestedPagingStructureEntryType::R,
             ),
             vm.build_translation(
                 CODE_ENTRY_PAGE_INDEX << BASE_PAGE_SHIFT,

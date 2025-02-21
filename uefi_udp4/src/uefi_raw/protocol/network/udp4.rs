@@ -187,7 +187,11 @@ impl<B: BindingProtocolTrait> Drop for ScopedBindingProtocol<B> {
             let binder = uefi::boot::open_protocol_exclusive::<B>(*binder)
                 .expect("Failed to open protocol: is it already opened?");
 
-            let _ = binder.destroy_child(self.handle);
+            let status = binder.destroy_child(self.handle);
+            if status == Status::SUCCESS {
+                return;
+            }
         }
+        panic!("Failed to destroy child handle");
     }
 }

@@ -1,3 +1,6 @@
+use alloc::collections::VecDeque;
+use alloc::string::String;
+use fuzzer_data::{OTAControllerToDevice, OTADeviceToController};
 use log::{error, info, warn};
 use uefi::boot::ScopedProtocol;
 use uefi_raw::Ipv4Address;
@@ -7,6 +10,7 @@ use uefi_udp4::uefi_raw::protocol::network::udp4::{
 };
 use uefi_udp4::Ipv4AddressExt;
 
+#[derive(Debug)]
 pub enum ConnectionError {
     NoNetworkProtocol,
     CouldNotOpenNetProto,
@@ -16,6 +20,7 @@ pub enum ConnectionError {
     FailedToConfigureConnection,
     FailedToTransmit,
     FailedToReceive,
+    AckNotReceived,
 }
 
 pub struct ConnectionSettings {
@@ -24,6 +29,8 @@ pub struct ConnectionSettings {
     pub subnet_mask: Ipv4Address,
     pub remote_port: u16,
     pub source_port: u16,
+    pub resent_attempts: u8,
+    pub ack_timeout: u64, // ms
 }
 
 impl Default for ConnectionSettings {
@@ -34,13 +41,18 @@ impl Default for ConnectionSettings {
             subnet_mask: Ipv4Address::new(255, 255, 255, 0),
             remote_port: 4444,
             source_port: 4444,
+            resent_attempts: 10,
+            ack_timeout: 200,
         }
     }
 }
 
 pub struct ControllerConnection {
-    udp_handle: ScopedBindingProtocol<UDP4ServiceBindingProtocol>,
-    network: ScopedProtocol<UDP4Protocol>,
+    udp_handle: Option<ScopedBindingProtocol<UDP4ServiceBindingProtocol>>,
+    network: Option<ScopedProtocol<UDP4Protocol>>,
+    virtual_receive_buffer: VecDeque<OTAControllerToDevice>,
+    resent_attempts: u8,
+    ack_timeout: u64,
 }
 
 impl ControllerConnection {
@@ -124,8 +136,116 @@ impl ControllerConnection {
         }
 
         Ok(Self {
-            udp_handle,
-            network: net,
+            udp_handle: Some(udp_handle),
+            network: Some(net),
+            ack_timeout: settings.ack_timeout,
+            resent_attempts: settings.resent_attempts,
+            virtual_receive_buffer: VecDeque::new(),
         })
+    }
+
+    pub fn send(&mut self, data: &OTADeviceToController) -> Result<(), ConnectionError> {
+        let string = serde_json::to_string(data).expect("Must always serialize");
+        let buf = string.as_bytes();
+
+        if buf.len() > 4000 {
+            return Err(ConnectionError::FailedToTransmit);
+        }
+
+        let mut virtual_receive_buffer = VecDeque::new();
+
+        let mut status = None;
+        'attempt_loop: for _attempt in 0..self.resent_attempts {
+            // initial packet sending
+            if let Err(err) = self.network.as_mut().unwrap().transmit(None, None, buf) {
+                error!("Failed to transmit data: {:?}", err);
+                status = Some(Err(ConnectionError::FailedToTransmit));
+                break 'attempt_loop;
+            }
+
+            // check if requires ack
+            if !data.requires_ack() {
+                // does not require ack
+                status = Some(Ok(()));
+                break 'attempt_loop;
+            }
+
+            // wait for ack
+            while let Some(received_packet) = match self.receive(Some(self.ack_timeout)) {
+                Ok(packet) => Some(packet),
+                Err(err) => {
+                    error!("Failed to transmit data: {:?}", err);
+                    status = Some(Err(ConnectionError::FailedToTransmit));
+                    break 'attempt_loop;
+                }
+            } {
+                if let OTAControllerToDevice::Ack(ack_content) = received_packet {
+                    if data == ack_content.as_ref() {
+                        // OK received acknowledgement
+                        status = Some(Ok(()));
+                        break 'attempt_loop;
+                    }
+                } else {
+                    // received other package
+                    virtual_receive_buffer.push_back(received_packet);
+                }
+            }
+        }
+
+        // requeue the received packets
+        for packet in virtual_receive_buffer.into_iter().rev() {
+            self.virtual_receive_buffer.push_front(packet);
+        }
+
+        status.unwrap_or(Err(ConnectionError::AckNotReceived))
+    }
+
+    pub fn receive(
+        &mut self,
+        timeout_millis: Option<u64>,
+    ) -> Result<OTAControllerToDevice, ConnectionError> {
+        if let Some(packet) = self.virtual_receive_buffer.pop_front() {
+            return Ok(packet);
+        }
+
+        let data = match self.network.as_mut().unwrap().receive(timeout_millis) {
+            Ok(data) => data,
+            Err(e) => {
+                error!("Failed to receive data: {:?}", e);
+                return Err(ConnectionError::FailedToReceive);
+            }
+        };
+
+        let string = match String::from_utf8(data) {
+            Ok(string) => string,
+            Err(e) => {
+                error!("Failed to convert data to string: {:?}", e);
+                return Err(ConnectionError::FailedToReceive);
+            }
+        };
+
+        let data: OTAControllerToDevice = match serde_json::from_str(&string) {
+            Ok(data) => data,
+            Err(e) => {
+                error!("Failed to deserialize data: {:?}", e);
+                return Err(ConnectionError::FailedToReceive);
+            }
+        };
+
+        if let Some(ack) = data.ack() {
+            if let Err(err) = self.send(&ack) {
+                error!("Failed to send ack: {:?}", err);
+                return Err(err);
+            }
+        }
+
+        Ok(data)
+    }
+}
+
+impl Drop for ControllerConnection {
+    fn drop(&mut self) {
+        drop(self.network.take());
+        drop(self.udp_handle.take());
     }
 }

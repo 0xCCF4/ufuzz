@@ -2,6 +2,8 @@
 
 PATH=$PATH:/run/current-system/sw/bin/
 
+echo "$@"
+
 case "${1:-}" in
     send_keys)
         send_keys "${2:-}" "${3:-}" "${4:-}" "${5:-}"

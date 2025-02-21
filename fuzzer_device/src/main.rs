@@ -7,19 +7,24 @@ extern crate alloc;
 
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::format;
-use alloc::string::String;
+use alloc::rc::Rc;
+use alloc::string::{String, ToString};
 use alloc::vec::Vec;
+use core::cell::RefCell;
 use core::fmt::Display;
 use core::ops::DerefMut;
 use data_types::addresses::UCInstructionAddress;
+use fuzzer_data::{OTAControllerToDevice, OTADeviceToController};
 use fuzzer_device::cmos::CMOS;
+use fuzzer_device::controller_connection::{ConnectionSettings, ControllerConnection};
 use fuzzer_device::executor::{
     ExecutionEvent, ExecutionResult, ExecutionSampleResult, SampleExecutor,
 };
 use fuzzer_device::genetic_breeding::{GeneticPool, GeneticPoolSettings};
 use fuzzer_device::mutation_engine::InstructionDecoder;
 use fuzzer_device::{
-    disassemble_code, PersistentApplicationData, PersistentApplicationState, StateTrace, Trace,
+    disassemble_code, genetic_breeding, PersistentApplicationData, PersistentApplicationState,
+    StateTrace, Trace,
 };
 use hypervisor::state::StateDifference;
 use log::{debug, error, info, trace, warn};
@@ -27,11 +32,9 @@ use num_traits::{ConstZero, SaturatingSub};
 use rand_core::SeedableRng;
 use uefi::proto::loaded_image::LoadedImage;
 use uefi::proto::media::file::{File, FileAttribute, FileMode};
-#[cfg(feature = "device_bochs")]
-use uefi::runtime::ResetType;
 use uefi::{entry, println, CString16, Error, Status};
-
-const MAX_ITERATIONS: usize = 1000;
+use uefi_raw::table::runtime::ResetType;
+use x86::cpuid::cpuid;
 
 #[entry]
 unsafe fn main() -> Status {
@@ -69,9 +72,11 @@ unsafe fn main() -> Status {
         trace!("Program version changed. Erasing CMOS data.");
         *cmos_data.deref_mut() = PersistentApplicationData::default();
     }
+    let mut excluded_last_run = None;
     if let PersistentApplicationState::CollectingCoverage(address) = cmos_data.state {
         // failed to collect coverage from that address
         excluded_addresses.exclude_address(address);
+        excluded_last_run = Some(address);
         info!(
             "Last run failed to collect coverage from address: {:x?}",
             address
@@ -82,11 +87,32 @@ unsafe fn main() -> Status {
         }
         cmos_data.state = PersistentApplicationState::Idle;
     }
+    let excluded_last_run = excluded_last_run;
     drop(cmos_data);
 
-    let mut corpus = Vec::new();
+    #[cfg(not(feature = "device_bochs"))]
+    let udp: Option<ControllerConnection> = {
+        trace!("Connecting to UDP");
+
+        /*match ControllerConnection::connect(&ConnectionSettings::default()) {
+            Ok(udp) => Some(udp),
+            Err(err) => {
+                error!("Failed to connect to controller: {:?}", err);
+                #[cfg(not(feature = "device_bochs"))]
+                return Status::ABORTED;
+                #[cfg(feature = "device_bochs")]
+                None
+            }
+        }*/
+
+        None
+    };
+
+    trace!("Excluded addresses: {:?}", excluded_addresses.addresses);
+    let excluded_addresses = Rc::new(RefCell::new(excluded_addresses.addresses));
+
     trace!("Starting executor...");
-    let mut executor = match SampleExecutor::new(&excluded_addresses.addresses) {
+    let mut executor = match SampleExecutor::new(Rc::clone(&excluded_addresses)) {
         Ok(executor) => executor,
         Err(e) => {
             println!("Failed to create executor: {:?}", e);
@@ -100,7 +126,131 @@ unsafe fn main() -> Status {
     }
     info!("Executor selfcheck success");
 
-    let mut random = random_source(0);
+    // Bootstrap finished
+    // ready to accept commands
+
+    #[cfg(feature = "device_bochs")]
+    {
+        genetic_pool_fuzzing(
+            &mut executor,
+            &mut cmos,
+            0,
+            GeneticPoolSettings::default(),
+            10,
+        );
+    }
+
+    #[cfg(not(feature = "device_bochs"))]
+    if let Some(mut udp) = udp {
+        trace!("Waiting for command...");
+        loop {
+            let packet = match udp.receive(None) {
+                Ok(packet) => packet,
+                Err(err) => {
+                    error!("Failed to receive packet: {:?}", err);
+                    continue;
+                }
+            };
+
+            match packet {
+                OTAControllerToDevice::GetCapabilities => {
+                    let vendor_str = x86::cpuid::CpuId::new()
+                        .get_vendor_info()
+                        .map(|v| v.to_string())
+                        .unwrap_or("---".to_string());
+                    let processor_version = cpuid!(0x1);
+                    let capabilities = OTADeviceToController::Capabilities {
+                        coverage_collection: executor.supports_coverage_collection(),
+                        manufacturer: vendor_str,
+                        processor_version_eax: processor_version.eax,
+                        processor_version_ebx: processor_version.ebx,
+                        processor_version_ecx: processor_version.ecx,
+                        processor_version_edx: processor_version.edx,
+                    };
+                    if let Err(err) = udp.send(&capabilities) {
+                        error!("Failed to send capabilities: {:?}", err);
+                    }
+                }
+                OTAControllerToDevice::Blacklist { address } => {
+                    let mut excluded_addresses_mut = excluded_addresses.borrow_mut();
+
+                    for addr in address {
+                        excluded_addresses_mut.insert(addr);
+                    }
+                    drop(excluded_addresses_mut);
+                    executor.update_excluded_addresses();
+                }
+                OTAControllerToDevice::NOP | OTAControllerToDevice::Ack(_) => {}
+                OTAControllerToDevice::DidYouExcludeAnAddressLastRun => {
+                    let blacklisted = OTADeviceToController::Blacklisted {
+                        address: excluded_last_run,
+                    };
+                    if let Err(err) = udp.send(&blacklisted) {
+                        error!("Failed to send blacklisted: {:?}", err);
+                    }
+                }
+                OTAControllerToDevice::StartGeneticFuzzing {
+                    seed,
+                    evolutions,
+
+                    population_size,
+                    code_size,
+
+                    random_solutions_each_generation,
+                    keep_best_x_solutions,
+                    random_mutation_chance,
+                } => {
+                    let result = genetic_pool_fuzzing(
+                        &mut executor,
+                        &mut cmos,
+                        seed,
+                        GeneticPoolSettings {
+                            population_size,
+                            code_size,
+                            random_solutions_each_generation,
+                            keep_best_x_solutions,
+                            random_mutation_chance,
+                        },
+                        evolutions,
+                    );
+
+                    // todo use result
+                    drop(result);
+
+                    if let Err(err) = udp.send(&OTADeviceToController::FinishedGeneticFuzzing) {
+                        error!("Failed to send finish fuzzing: {:?}", err);
+                    }
+                }
+                OTAControllerToDevice::Reboot => {
+                    #[cfg(feature = "device_bochs")]
+                    uefi::runtime::reset(ResetType::SHUTDOWN, Status::SUCCESS, None);
+                    #[cfg(not(feature = "device_bochs"))]
+                    break;
+                }
+            }
+        }
+    } else {
+        unreachable!("Since above we exit if udp is None and not bochs")
+    }
+
+    warn!("Exiting...");
+
+    drop(cmos);
+
+    #[cfg(feature = "device_bochs")]
+    uefi::runtime::reset(ResetType::SHUTDOWN, Status::SUCCESS, None);
+    #[cfg(not(feature = "device_bochs"))]
+    uefi::runtime::reset(ResetType::COLD, Status::SUCCESS, None);
+}
+
+fn genetic_pool_fuzzing(
+    executor: &mut SampleExecutor,
+    cmos: &mut CMOS<PersistentApplicationData>,
+    seed: u64,
+    pool_settings: GeneticPoolSettings,
+    evolutions: u64,
+) -> Vec<genetic_breeding::Sample> {
+    let mut random = random_source(seed);
 
     // Declared global to avoid re-allocation
     let mut execution_result = ExecutionResult::default();
@@ -112,12 +262,11 @@ unsafe fn main() -> Status {
     let mut global_stats = GlobalStats::default();
 
     // Samples
-    let mut genetic_pool =
-        GeneticPool::new_random_population(GeneticPoolSettings::default(), &mut random);
+    let mut genetic_pool = GeneticPool::new_random_population(pool_settings, &mut random);
 
     // Execute initial sample to get ground truth coverage
     info!("Collecting ground truth coverage");
-    let _ = executor.execute_sample(&[], &mut execution_result, &mut cmos, &mut random);
+    let _ = executor.execute_sample(&[], &mut execution_result, cmos, &mut random);
     let ground_truth_coverage = execution_result.coverage.clone();
     if execution_result.events.len() > 0 {
         error!("Initial sample execution had events");
@@ -138,17 +287,13 @@ unsafe fn main() -> Status {
     let mut decoder = InstructionDecoder::new();
 
     // Main fuzzing loop
-    loop {
+    for evolution_count in 0..evolutions {
         for sample in genetic_pool.all_samples_mut() {
             global_stats.iteration_count += 1;
 
             // Execute
-            let ExecutionSampleResult { serialized_sample } = executor.execute_sample(
-                sample.code(),
-                &mut execution_result,
-                &mut cmos,
-                &mut random,
-            );
+            let ExecutionSampleResult { serialized_sample } =
+                executor.execute_sample(sample.code(), &mut execution_result, cmos, &mut random);
 
             // Handle events
             for event in &execution_result.events {
@@ -319,7 +464,7 @@ unsafe fn main() -> Status {
             if new_coverage.len() > 0 {
                 global_stats.annonce_new_sample(sample.code(), new_coverage.len());
                 global_stats.iterations_since_last_gain = 0;
-                corpus.push(sample.code().to_vec());
+                //corpus.push(sample.code().to_vec());
                 coverage_sofar.extend(new_coverage);
                 global_stats.coverage_sofar = coverage_sofar.len();
             }
@@ -328,30 +473,22 @@ unsafe fn main() -> Status {
             global_stats.maybe_print();
         }
 
-        // todo remove
-        if global_stats.iteration_count > MAX_ITERATIONS {
-            break;
+        if evolution_count + 1 < evolutions {
+            genetic_pool.evolution(&mut random);
         }
-
-        genetic_pool.evolution(&mut random);
     }
 
+    let result = genetic_pool.result();
+
     println!("Best performing programs are:");
-    for code in genetic_pool.result().iter().take(4) {
+    for code in result.iter().take(4) {
         println!("-----------------");
         println!("Score: {:?}", code.rating);
         disassemble_code(code.code());
         println!();
     }
 
-    warn!("Exiting...");
-
-    drop(cmos);
-
-    #[cfg(feature = "device_bochs")]
-    uefi::runtime::reset(ResetType::SHUTDOWN, Status::SUCCESS, None);
-
-    Status::SUCCESS
+    result
 }
 
 fn initial_execution_events_to_file(result: &ExecutionResult) {
@@ -493,7 +630,7 @@ fn prepare_gdb() {
 }
 
 struct ExcludedAddresses {
-    addresses: BTreeSet<usize>,
+    addresses: BTreeSet<u16>,
 }
 
 impl ExcludedAddresses {
@@ -544,7 +681,7 @@ impl ExcludedAddresses {
             .lines()
             .filter(|line| !(line.starts_with("//") || line.starts_with("#") || line.is_empty()))
             .filter_map(|line| {
-                usize::from_str_radix(line, 16)
+                u16::from_str_radix(line, 16)
                     .map_err(|_| uefi::Error::from(uefi::Status::UNSUPPORTED))
                     .ok()
             });
@@ -554,7 +691,7 @@ impl ExcludedAddresses {
         })
     }
 
-    pub fn exclude_address<A: Into<usize>>(&mut self, address: A) {
+    pub fn exclude_address<A: Into<u16>>(&mut self, address: A) {
         self.addresses.insert(address.into());
     }
 

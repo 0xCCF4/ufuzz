@@ -1,9 +1,12 @@
 use alloc::boxed::Box;
 use alloc::collections::BTreeSet;
 use alloc::format;
+use alloc::rc::Rc;
 use alloc::string::ToString;
+use core::cell::RefCell;
 use core::ops::{Deref, DerefMut};
 use core::pin::Pin;
+use log::trace;
 use coverage::harness::coverage_harness::hookable_address_iterator::HookableAddressIterator;
 use coverage::harness::coverage_harness::modification_engine::ModificationEngineSettings;
 use coverage::harness::coverage_harness::{
@@ -19,7 +22,7 @@ use ucode_dump::RomDump;
 // safety: Self referential struct, drop in reverse order
 // should be safe since no references are released to the outside
 // references inside are towards Pin<Box>>
-pub struct CoverageCollector<'a> {
+pub struct CoverageCollector {
     custom_processing_unit: Option<Pin<Box<CustomProcessingUnit>>>,
     com_interface: Option<Pin<Box<ComInterface<'static>>>>,
     coverage_harness: Option<CoverageHarness<'static, 'static, 'static>>,
@@ -29,14 +32,16 @@ pub struct CoverageCollector<'a> {
     hooks: usize,
     modification_engine_settings: ModificationEngineSettings,
 
-    excluded_addresses: &'a BTreeSet<usize>,
+    excluded_addresses: Rc<RefCell<BTreeSet<u16>>>,
 }
 
-impl<'a> CoverageCollector<'a> {
+impl CoverageCollector {
     pub fn initialize(
-        excluded_addresses: &'a BTreeSet<usize>,
+        excluded_addresses: Rc<RefCell<BTreeSet<u16>>>,
     ) -> Result<Self, custom_processing_unit::Error> {
         let mut cpu = CustomProcessingUnit::new()?;
+
+        trace!("Initializing custom processing unit");
 
         cpu.init()?;
         cpu.zero_hooks()?;
@@ -105,11 +110,13 @@ impl<'a> CoverageCollector<'a> {
     }
 
     pub fn get_iteration_harness(&self) -> IterationHarness {
+        let borrow = self.excluded_addresses.borrow();
+
         let hookable_addresses = HookableAddressIterator::construct(
             self.rom,
             &self.modification_engine_settings,
             self.hooks,
-            |address| !self.excluded_addresses.contains(&address.address()),
+            |address| !borrow.contains(&(address.address() as u16)),
         );
 
         IterationHarness::new(hookable_addresses)
@@ -127,7 +134,7 @@ impl<'a> CoverageCollector<'a> {
     }
 }
 
-impl Drop for CoverageCollector<'_> {
+impl Drop for CoverageCollector {
     fn drop(&mut self) {
         // drop in reverse order
         drop(self.coverage_harness.take());

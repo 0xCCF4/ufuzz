@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+PATH=$PATH:/run/current-system/sw/bin/
+
 # LEFT
 send_keys left
 

@@ -37,35 +37,54 @@ pub struct Sample {
     pub results: BTreeMap<String, SampleExecutionResult>, // device -> result
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum OTADeviceToController {
     Alive {
         timestamp: u64,
         current_iteration: u64,
     },
     Blacklisted {
-        address: Vec<usize>,
+        address: Option<u16>,
     },
-    FinishedGeneticFuzzing {
-        coverage: Vec<usize>,
-    },
+    FinishedGeneticFuzzing,
     Capabilities {
         coverage_collection: bool,
         manufacturer: String,
-        processor_version_eax: u64, // cpuid 1:eax
-        processor_version_ebx: u64, // cpuid 1:ebx
-        processor_version_ecx: u64, // cpuid 1:ecx
-        processor_version_edx: u64, // cpuid 1:edx
+        processor_version_eax: u32, // cpuid 1:eax
+        processor_version_ebx: u32, // cpuid 1:ebx
+        processor_version_ecx: u32, // cpuid 1:ecx
+        processor_version_edx: u32, // cpuid 1:edx
     },
     Ack(Box<OTAControllerToDevice>),
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+impl OTADeviceToController {
+    pub fn requires_ack(&self) -> bool {
+        match self {
+            OTADeviceToController::Alive { .. } => false,
+            OTADeviceToController::Blacklisted { .. } => true,
+            OTADeviceToController::FinishedGeneticFuzzing { .. } => true,
+            OTADeviceToController::Capabilities { .. } => true,
+            OTADeviceToController::Ack(_) => false,
+        }
+    }
+
+    pub fn ack(&self) -> Option<OTAControllerToDevice> {
+        if self.requires_ack() {
+            Some(OTAControllerToDevice::Ack(Box::new(self.clone())))
+        } else {
+            None
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum OTAControllerToDevice {
     GetCapabilities,
     Blacklist {
-        address: Vec<usize>,
+        address: Vec<u16>,
     },
+    DidYouExcludeAnAddressLastRun,
     StartGeneticFuzzing {
         seed: u64,
         evolutions: u64,
@@ -77,6 +96,29 @@ pub enum OTAControllerToDevice {
         keep_best_x_solutions: usize,
         random_mutation_chance: f64,
     },
+    Reboot,
     NOP,
     Ack(Box<OTADeviceToController>),
+}
+
+impl OTAControllerToDevice {
+    pub fn requires_ack(&self) -> bool {
+        match self {
+            OTAControllerToDevice::GetCapabilities => true,
+            OTAControllerToDevice::Blacklist { .. } => true,
+            OTAControllerToDevice::StartGeneticFuzzing { .. } => true,
+            OTAControllerToDevice::DidYouExcludeAnAddressLastRun => true,
+            OTAControllerToDevice::Reboot => true,
+            OTAControllerToDevice::NOP => false,
+            OTAControllerToDevice::Ack(_) => false,
+        }
+    }
+
+    pub fn ack(&self) -> Option<OTADeviceToController> {
+        if self.requires_ack() {
+            Some(OTADeviceToController::Ack(Box::new(self.clone())))
+        } else {
+            None
+        }
+    }
 }

@@ -16,7 +16,9 @@ use crate::{cmos, PersistentApplicationData, PersistentApplicationState, StateTr
 use ::hypervisor::error::HypervisorError;
 use ::hypervisor::state::{VmExitReason, VmState};
 use alloc::collections::{btree_map, BTreeMap, BTreeSet};
+use alloc::rc::Rc;
 use alloc::vec::Vec;
+use core::cell::RefCell;
 use core::fmt::Debug;
 use coverage::harness::coverage_harness::{CoverageExecutionResult, ExecutionResultEntry};
 use coverage::harness::iteration_harness::IterationHarness;
@@ -29,14 +31,14 @@ use rand_core::RngCore;
 #[cfg(feature = "__debug_print_progress")]
 use uefi::print;
 
-struct CoverageCollectorData<'a> {
-    pub collector: CoverageCollector<'a>,
+struct CoverageCollectorData {
+    pub collector: CoverageCollector,
     pub planner: IterationHarness,
 }
 
-pub struct SampleExecutor<'a> {
+pub struct SampleExecutor {
     hypervisor: Hypervisor,
-    coverage: Option<CoverageCollectorData<'a>>,
+    coverage: Option<CoverageCollectorData>,
     serializer: Serializer,
 }
 
@@ -49,7 +51,11 @@ pub struct ExecutionSampleResult {
     pub serialized_sample: Option<Vec<u8>>,
 }
 
-impl<'a> SampleExecutor<'a> {
+impl SampleExecutor {
+    pub fn supports_coverage_collection(&self) -> bool {
+        self.coverage.is_some()
+    }
+
     pub fn execute_sample<R: RngCore>(
         &mut self,
         sample: &[u8],
@@ -307,8 +313,8 @@ impl<'a> SampleExecutor<'a> {
     }
 
     pub fn new(
-        excluded_addresses: &'a BTreeSet<usize>,
-    ) -> Result<SampleExecutor<'a>, HypervisorError> {
+        excluded_addresses: Rc<RefCell<BTreeSet<u16>>>,
+    ) -> Result<SampleExecutor, HypervisorError> {
         let hypervisor = Hypervisor::new()?;
 
         #[cfg(not(feature = "__debug_pretend_no_coverage"))]
@@ -323,7 +329,7 @@ impl<'a> SampleExecutor<'a> {
                 .map(|collector| {
                     let hookable_addresses = collector.get_iteration_harness();
                     CoverageCollectorData {
-                        collector: collector,
+                        collector,
                         planner: hookable_addresses,
                     }
                 });
@@ -336,6 +342,12 @@ impl<'a> SampleExecutor<'a> {
             coverage: coverage_collector,
             serializer: Serializer::default(),
         })
+    }
+
+    pub fn update_excluded_addresses(&mut self) {
+        if let Some(coverage) = self.coverage.as_mut() {
+            coverage.planner = coverage.collector.get_iteration_harness();
+        }
     }
 
     pub fn trace_sample(

@@ -15,7 +15,7 @@ device_brix  = ["platform_intel", "bios_ami", "uefi"]
 platform_intel = [] # CMOS io port 0x70,0x71,0x72,0x73
 platform_bochs = [] # no CMOS memory
 bios_ami = []       # American Megatrends BIOS -> CMOS memory offset 0x80, len 64
-bios_bochs = []     # no CMOS memory
+bios_bochs = []     # no CMOS memory, no internet
 
 # Random number generator
 rand_isaac  = ["dep:rand_isaac"]
@@ -49,6 +49,9 @@ ucode_dump = { path = "../ucode_dump" }
 uefi = { version = "0.34.1", features = ["logger", "panic_handler", "alloc", "global_allocator"], optional = true }
 uefi_udp4 = { path = "../uefi_udp4", optional = true }
 uefi-raw = {version = "0.10.0", optional = true}
+fuzzer_data = { path = "../fuzzer_data" }
+serde_json = {version = "1.0.139", default-features = false, features = ["alloc"]}
+serde = {version = "1.0.218", default-features = false, features = ["alloc"]}
 
 [build-dependencies]
 chrono = "0.4.39"

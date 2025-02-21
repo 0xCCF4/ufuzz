@@ -1,5 +1,6 @@
 use fuzzer_data::{OTAControllerToDevice, OTADeviceToController};
-use log::{error, info};
+use log::error;
+use std::collections::VecDeque;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 use std::io;
@@ -16,6 +17,7 @@ pub enum DeviceConnectionError {
     Serde(serde_json::Error),
     Eof,
     MessageTooLong(usize),
+    NoAckReceived,
 }
 
 impl Display for DeviceConnectionError {
@@ -25,6 +27,7 @@ impl Display for DeviceConnectionError {
             DeviceConnectionError::Serde(e) => write!(f, "Serde error: {}", e),
             DeviceConnectionError::Eof => write!(f, "EOF"),
             DeviceConnectionError::MessageTooLong(len) => write!(f, "Message too long: {}", len),
+            DeviceConnectionError::NoAckReceived => write!(f, "No ack received"),
         }
     }
 }
@@ -47,6 +50,11 @@ pub struct DeviceConnection {
     tx_socket: UdpSocket,
     receiver: Receiver<OTADeviceToController>,
     receiver_thread: Option<JoinHandle<()>>,
+
+    resent_attempts: u8,
+    ack_timeout: Duration,
+
+    virtual_receive_queue: VecDeque<OTADeviceToController>,
 }
 
 impl DeviceConnection {
@@ -114,6 +122,13 @@ impl DeviceConnection {
                             }
                         };
 
+                        if let Some(ack) = data.ack() {
+                            let string = serde_json::to_string(&ack).expect("must work");
+                            if let Err(err) = rx_socket.send(string.as_bytes()).await {
+                                error!("Failed to send ack: {:?}", err);
+                            }
+                        }
+
                         if let Err(_) = sender.send(data).await {
                             break; // shutdown
                         }
@@ -133,10 +148,16 @@ impl DeviceConnection {
             tx_socket,
             receiver_thread: Some(thread),
             receiver,
+            virtual_receive_queue: VecDeque::new(),
+            ack_timeout: Duration::from_millis(200),
+            resent_attempts: 10,
         })
     }
 
-    pub async fn send(&self, data: &OTAControllerToDevice) -> Result<(), DeviceConnectionError> {
+    pub async fn send(
+        &mut self,
+        data: &OTAControllerToDevice,
+    ) -> Result<(), DeviceConnectionError> {
         let string = serde_json::to_string(data).expect("Always works");
         let bytes = string.as_bytes();
 
@@ -144,20 +165,73 @@ impl DeviceConnection {
             return Err(DeviceConnectionError::MessageTooLong(bytes.len()));
         }
 
-        match self.tx_socket.send(bytes).await {
-            Ok(count) => {
-                if count == bytes.len() {
-                    Ok(())
-                } else {
-                    Err(DeviceConnectionError::Eof)
+        let mut virtual_receive_buffer = VecDeque::new();
+
+        let mut status = None;
+        'attempt_loop: for _attempt in 0..self.resent_attempts {
+            // initial packet sending
+            match self.tx_socket.send(bytes).await {
+                Ok(count) => {
+                    if count != bytes.len() {
+                        status = Some(Err(DeviceConnectionError::Eof));
+                        break 'attempt_loop;
+                    }
+                }
+                Err(e) => {
+                    status = Some(Err(DeviceConnectionError::Io(e)));
+                    break 'attempt_loop;
                 }
             }
-            Err(e) => Err(DeviceConnectionError::Io(e)),
+
+            // check if requires ack
+            if !data.requires_ack() {
+                // does not require ack
+                status = Some(Ok(()));
+                break 'attempt_loop;
+            }
+
+            // wait for ack
+            while let Some(received_packet) = self.receive_timeout(self.ack_timeout).await {
+                if let OTADeviceToController::Ack(ack_content) = received_packet {
+                    if data == ack_content.as_ref() {
+                        // OK received acknowledgement
+                        status = Some(Ok(()));
+                        break 'attempt_loop;
+                    }
+                } else {
+                    // received other package
+                    virtual_receive_buffer.push_back(received_packet);
+                }
+            }
         }
+
+        // requeue the received packets
+        for packet in virtual_receive_buffer.into_iter().rev() {
+            self.virtual_receive_queue.push_front(packet);
+        }
+
+        status.unwrap_or(Err(DeviceConnectionError::NoAckReceived))
     }
 
     pub fn receive(&mut self) -> Option<OTADeviceToController> {
+        if let Some(data) = self.virtual_receive_queue.pop_front() {
+            return Some(data);
+        }
+
         self.receiver.try_recv().ok()
+    }
+
+    pub async fn receive_timeout(&mut self, timeout: Duration) -> Option<OTADeviceToController> {
+        let now = Instant::now();
+        loop {
+            if let Some(data) = self.receive() {
+                return Some(data);
+            }
+            if now.elapsed() > timeout {
+                return None;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
     }
 }
 
