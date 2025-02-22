@@ -1,8 +1,9 @@
 use alloc::collections::VecDeque;
 use alloc::string::String;
-use fuzzer_data::{OTAControllerToDevice, OTADeviceToController};
+use fuzzer_data::{Ota, OtaC2D, OtaC2DUnreliable, OtaD2CTransport, OtaD2CUnreliable, OtaPacket};
 use log::{error, info, warn};
 use uefi::boot::ScopedProtocol;
+use uefi::println;
 use uefi_raw::Ipv4Address;
 use uefi_udp4::uefi::proto::network::udp4::proto::UDP4Protocol;
 use uefi_udp4::uefi_raw::protocol::network::udp4::{
@@ -50,9 +51,13 @@ impl Default for ConnectionSettings {
 pub struct ControllerConnection {
     udp_handle: Option<ScopedBindingProtocol<UDP4ServiceBindingProtocol>>,
     network: Option<ScopedProtocol<UDP4Protocol>>,
-    virtual_receive_buffer: VecDeque<OTAControllerToDevice>,
+    virtual_receive_buffer: VecDeque<OtaC2D>,
     resent_attempts: u8,
     ack_timeout: u64,
+
+    remote_session: u16,
+    sequence_number_rx: u64,
+    sequence_number_tx: u64,
 }
 
 impl ControllerConnection {
@@ -141,11 +146,26 @@ impl ControllerConnection {
             ack_timeout: settings.ack_timeout,
             resent_attempts: settings.resent_attempts,
             virtual_receive_buffer: VecDeque::new(),
+
+            remote_session: 0,
+            sequence_number_rx: 0,
+            sequence_number_tx: 0,
         })
     }
 
-    pub fn send(&mut self, data: &OTADeviceToController) -> Result<(), ConnectionError> {
-        let string = serde_json::to_string(data).expect("Must always serialize");
+    pub fn send<Packet: OtaPacket<OtaD2CUnreliable, OtaD2CTransport>>(
+        &mut self,
+        data: Packet,
+    ) -> Result<(), ConnectionError> {
+        let packet = if data.reliable_transport() {
+            self.sequence_number_tx += 1;
+
+            data.to_packet(self.sequence_number_tx, self.remote_session)
+        } else {
+            data.to_packet(0, 0)
+        };
+
+        let string = serde_json::to_string(&packet).expect("Must always serialize");
         let buf = string.as_bytes();
 
         if buf.len() > 4000 {
@@ -164,26 +184,38 @@ impl ControllerConnection {
             }
 
             // check if requires ack
-            if !data.requires_ack() {
+            if !matches!(packet, Ota::Transport { .. }) {
                 // does not require ack
                 status = Some(Ok(()));
                 break 'attempt_loop;
             }
 
             // wait for ack
-            while let Some(received_packet) = match self.receive(Some(self.ack_timeout)) {
-                Ok(packet) => Some(packet),
-                Err(err) => {
-                    error!("Failed to transmit data: {:?}", err);
-                    status = Some(Err(ConnectionError::FailedToTransmit));
-                    break 'attempt_loop;
+            'wait_for_ack: while let Some(received_packet) =
+                match self.receive(Some(self.ack_timeout)) {
+                    Ok(None) => continue 'wait_for_ack,
+                    Ok(Some(packet)) => Some(packet),
+                    Err(err) => {
+                        error!("Failed to transmit data: {:?}", err);
+                        status = Some(Err(ConnectionError::FailedToTransmit));
+                        break 'attempt_loop;
+                    }
                 }
-            } {
-                if let OTAControllerToDevice::Ack(ack_content) = received_packet {
-                    if data == ack_content.as_ref() {
+            {
+                if let OtaC2D::Unreliable(OtaC2DUnreliable::Ack(sequence_number)) = received_packet
+                {
+                    if sequence_number > self.sequence_number_tx {
+                        warn!(
+                            "Received ack for future sequence number: {}",
+                            sequence_number
+                        );
+                        virtual_receive_buffer.push_back(received_packet);
+                    } else if sequence_number == self.sequence_number_tx {
                         // OK received acknowledgement
                         status = Some(Ok(()));
                         break 'attempt_loop;
+                    } else {
+                        warn!("Received ack for past sequence number: {}", sequence_number);
                     }
                 } else {
                     // received other package
@@ -203,9 +235,9 @@ impl ControllerConnection {
     pub fn receive(
         &mut self,
         timeout_millis: Option<u64>,
-    ) -> Result<OTAControllerToDevice, ConnectionError> {
+    ) -> Result<Option<OtaC2D>, ConnectionError> {
         if let Some(packet) = self.virtual_receive_buffer.pop_front() {
-            return Ok(packet);
+            return Ok(Some(packet));
         }
 
         let data = match self.network.as_mut().unwrap().receive(timeout_millis) {
@@ -224,7 +256,7 @@ impl ControllerConnection {
             }
         };
 
-        let data: OTAControllerToDevice = match serde_json::from_str(&string) {
+        let data: OtaC2D = match serde_json::from_str(&string) {
             Ok(data) => data,
             Err(e) => {
                 error!("Failed to deserialize data: {:?}", e);
@@ -233,13 +265,32 @@ impl ControllerConnection {
         };
 
         if let Some(ack) = data.ack() {
-            if let Err(err) = self.send(&ack) {
+            if let Err(err) = self.send(ack) {
                 error!("Failed to send ack: {:?}", err);
                 return Err(err);
             }
         }
 
-        Ok(data)
+        if let Ota::Transport { session, id, .. } = &data {
+            if *session != self.remote_session {
+                warn!("Received packet with new session: {}", session);
+                self.sequence_number_rx = 0;
+                self.remote_session = *session;
+            } else if *id < self.sequence_number_rx {
+                warn!("Received packet with retired sequence number: {}", id);
+                return Ok(None);
+            } else if *id == self.sequence_number_rx {
+                warn!("Received packet with same sequence number: {}", id);
+                return Ok(None);
+            } else {
+                self.sequence_number_rx = *id;
+            }
+        }
+
+        // todo remove
+        println!("Received: {:?}", data);
+
+        Ok(Some(data))
     }
 }
 

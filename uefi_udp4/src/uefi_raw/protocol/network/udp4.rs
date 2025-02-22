@@ -4,7 +4,7 @@ use core::marker::PhantomData;
 use core::mem::ManuallyDrop;
 use core::ops::Deref;
 use core::ptr::NonNull;
-use log::{trace, warn};
+use log::warn;
 use uefi::proto::{unsafe_protocol, Protocol};
 use uefi::Handle;
 use uefi_raw::{Ipv4Address, Status};
@@ -106,7 +106,6 @@ impl Drop for Udp4ReceiveDataWrapperScoped {
 
         let event = self.as_ref().recycle_signal.as_ptr();
 
-        trace!("Recycling UDP packet data");
         let status = unsafe { ((*bt.boot_services).signal_event)(event) };
 
         if status != Status::SUCCESS {

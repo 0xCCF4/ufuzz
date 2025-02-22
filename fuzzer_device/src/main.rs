@@ -14,7 +14,7 @@ use core::cell::RefCell;
 use core::fmt::Display;
 use core::ops::DerefMut;
 use data_types::addresses::UCInstructionAddress;
-use fuzzer_data::{OTAControllerToDevice, OTADeviceToController};
+use fuzzer_data::{OtaC2D, OtaC2DTransport, OtaD2CTransport};
 use fuzzer_device::cmos::CMOS;
 use fuzzer_device::controller_connection::{ConnectionSettings, ControllerConnection};
 use fuzzer_device::executor::{
@@ -141,24 +141,29 @@ unsafe fn main() -> Status {
     #[cfg(not(feature = "device_bochs"))]
     if let Some(mut udp) = udp {
         trace!("Waiting for command...");
-        uefi::boot::stall(10_000_000);
         loop {
             let packet = match udp.receive(None) {
-                Ok(packet) => packet,
+                Ok(None) => continue,
+                Ok(Some(packet)) => packet,
                 Err(err) => {
                     error!("Failed to receive packet: {:?}", err);
                     continue;
                 }
             };
 
+            let packet = match packet {
+                OtaC2D::Transport { content, .. } => content,
+                _ => continue,
+            };
+
             match packet {
-                OTAControllerToDevice::GetCapabilities => {
+                OtaC2DTransport::GetCapabilities => {
                     let vendor_str = x86::cpuid::CpuId::new()
                         .get_vendor_info()
                         .map(|v| v.to_string())
                         .unwrap_or("---".to_string());
                     let processor_version = cpuid!(0x1);
-                    let capabilities = OTADeviceToController::Capabilities {
+                    let capabilities = OtaD2CTransport::Capabilities {
                         coverage_collection: executor.supports_coverage_collection(),
                         manufacturer: vendor_str,
                         processor_version_eax: processor_version.eax,
@@ -166,11 +171,11 @@ unsafe fn main() -> Status {
                         processor_version_ecx: processor_version.ecx,
                         processor_version_edx: processor_version.edx,
                     };
-                    if let Err(err) = udp.send(&capabilities) {
+                    if let Err(err) = udp.send(capabilities) {
                         error!("Failed to send capabilities: {:?}", err);
                     }
                 }
-                OTAControllerToDevice::Blacklist { address } => {
+                OtaC2DTransport::Blacklist { address } => {
                     let mut excluded_addresses_mut = excluded_addresses.borrow_mut();
 
                     for addr in address {
@@ -179,16 +184,15 @@ unsafe fn main() -> Status {
                     drop(excluded_addresses_mut);
                     executor.update_excluded_addresses();
                 }
-                OTAControllerToDevice::NOP | OTAControllerToDevice::Ack(_) => {}
-                OTAControllerToDevice::DidYouExcludeAnAddressLastRun => {
-                    let blacklisted = OTADeviceToController::Blacklisted {
+                OtaC2DTransport::DidYouExcludeAnAddressLastRun => {
+                    let blacklisted = OtaD2CTransport::Blacklisted {
                         address: excluded_last_run,
                     };
-                    if let Err(err) = udp.send(&blacklisted) {
+                    if let Err(err) = udp.send(blacklisted) {
                         error!("Failed to send blacklisted: {:?}", err);
                     }
                 }
-                OTAControllerToDevice::StartGeneticFuzzing {
+                OtaC2DTransport::StartGeneticFuzzing {
                     seed,
                     evolutions,
 
@@ -216,11 +220,11 @@ unsafe fn main() -> Status {
                     // todo use result
                     drop(result);
 
-                    if let Err(err) = udp.send(&OTADeviceToController::FinishedGeneticFuzzing) {
+                    if let Err(err) = udp.send(OtaD2CTransport::FinishedGeneticFuzzing) {
                         error!("Failed to send finish fuzzing: {:?}", err);
                     }
                 }
-                OTAControllerToDevice::Reboot => {
+                OtaC2DTransport::Reboot => {
                     #[cfg(feature = "device_bochs")]
                     uefi::runtime::reset(ResetType::SHUTDOWN, Status::SUCCESS, None);
                     #[cfg(not(feature = "device_bochs"))]

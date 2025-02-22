@@ -119,7 +119,7 @@ fn main_put_remote(name: &str) {
         .expect("Failed to write to sftp stdin");
     writeln!(sftp_stdin, "exit").expect("Failed to write to sftp stdin");
 
-    let status = sftp.wait().expect("Failed to wait on sftp");
+    let _status = sftp.wait().expect("Failed to wait on sftp");
 
     let mut ssh = Command::new("ssh")
         .arg("thesis@192.168.0.6")

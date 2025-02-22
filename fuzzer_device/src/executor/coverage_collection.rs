@@ -16,7 +16,6 @@ use coverage::interface::safe::ComInterface;
 use coverage::interface_definition;
 use custom_processing_unit::CustomProcessingUnit;
 use data_types::addresses::{Address, UCInstructionAddress};
-use log::trace;
 use ucode_dump::RomDump;
 
 // safety: Self referential struct, drop in reverse order

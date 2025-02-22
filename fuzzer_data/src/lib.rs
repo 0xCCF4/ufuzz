@@ -1,9 +1,9 @@
 #![no_std]
 
-use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::vec::Vec;
+use core::fmt::Debug;
 use hypervisor::state::{VmExitReason, VmState};
 use serde::{Deserialize, Serialize};
 
@@ -38,11 +38,16 @@ pub struct Sample {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub enum OTADeviceToController {
+pub enum OtaD2CUnreliable {
     Alive {
         timestamp: u64,
         current_iteration: u64,
     },
+    Ack(u64),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum OtaD2CTransport {
     Blacklisted {
         address: Option<u16>,
     },
@@ -55,31 +60,16 @@ pub enum OTADeviceToController {
         processor_version_ecx: u32, // cpuid 1:ecx
         processor_version_edx: u32, // cpuid 1:edx
     },
-    Ack(Box<OTAControllerToDevice>),
-}
-
-impl OTADeviceToController {
-    pub fn requires_ack(&self) -> bool {
-        match self {
-            OTADeviceToController::Alive { .. } => false,
-            OTADeviceToController::Blacklisted { .. } => true,
-            OTADeviceToController::FinishedGeneticFuzzing { .. } => true,
-            OTADeviceToController::Capabilities { .. } => true,
-            OTADeviceToController::Ack(_) => false,
-        }
-    }
-
-    pub fn ack(&self) -> Option<OTAControllerToDevice> {
-        if self.requires_ack() {
-            Some(OTAControllerToDevice::Ack(Box::new(self.clone())))
-        } else {
-            None
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub enum OTAControllerToDevice {
+pub enum OtaC2DUnreliable {
+    NOP,
+    Ack(u64),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum OtaC2DTransport {
     GetCapabilities,
     Blacklist {
         address: Vec<u16>,
@@ -97,26 +87,104 @@ pub enum OTAControllerToDevice {
         random_mutation_chance: f64,
     },
     Reboot,
-    NOP,
-    Ack(Box<OTADeviceToController>),
 }
 
-impl OTAControllerToDevice {
-    pub fn requires_ack(&self) -> bool {
-        match self {
-            OTAControllerToDevice::GetCapabilities => true,
-            OTAControllerToDevice::Blacklist { .. } => true,
-            OTAControllerToDevice::StartGeneticFuzzing { .. } => true,
-            OTAControllerToDevice::DidYouExcludeAnAddressLastRun => true,
-            OTAControllerToDevice::Reboot => true,
-            OTAControllerToDevice::NOP => false,
-            OTAControllerToDevice::Ack(_) => false,
-        }
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum Ota<Unreliable, Transport> {
+    Unreliable(Unreliable),
+    Transport {
+        session: u16,
+        id: u64,
+        content: Transport,
+    },
+}
+
+pub trait OtaPacket<A, B>: Debug {
+    fn reliable_transport(&self) -> bool;
+    fn to_packet(self, sequence_number: u64, session: u16) -> Ota<A, B>;
+}
+
+impl OtaPacket<OtaD2CUnreliable, OtaD2CTransport> for OtaD2CUnreliable {
+    fn reliable_transport(&self) -> bool {
+        false
     }
 
-    pub fn ack(&self) -> Option<OTADeviceToController> {
-        if self.requires_ack() {
-            Some(OTADeviceToController::Ack(Box::new(self.clone())))
+    fn to_packet(
+        self,
+        _sequence_number: u64,
+        _session: u16,
+    ) -> Ota<OtaD2CUnreliable, OtaD2CTransport> {
+        Ota::Unreliable(self)
+    }
+}
+
+impl OtaPacket<OtaD2CUnreliable, OtaD2CTransport> for OtaD2CTransport {
+    fn reliable_transport(&self) -> bool {
+        true
+    }
+
+    fn to_packet(
+        self,
+        sequence_number: u64,
+        session: u16,
+    ) -> Ota<OtaD2CUnreliable, OtaD2CTransport> {
+        Ota::Transport {
+            session,
+            id: sequence_number,
+            content: self,
+        }
+    }
+}
+
+impl OtaPacket<OtaC2DUnreliable, OtaC2DTransport> for OtaC2DUnreliable {
+    fn reliable_transport(&self) -> bool {
+        false
+    }
+
+    fn to_packet(
+        self,
+        _sequence_number: u64,
+        _session: u16,
+    ) -> Ota<OtaC2DUnreliable, OtaC2DTransport> {
+        Ota::Unreliable(self)
+    }
+}
+
+impl OtaPacket<OtaC2DUnreliable, OtaC2DTransport> for OtaC2DTransport {
+    fn reliable_transport(&self) -> bool {
+        true
+    }
+
+    fn to_packet(
+        self,
+        sequence_number: u64,
+        session: u16,
+    ) -> Ota<OtaC2DUnreliable, OtaC2DTransport> {
+        Ota::Transport {
+            session,
+            id: sequence_number,
+            content: self,
+        }
+    }
+}
+
+pub type OtaD2C = Ota<OtaD2CUnreliable, OtaD2CTransport>;
+pub type OtaC2D = Ota<OtaC2DUnreliable, OtaC2DTransport>;
+
+impl OtaD2C {
+    pub fn ack(&self) -> Option<OtaC2DUnreliable> {
+        if let Self::Transport { id, .. } = self {
+            Some(OtaC2DUnreliable::Ack(*id))
+        } else {
+            None
+        }
+    }
+}
+
+impl OtaC2D {
+    pub fn ack(&self) -> Option<OtaD2CUnreliable> {
+        if let Self::Transport { id, .. } = self {
+            Some(OtaD2CUnreliable::Ack(*id))
         } else {
             None
         }
