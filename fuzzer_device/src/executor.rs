@@ -24,7 +24,6 @@ use coverage::harness::coverage_harness::{CoverageExecutionResult, ExecutionResu
 use coverage::harness::iteration_harness::IterationHarness;
 use coverage::interface_definition::CoverageCount;
 use data_types::addresses::{Address, UCInstructionAddress};
-#[cfg(feature = "__debug_print_external_interrupt_notification")]
 use log::trace;
 use log::{error, warn};
 use rand_core::RngCore;
@@ -315,7 +314,7 @@ impl SampleExecutor {
     pub fn new(
         excluded_addresses: Rc<RefCell<BTreeSet<u16>>>,
     ) -> Result<SampleExecutor, HypervisorError> {
-        let hypervisor = Hypervisor::new()?;
+        trace!("Initializing coverage collection");
 
         #[cfg(not(feature = "__debug_pretend_no_coverage"))]
         let coverage_collector =
@@ -336,6 +335,12 @@ impl SampleExecutor {
 
         #[cfg(feature = "__debug_pretend_no_coverage")]
         let coverage_collector = None;
+
+        trace!("Coverage collection initialized");
+
+        trace!("Initializing hypervisor");
+        let hypervisor = Hypervisor::new()?;
+        trace!("Hypervisor initialized");
 
         Ok(Self {
             hypervisor,

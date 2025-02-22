@@ -106,6 +106,7 @@ fn main_put_remote(name: &str) {
         .to_str()
         .unwrap();
 
+    println!("Pushing {} to the remote", name);
     let mut sftp = Command::new("sftp")
         .arg("thesis@192.168.0.6:/tmp")
         .stdin(Stdio::piped())
@@ -128,8 +129,12 @@ fn main_put_remote(name: &str) {
 
     {
         let ssh_stdin = ssh.stdin.as_mut().expect("Failed to open ssh stdin");
-        writeln!(ssh_stdin, "sudo sync").expect("Failed to write to ssh stdin");
-        writeln!(ssh_stdin, "sudo configure_usb off").expect("Failed to write to ssh stdin");
+        writeln!(ssh_stdin, "echo Syncing && sudo sync").expect("Failed to write to ssh stdin");
+        writeln!(
+            ssh_stdin,
+            "echo -n \"Stopping USB: \" && sudo configure_usb off"
+        )
+        .expect("Failed to write to ssh stdin");
         writeln!(ssh_stdin, "if [ ! -f ~/disk.img ]; then echo 'Creating disk image' && dd if=/dev/zero of=~/disk.img bs=1M count=1024 && echo 'Formatting disk image' && mkfs.fat -F 32 ~/disk.img; fi").expect("Failed to write to ssh stdin");
         writeln!(ssh_stdin, "sudo mkdir -p /mnt ; sudo mount ~/disk.img /mnt")
             .expect("Failed to write to ssh stdin");
@@ -137,9 +142,12 @@ fn main_put_remote(name: &str) {
             .expect("Failed to write to ssh stdin");
         writeln!(ssh_stdin, "sudo umount /mnt").expect("Failed to write to ssh stdin");
         writeln!(ssh_stdin, "sudo rm /tmp/{}", name).expect("Failed to write to ssh stdin");
-        writeln!(ssh_stdin, "sudo sync").expect("Failed to write to ssh stdin");
-        writeln!(ssh_stdin, "sudo configure_usb on ~/disk.img")
-            .expect("Failed to write to ssh stdin");
+        writeln!(ssh_stdin, "echo Syncing && sudo sync").expect("Failed to write to ssh stdin");
+        writeln!(
+            ssh_stdin,
+            "echo -n \"Starting USB: \" && sudo configure_usb on ~/disk.img"
+        )
+        .expect("Failed to write to ssh stdin");
         writeln!(ssh_stdin, "exit").expect("Failed to write to ssh stdin");
     }
 
@@ -283,12 +291,7 @@ fn build_app(project: &str, release: bool, device: bool) -> Result<PathBuf, DynE
         ]);
         "examples/test_udp"
     } else if project == "test_hypervisor" {
-        status.args([
-            "-p",
-            "hypervisor",
-            "--example",
-            "test_hypervisor",
-            ]);
+        status.args(["-p", "hypervisor", "--example", "test_hypervisor"]);
         "examples/test_hypervisor"
     } else {
         status.args(["-p", project]);

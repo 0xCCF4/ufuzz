@@ -8,22 +8,27 @@ use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
-use iced_x86::{code_asm, Decoder, DecoderOptions, Formatter, IcedError, Instruction, NasmFormatter};
+use hypervisor::hardware_vt::NestedPagingStructureEntryType;
+use hypervisor::state::{GuestRegisters, VmState, VmStateExtendedRegisters};
+use hypervisor::vm::Vm;
+use hypervisor::x86_instructions::sgdt;
+use hypervisor::Page;
 use iced_x86::code_asm::CodeAssembler;
+use iced_x86::{
+    code_asm, Decoder, DecoderOptions, Formatter, IcedError, Instruction, NasmFormatter,
+};
 use log::{error, info};
-use uefi::{boot, entry, print, println, Status};
 use uefi::proto::pi::mp::MpServices;
+use uefi::{boot, entry, print, println, Status};
 use x86::bits64::paging::{PAddr, PDPTEntry, PDPTFlags, PML4Entry, PML4Flags, BASE_PAGE_SHIFT};
 use x86::controlregs::{Cr0, Cr4};
 use x86::current::rflags::RFlags;
 use x86::dtables::DescriptorTablePointer;
+use x86::segmentation::{
+    BuildDescriptor, CodeSegmentType, DataSegmentType, Descriptor, DescriptorBuilder,
+    GateDescriptorBuilder, SegmentDescriptorBuilder, SegmentSelector,
+};
 use x86::Ring;
-use x86::segmentation::{BuildDescriptor, CodeSegmentType, DataSegmentType, Descriptor, DescriptorBuilder, GateDescriptorBuilder, SegmentDescriptorBuilder, SegmentSelector};
-use hypervisor::hardware_vt::NestedPagingStructureEntryType;
-use hypervisor::Page;
-use hypervisor::state::{GuestRegisters, VmState, VmStateExtendedRegisters};
-use hypervisor::vm::Vm;
-use hypervisor::x86_instructions::sgdt;
 
 const _: () = assert!(size_of::<PML4Entry>() == 8);
 const _: () = assert!(size_of::<PDPTEntry>() == 8);
@@ -127,7 +132,8 @@ unsafe fn main() -> Status {
         gdtr: DescriptorTablePointer {
             base: descriptor_page.as_ptr().cast(),
             limit: 2,
-        }.into(),
+        }
+        .into(),
         idtr: DescriptorTablePointer::default().into(),
         ldtr_base: 0,
         ldtr: 0,

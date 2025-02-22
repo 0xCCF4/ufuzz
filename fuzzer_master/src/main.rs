@@ -9,7 +9,9 @@ async fn main() {
     let interface = FuzzerNodeInterface::new("http://192.168.0.6:8000");
     let mut udp = DeviceConnection::new("192.168.0.44:4444").await.unwrap();
 
-    udp.send(&OTAControllerToDevice::GetCapabilities).await.unwrap();
+    udp.send(&OTAControllerToDevice::GetCapabilities)
+        .await
+        .unwrap();
     udp.send(&OTAControllerToDevice::StartGeneticFuzzing {
         seed: 0,
         evolutions: 1,
@@ -18,9 +20,9 @@ async fn main() {
         keep_best_x_solutions: 10,
         population_size: 100,
         random_solutions_each_generation: 2,
-    }).await.unwrap();
+    })
+    .await
+    .unwrap();
 
-    println!("{:?}", udp.receive().await.unwrap());
-
-
+    println!("{:?}", udp.receive().unwrap());
 }

@@ -6,7 +6,6 @@ use alloc::string::ToString;
 use core::cell::RefCell;
 use core::ops::{Deref, DerefMut};
 use core::pin::Pin;
-use log::trace;
 use coverage::harness::coverage_harness::hookable_address_iterator::HookableAddressIterator;
 use coverage::harness::coverage_harness::modification_engine::ModificationEngineSettings;
 use coverage::harness::coverage_harness::{
@@ -17,6 +16,7 @@ use coverage::interface::safe::ComInterface;
 use coverage::interface_definition;
 use custom_processing_unit::CustomProcessingUnit;
 use data_types::addresses::{Address, UCInstructionAddress};
+use log::trace;
 use ucode_dump::RomDump;
 
 // safety: Self referential struct, drop in reverse order
@@ -41,8 +41,6 @@ impl CoverageCollector {
     ) -> Result<Self, custom_processing_unit::Error> {
         let mut cpu = CustomProcessingUnit::new()?;
 
-        trace!("Initializing custom processing unit");
-
         cpu.init()?;
         cpu.zero_hooks()?;
 
@@ -60,6 +58,7 @@ impl CoverageCollector {
                     )));
                 }
             };
+
         let mut interface = Box::pin(interface);
         let hooks = {
             let max_hooks = interface.description().max_number_of_hooks;
@@ -84,6 +83,7 @@ impl CoverageCollector {
         let cpu_static_tmp = cpu.as_ref();
         let interface_static: &mut ComInterface = interface_static_tmp.deref_mut();
         let cpu_static: &CustomProcessingUnit = cpu_static_tmp.deref();
+
         let interface_static: &'static mut ComInterface =
             unsafe { core::mem::transmute(interface_static) };
         let cpu_static: &'static CustomProcessingUnit = unsafe { core::mem::transmute(cpu_static) };

@@ -94,7 +94,7 @@ unsafe fn main() -> Status {
     let udp: Option<ControllerConnection> = {
         trace!("Connecting to UDP");
 
-        /*match ControllerConnection::connect(&ConnectionSettings::default()) {
+        match ControllerConnection::connect(&ConnectionSettings::default()) {
             Ok(udp) => Some(udp),
             Err(err) => {
                 error!("Failed to connect to controller: {:?}", err);
@@ -103,9 +103,7 @@ unsafe fn main() -> Status {
                 #[cfg(feature = "device_bochs")]
                 None
             }
-        }*/
-
-        None
+        }
     };
 
     trace!("Excluded addresses: {:?}", excluded_addresses.addresses);
@@ -143,6 +141,7 @@ unsafe fn main() -> Status {
     #[cfg(not(feature = "device_bochs"))]
     if let Some(mut udp) = udp {
         trace!("Waiting for command...");
+        uefi::boot::stall(10_000_000);
         loop {
             let packet = match udp.receive(None) {
                 Ok(packet) => packet,
@@ -626,6 +625,12 @@ fn prepare_gdb() {
     if let Ok(image_proto) = image_proto {
         let (base, _size) = image_proto.info();
         debug!("Loaded image base: 0x{:x}", base as usize);
+    }
+
+    let system_table = uefi::table::system_table_raw();
+
+    if let Some(system_table) = system_table {
+        debug!("System table: {:x?}", system_table.as_ptr() as usize);
     }
 }
 
