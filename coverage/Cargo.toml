@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 log = { version = "0.4.22" }
-uefi = { version = "0.33.0", optional = true, default-features = false, features = ["alloc"] }
+uefi = { version = "0.34.1", optional = true, default-features = false, features = ["alloc"] }
 custom_processing_unit = { path = "../custom_processing_unit", features = ["nostd"] }
 data_types = { path = "../data_types", features = ["nostd"] }
 ucode_compiler_dynamic = { path = "../ucode_compiler_dynamic" }
@@ -27,4 +27,4 @@ itertools = "0.14.0"
 
 [dev-dependencies]
 ucode_compiler_derive = { path = "../ucode_compiler_derive" }
-uefi = { version = "0.33.0", features = ["logger", "panic_handler", "alloc", "global_allocator"] }
+uefi = { version = "0.34.1", features = ["logger", "panic_handler", "alloc", "global_allocator"] }
