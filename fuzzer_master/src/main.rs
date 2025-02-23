@@ -1,3 +1,4 @@
+use std::time::Duration;
 use fuzzer_data::OtaC2DTransport;
 use fuzzer_master::device_connection::DeviceConnection;
 use fuzzer_master::fuzzer_node_bridge::FuzzerNodeInterface;
@@ -22,5 +23,11 @@ async fn main() {
     .await
     .unwrap();*/
 
-    println!("{:?}", udp.receive().unwrap());
+    loop {
+        println!("{:?}", match udp.receive_timeout(Duration::from_secs(10)).await {
+            Some(data) => data,
+            None => break,
+
+        });
+    }
 }

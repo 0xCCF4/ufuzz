@@ -1,3 +1,4 @@
+use alloc::boxed::Box;
 use crate::uefi::proto::network::udp4::managed_event::ManagedEvent;
 use crate::uefi_raw::protocol::network::ip4::{
     Ip4ConfigData, Ip4IcmpType, Ip4ModeData, Ip4RouteTable, ManagedNetworkConfigData,
@@ -8,10 +9,15 @@ use crate::uefi_raw::protocol::network::udp4::{
 };
 use alloc::sync::Arc;
 use alloc::vec::Vec;
+use core::error::Error;
 use core::ffi::c_void;
+use core::fmt::Display;
+use core::mem::transmute;
+use core::pin::Pin;
 use core::sync::atomic::AtomicBool;
 use log::{trace, warn};
 use uefi::boot::TimerTrigger;
+use uefi::{print, println};
 use uefi::proto::unsafe_protocol;
 use uefi_raw::table::boot::{EventType, Tpl};
 use uefi_raw::{Ipv4Address, Status};
@@ -58,13 +64,13 @@ pub struct UDP4Protocol {
 #[derive(Debug)]
 #[allow(dead_code)]
 pub struct Ip4ModeDataSafe<'a> {
-    is_started: bool,
-    max_packet_size: u32,
-    config_data: Ip4ConfigData,
-    is_configured: bool,
-    group_table: &'a [Ipv4Address],
-    ip4_route_table: &'a [Ip4RouteTable],
-    icmp_type_list: &'a [Ip4IcmpType],
+    pub is_started: bool,
+    pub max_packet_size: u32,
+    pub config_data: Ip4ConfigData,
+    pub is_configured: bool,
+    pub group_table: &'a [Ipv4Address],
+    pub ip4_route_table: &'a [Ip4RouteTable],
+    pub icmp_type_list: &'a [Ip4IcmpType],
 }
 
 impl From<Ip4ModeData> for Ip4ModeDataSafe<'_> {
@@ -99,9 +105,57 @@ pub struct UdpConfiguration<'a> {
     pub managed_network_config_data: ManagedNetworkConfigData,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Hash)]
+pub enum TransmitError {
+    TransmitFailed(Status),
+    PostLate(Status),
+}
+
+impl Display for TransmitError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            TransmitError::TransmitFailed(status) => write!(f, "Transmit failed: {:x?}", status),
+            TransmitError::PostLate(status) => write!(f, "Transmit post-late failed: {:x?}", status),
+        }
+    }
+}
+
+impl Error for TransmitError {}
+
+#[derive(Debug, Clone, Copy, PartialEq, Hash)]
+pub enum ReceiveError {
+    ReceiveFailed(Status),
+    PostLate(Status),
+    ReceiveTimeout,
+    ReceiveBufferTooSmall(usize),
+}
+
+impl Display for ReceiveError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            ReceiveError::ReceiveFailed(status) => write!(f, "Receive failed: {:x?}", status),
+            ReceiveError::PostLate(status) => write!(f, "Receive post-late failed: {:x?}", status),
+            ReceiveError::ReceiveTimeout => write!(f, "Receive timed out"),
+            ReceiveError::ReceiveBufferTooSmall(size) => {
+                write!(f, "Receive buffer too small: {}", size)
+            }
+        }
+    }
+}
+
+impl Error for ReceiveError {}
+
 impl UDP4Protocol {
     pub fn reset(&mut self) -> Result<(), Status> {
         let result = (self.configure_fn)(self, None);
+        if result != Status::SUCCESS {
+            return Err(result);
+        }
+        Ok(())
+    }
+
+    pub fn cancel_all(&mut self) -> Result<(), Status> {
+        let result = (self.cancel_fn)(self, None);
         if result != Status::SUCCESS {
             return Err(result);
         }
@@ -196,20 +250,89 @@ impl UDP4Protocol {
         }
     }
 
+    pub fn channel<'a>(&'a mut self) -> UdpChannel<'a> {
+        UdpChannel::new(self)
+    }
+}
+
+pub struct UdpChannel<'a> {
+    udp: &'a mut UDP4Protocol,
+
+    status_rx_result: Arc<AtomicBool>,
+    status_tx_result: Arc<AtomicBool>,
+    status_timeout_result: Arc<AtomicBool>,
+
+    #[allow(dead_code)]
+    tx_event: ManagedEvent,
+    #[allow(dead_code)]
+    rx_event: ManagedEvent,
+    timeout_event: ManagedEvent,
+
+    rx_completion_token: Pin<Box<Udp4CompletionToken<'static>>>,
+    tx_completion_token: Pin<Box<Udp4CompletionToken<'static>>>,
+}
+
+impl Drop for UdpChannel<'_> {
+    fn drop(&mut self) {
+        let _ = self.udp.cancel_all();
+    }
+}
+
+impl<'a> UdpChannel<'a> {
+    pub fn new(udp: &'a mut UDP4Protocol) -> Self {
+        let status_rx_result = Arc::new(AtomicBool::new(false));
+        let status_tx_result = Arc::new(AtomicBool::new(false));
+        let status_timeout_result = Arc::new(AtomicBool::new(false));
+
+        let status_rx_result_clone = Arc::clone(&status_rx_result);
+        let status_tx_result_clone = Arc::clone(&status_tx_result);
+        let status_timeout_result_clone = Arc::clone(&status_timeout_result);
+
+        let tx_event = ManagedEvent::new(EventType::NOTIFY_SIGNAL, move |_| {
+            status_tx_result_clone.swap(true, core::sync::atomic::Ordering::Relaxed);
+        });
+        let rx_event = ManagedEvent::new(EventType::NOTIFY_SIGNAL, move |_| {
+            status_rx_result_clone.swap(true, core::sync::atomic::Ordering::Relaxed);
+        });
+        let timeout_event = ManagedEvent::new(EventType::NOTIFY_SIGNAL | EventType::TIMER, move |_| {
+            status_timeout_result_clone.swap(true, core::sync::atomic::Ordering::Relaxed);
+        });
+
+        let tx_completion_token = Box::pin(Udp4CompletionToken {
+            event: unsafe { tx_event.event.unsafe_clone() },
+            status: Status::SUCCESS,
+            packet: Udp4Packet {
+                rx_data: None,
+            },
+        });
+
+        let rx_completion_token = Box::pin(Udp4CompletionToken {
+            event: unsafe { rx_event.event.unsafe_clone() },
+            status: Status::SUCCESS,
+            packet: Udp4Packet {
+                rx_data: None,
+            },
+        });
+
+        UdpChannel { udp,
+            status_rx_result,
+            status_tx_result,
+            status_timeout_result,
+            tx_event,
+            rx_event,
+            timeout_event,
+            rx_completion_token,
+            tx_completion_token,
+        }
+    }
+
     pub fn transmit(
         &mut self,
         session_data: Option<&Udp4SessionData>,
         gateway: Option<&Ipv4Address>,
         data: &[u8],
-    ) -> Result<(), Status> {
-        let sent = Arc::new(AtomicBool::new(false));
-        let sent_clone = sent.clone();
-
-        let event = ManagedEvent::new(EventType::NOTIFY_SIGNAL, move |_| {
-            sent_clone.swap(true, core::sync::atomic::Ordering::Relaxed);
-        });
-
-        let udp_transmit_data = Udp4TransmitData {
+    ) -> Result<(), TransmitError> {
+        let udp_transmit_data = Box::pin(Udp4TransmitData {
             udp_session_data: session_data,
             gateway_address: gateway,
             data_length: data.len() as u32,
@@ -218,120 +341,124 @@ impl UDP4Protocol {
                 fragment_buffer: data.as_ptr() as *mut c_void,
                 fragment_length: data.len() as u32,
             }],
-        };
+        });
+        let transmit_data_ref: &Udp4TransmitData = &udp_transmit_data;
+        let transmit_data_ref: &'static Udp4TransmitData = unsafe { transmute(transmit_data_ref) };
 
-        let packet = Udp4Packet {
-            tx_data: Some(&udp_transmit_data),
-        };
+        let _ = (self.udp.cancel_fn)(self.udp, Some(&mut *self.tx_completion_token));
+        self.tx_completion_token.packet.tx_data = Some(transmit_data_ref);
+        self.tx_completion_token.status = Status::SUCCESS;
+        self.status_tx_result.store(false, core::sync::atomic::Ordering::Relaxed);
 
-        let mut token = Udp4CompletionToken {
-            event: unsafe { event.event.unsafe_clone() },
-            status: Status::SUCCESS,
-            packet,
-        };
+        let _ = self.udp.poll();
+        let result = (self.udp.transmit_fn)(self.udp, &mut self.tx_completion_token);
+        let _ = self.udp.poll();
 
-        let result = (self.transmit_fn)(self, &mut token);
         if result != Status::SUCCESS {
-            trace!("Failed to transmit data: {:?}", result);
-            return Err(result);
+            trace!("Failed to transmit data: {:x?}", result);
+
+            let _ = (self.udp.cancel_fn)(self.udp, Some(&mut *self.tx_completion_token));
+            self.tx_completion_token.packet.tx_data = None;
+            drop(udp_transmit_data);
+
+            return Err(TransmitError::TransmitFailed(result));
         }
 
-        while sent.load(core::sync::atomic::Ordering::Relaxed) == false {
-            let _ = self.poll();
+        while self.status_tx_result.load(core::sync::atomic::Ordering::Relaxed) == false {
+            let _ = self.udp.poll();
         }
 
-        drop(event);
+        if self.tx_completion_token.status != Status::SUCCESS {
+            trace!("Transmit failed post-late: {:x?}", self.tx_completion_token.status);
 
-        if token.status != Status::SUCCESS {
-            trace!("Transmit failed post-late: {:?}", token.status);
-            return Err(token.status);
+            let _ = (self.udp.cancel_fn)(self.udp, Some(&mut *self.tx_completion_token));
+            self.tx_completion_token.packet.tx_data = None;
+            drop(udp_transmit_data);
+
+            return Err(TransmitError::PostLate(self.tx_completion_token.status));
         }
+
+        let _ = (self.udp.cancel_fn)(self.udp, Some(&mut *self.tx_completion_token));
+        self.tx_completion_token.packet.tx_data = None;
+        drop(udp_transmit_data);
 
         Ok(())
     }
 
-    pub fn receive(&mut self, timeout_millis: Option<u64>) -> Result<Vec<u8>, Status> {
-        let receive = Arc::new(AtomicBool::new(false));
-        let receive_clone = receive.clone();
+    pub fn receive(&mut self, timeout_millis: Option<u64>) -> Result<Vec<u8>, ReceiveError> {
+        let _ = (self.udp.cancel_fn)(self.udp, Some(&mut *self.rx_completion_token));
+        self.status_rx_result.store(false, core::sync::atomic::Ordering::Relaxed);
+        self.status_timeout_result.store(false, core::sync::atomic::Ordering::Relaxed);
 
-        let timeout = Arc::new(AtomicBool::new(false));
-        let timeout_clone = timeout.clone();
+        self.rx_completion_token.packet.rx_data = None;
+        self.rx_completion_token.status = Status::SUCCESS;
 
-        let event = ManagedEvent::new(EventType::NOTIFY_SIGNAL, move |_| {
-            receive_clone.swap(true, core::sync::atomic::Ordering::Relaxed);
-        });
-
-        let timeout_event = timeout_millis.map(|timeout| {
-            (
-                timeout,
-                ManagedEvent::new(EventType::TIMER | EventType::NOTIFY_SIGNAL, move |_| {
-                    timeout_clone.swap(true, core::sync::atomic::Ordering::Relaxed);
-                }),
-            )
-        });
-
-        let packet = Udp4Packet { rx_data: None };
-
-        let mut token = Udp4CompletionToken {
-            event: unsafe { event.event.unsafe_clone() },
-            status: Status::SUCCESS,
-            packet,
-        };
-
-        let result = (self.receive_fn)(self, &mut token);
+        let _ = self.udp.poll();
+        let result = (self.udp.receive_fn)(self.udp, &mut self.rx_completion_token);
+        let _ = self.udp.poll();
 
         if result != Status::SUCCESS {
-            trace!("Failed to receive data: {:?}", result);
-            return Err(result);
+            trace!("Failed to receive data: {:x?}", result);
+
+            let _ = (self.udp.cancel_fn)(self.udp, Some(&mut *self.rx_completion_token));
+
+            return Err(ReceiveError::ReceiveFailed(result));
         }
 
-        if let Some((timeout_millis, timer_event)) = &timeout_event {
+        if let Some(timeout_millis) = &timeout_millis {
             uefi::boot::set_timer(
-                &timer_event.event,
+                &self.timeout_event.event,
                 TimerTrigger::Relative(timeout_millis * 1000 * 10),
             )
             .expect("timer setup failed");
         }
 
-        while receive.load(core::sync::atomic::Ordering::Relaxed) == false
-            && timeout.load(core::sync::atomic::Ordering::Relaxed) == false
+        while self.status_rx_result.load(core::sync::atomic::Ordering::Relaxed) == false
+            && self.status_timeout_result.load(core::sync::atomic::Ordering::Relaxed) == false
         {
-            let _ = self.poll();
-        }
-
-        if let Some((_timeout_millis, timer_event)) = &timeout_event {
-            uefi::boot::set_timer(&timer_event.event, TimerTrigger::Cancel)
-                .expect("timer setup failed");
+            let _ = self.udp.poll();
         }
 
         let guard = unsafe { uefi::boot::raise_tpl(Tpl::HIGH_LEVEL) }; // we do not want the packet to be processed while we are canceling it
-        if receive.load(core::sync::atomic::Ordering::Relaxed) == false
-            && timeout.load(core::sync::atomic::Ordering::Relaxed) == true
+
+        if let Some(_timeout_millis) = timeout_millis {
+            uefi::boot::set_timer(&self.timeout_event.event, TimerTrigger::Cancel)
+                .expect("timer setup failed");
+        }
+
+        if self.status_rx_result.load(core::sync::atomic::Ordering::Relaxed) == false {
+            // cancel the receive
+            let cancel = (self.udp.cancel_fn)(self.udp, Some(&mut self.rx_completion_token));
+            if cancel != Status::SUCCESS {
+                trace!("Failed to cancel receive: {:x?}", cancel);
+            }
+        }
+
+        if self.status_rx_result.load(core::sync::atomic::Ordering::Relaxed) == false
+            && self.status_timeout_result.load(core::sync::atomic::Ordering::Relaxed) == true
         {
-            trace!(
-                "Receive timed out: {:?}",
-                (self.cancel_fn)(self, Some(&mut token))
-            );
-            return Err(Status::TIMEOUT);
+            // trace!("Receive timed out: {:x?}", (self.cancel_fn)(self, Some(&mut token)));
+            let _ = (self.udp.cancel_fn)(self.udp, Some(&mut *self.rx_completion_token));
+
+            return Err(ReceiveError::ReceiveTimeout);
         }
         drop(guard);
 
-        drop(timeout_event);
-        drop(event);
+        if self.rx_completion_token.status != Status::SUCCESS {
+            // trace!("Receive failed post-late: {:x?}", token.status);
+            let _ = (self.udp.cancel_fn)(self.udp, Some(&mut *self.rx_completion_token));
 
-        if token.status != Status::SUCCESS {
-            trace!("Receive failed post-late: {:?}", token.status);
-            return Err(token.status);
+            return Err(ReceiveError::PostLate(self.rx_completion_token.status));
         }
 
-        assert!(unsafe { token.packet.rx_data }.is_some());
+        assert!(unsafe { self.rx_completion_token.packet.rx_data }.is_some());
 
-        let rx_data = unsafe { Udp4ReceiveDataWrapperScoped::new(token.packet.rx_data.unwrap()) };
+        let rx_data = unsafe { Udp4ReceiveDataWrapperScoped::new(self.rx_completion_token.packet.rx_data.unwrap()) };
 
         let data_length = rx_data.data_length;
         if data_length > 8192 {
             warn!("Buffer too small for received data");
-            return Err(Status::BUFFER_TOO_SMALL);
+            return Err(ReceiveError::ReceiveBufferTooSmall(data_length as usize));
         }
         let mut result = Vec::with_capacity(data_length as usize);
 
@@ -353,11 +480,14 @@ impl UDP4Protocol {
 
             if result.len() + fragment_buffer.len() > result.capacity() {
                 warn!("Buffer too small for received fragment data");
-                return Err(Status::BUFFER_TOO_SMALL);
+                return Err(ReceiveError::ReceiveBufferTooSmall(result.len() + fragment_buffer.len()));
             }
 
             result.extend_from_slice(fragment_buffer);
         }
+
+        drop(rx_data);
+        let _ = self.udp.poll();
 
         assert_eq!(result.len(), data_length as usize);
 

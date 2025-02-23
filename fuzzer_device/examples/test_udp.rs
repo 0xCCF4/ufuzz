@@ -5,7 +5,7 @@ extern crate alloc;
 
 use alloc::string::String;
 use log::info;
-use uefi::{entry, Status};
+use uefi::{entry, println, Status};
 use uefi_raw::Ipv4Address;
 use uefi_udp4::uefi_raw::protocol::network::udp4::Udp4ConfigData;
 use uefi_udp4::Ipv4AddressExt;
@@ -44,6 +44,8 @@ unsafe fn main() -> Status {
                 continue;
             }
         };
+
+        drop(net);
 
         let mut net = match uefi::boot::open_protocol_exclusive::<
             uefi_udp4::uefi::proto::network::udp4::proto::UDP4Protocol,
@@ -94,16 +96,35 @@ unsafe fn main() -> Status {
             continue;
         }
 
+        match net.get_mode_data() {
+            Ok(data) => {
+                for route in data.ip4_mode_data.ip4_route_table.to_vec() {
+                    println!("Route: {:#?}", route);
+                    if let Err(err) = net.delete_route(&route.subnet_addr, &route.subnet_mask, &route.gateway_addr) {
+                        info!("Failed to delete route: {:?}", err);
+                    }
+                }
+                if let Err(err) = net.add_route(&Ipv4Address::new(192, 168, 0, 0), &Ipv4Address::new(255, 255, 255, 0), &Ipv4Address::new(192, 168, 0, 1)) {
+                    info!("Failed to add route: {:?}", err);
+                }
+            }
+            Err(err) => {
+                info!("Failed to get mode data: {:?}", err);
+            }
+        }
+
         let data = "Hello World from UEFI".as_bytes();
 
-        let result = net.transmit(None, None, data);
+        let mut channel = net.channel();
+
+        let result = channel.transmit(None, None, data);
         info!("Transmit result: {:?}", result);
         if let Err(err) = result {
             info!("Failed to transmit data: {:?}", err);
             continue;
         }
 
-        let result = net.receive(Some(10_000));
+        let result = channel.receive(Some(10_000));
         info!("Receive result: {:x?}", result);
         info!(
             "Lossy string: {:?}",

@@ -1,11 +1,13 @@
+use alloc::boxed::Box;
 use alloc::collections::VecDeque;
 use alloc::string::String;
+use core::pin::Pin;
 use fuzzer_data::{Ota, OtaC2D, OtaC2DUnreliable, OtaD2CTransport, OtaD2CUnreliable, OtaPacket};
 use log::{error, info, warn};
 use uefi::boot::ScopedProtocol;
-use uefi::println;
-use uefi_raw::Ipv4Address;
-use uefi_udp4::uefi::proto::network::udp4::proto::UDP4Protocol;
+use uefi::{print, println};
+use uefi_raw::{Ipv4Address};
+use uefi_udp4::uefi::proto::network::udp4::proto::{ReceiveError, TransmitError, UDP4Protocol, UdpChannel};
 use uefi_udp4::uefi_raw::protocol::network::udp4::{
     ScopedBindingProtocol, UDP4ServiceBindingProtocol, Udp4ConfigData,
 };
@@ -19,9 +21,16 @@ pub enum ConnectionError {
     FailedToOpenChildConnection,
     FailedToResetConnection,
     FailedToConfigureConnection,
-    FailedToTransmit,
-    FailedToReceive,
-    AckNotReceived,
+
+    TransmitLengthExceeded,
+    TransmitPacket(TransmitError),
+    TransmitWaitForAckFailedHard(Box<ConnectionError>),
+    TransmitNotAcknowledged,
+
+    ReceivePacket(ReceiveError),
+    ReceiveTimeout,
+    ReceiveNotUtf8,
+    ReceiveNotDeserializable,
 }
 
 pub struct ConnectionSettings {
@@ -50,7 +59,9 @@ impl Default for ConnectionSettings {
 
 pub struct ControllerConnection {
     udp_handle: Option<ScopedBindingProtocol<UDP4ServiceBindingProtocol>>,
-    network: Option<ScopedProtocol<UDP4Protocol>>,
+    network: Option<Pin<Box<ScopedProtocol<UDP4Protocol>>>>,
+    channel: Option<UdpChannel<'static>>,
+
     virtual_receive_buffer: VecDeque<OtaC2D>,
     resent_attempts: u8,
     ack_timeout: u64,
@@ -136,12 +147,58 @@ impl ControllerConnection {
         };
 
         if let Err(err) = net.configure(&config_data) {
-            error!("Failed to configure network protocol: {:?}", err);
+            error!("Failed to configure network protocol: {:x?}", err);
             return Err(ConnectionError::FailedToConfigureConnection);
         }
 
+        if let Err(err) = net.cancel_all() {
+            error!("Failed to cancel all: {:x?}", err);
+            return Err(ConnectionError::FailedToConfigureConnection);
+        }
+
+        match net.get_mode_data() {
+            Ok(data) => {
+                for route in data.ip4_mode_data.ip4_route_table.to_vec() {
+                    if let Err(err) = net.delete_route(&route.subnet_addr, &route.subnet_mask, &route.gateway_addr) {
+                        error!("Failed to delete route: {:?}", err);
+                    }
+                }
+                let subnet = settings.remote_address.0;
+                let subnet = (subnet[0] as u32) << 24 | (subnet[1] as u32) << 16 | (subnet[2] as u32) << 8 | subnet[3] as u32;
+                let subnet_mask = settings.subnet_mask;
+                let subnet_mask = (subnet_mask.0[0] as u32) << 24 | (subnet_mask.0[1] as u32) << 16 | (subnet_mask.0[2] as u32) << 8 | subnet_mask.0[3] as u32;
+
+                let subnet_ip = subnet & subnet_mask;
+                let subnet_ip = Ipv4Address::new(
+                    (subnet_ip >> 24) as u8,
+                    (subnet_ip >> 16) as u8,
+                    (subnet_ip >> 8) as u8,
+                    subnet_ip as u8,
+                );
+                let gateway_ip = Ipv4Address::new(
+                    subnet_ip.0[0],
+                    subnet_ip.0[1],
+                    subnet_ip.0[2],
+                    1,
+                );
+
+                if let Err(err) = net.add_route(&subnet_ip, &settings.subnet_mask, &gateway_ip) {
+                    error!("Failed to add route: {:?}", err);
+                }
+            }
+            Err(err) => {
+                info!("Failed to get mode data: {:?}", err);
+            }
+        }
+
+        let mut net = Box::pin(net);
+        let net_ref: &mut ScopedProtocol<UDP4Protocol> = &mut net;
+        let net_ref: &'static mut ScopedProtocol<UDP4Protocol> = unsafe { core::mem::transmute(net_ref) }; // safe, since from now on, net will not be used anymore
+        let channel: UdpChannel<'static> = net_ref.channel();
+
         Ok(Self {
             udp_handle: Some(udp_handle),
+            channel: Some(channel),
             network: Some(net),
             ack_timeout: settings.ack_timeout,
             resent_attempts: settings.resent_attempts,
@@ -169,7 +226,7 @@ impl ControllerConnection {
         let buf = string.as_bytes();
 
         if buf.len() > 4000 {
-            return Err(ConnectionError::FailedToTransmit);
+            return Err(ConnectionError::TransmitLengthExceeded);
         }
 
         let mut virtual_receive_buffer = VecDeque::new();
@@ -177,9 +234,9 @@ impl ControllerConnection {
         let mut status = None;
         'attempt_loop: for _attempt in 0..self.resent_attempts {
             // initial packet sending
-            if let Err(err) = self.network.as_mut().unwrap().transmit(None, None, buf) {
+            if let Err(err) = self.channel.as_mut().unwrap().transmit(None, None, buf) {
                 error!("Failed to transmit data: {:?}", err);
-                status = Some(Err(ConnectionError::FailedToTransmit));
+                status = Some(Err(ConnectionError::TransmitPacket(err)));
                 break 'attempt_loop;
             }
 
@@ -191,16 +248,20 @@ impl ControllerConnection {
             }
 
             // wait for ack
-            'wait_for_ack: while let Some(received_packet) =
+            'wait_for_ack: while let Some(received_packet) = {
                 match self.receive(Some(self.ack_timeout)) {
                     Ok(None) => continue 'wait_for_ack,
                     Ok(Some(packet)) => Some(packet),
                     Err(err) => {
-                        error!("Failed to transmit data: {:?}", err);
-                        status = Some(Err(ConnectionError::FailedToTransmit));
-                        break 'attempt_loop;
+                        if !matches!(err, ConnectionError::ReceiveTimeout) {
+                            error!("Failed to transmit data: {:?}", err);
+                            status = Some(Err(ConnectionError::TransmitWaitForAckFailedHard(Box::new(err))));
+                            break 'attempt_loop;
+                        }
+                        continue 'attempt_loop;
                     }
                 }
+            }
             {
                 if let OtaC2D::Unreliable(OtaC2DUnreliable::Ack(sequence_number)) = received_packet
                 {
@@ -215,7 +276,8 @@ impl ControllerConnection {
                         status = Some(Ok(()));
                         break 'attempt_loop;
                     } else {
-                        warn!("Received ack for past sequence number: {}", sequence_number);
+                        #[cfg(feature = "__debug_print_udp")]
+                        info!("Received ack for past sequence number: {}", sequence_number);
                     }
                 } else {
                     // received other package
@@ -229,7 +291,7 @@ impl ControllerConnection {
             self.virtual_receive_buffer.push_front(packet);
         }
 
-        status.unwrap_or(Err(ConnectionError::AckNotReceived))
+        status.unwrap_or(Err(ConnectionError::TransmitNotAcknowledged))
     }
 
     pub fn receive(
@@ -240,11 +302,14 @@ impl ControllerConnection {
             return Ok(Some(packet));
         }
 
-        let data = match self.network.as_mut().unwrap().receive(timeout_millis) {
+        let data = match self.channel.as_mut().unwrap().receive(timeout_millis) {
             Ok(data) => data,
             Err(e) => {
-                error!("Failed to receive data: {:?}", e);
-                return Err(ConnectionError::FailedToReceive);
+                if matches!(e, ReceiveError::ReceiveTimeout) {
+                    return Err(ConnectionError::ReceiveTimeout);
+                }
+                error!("Failed to receive data: {:x?}", e);
+                return Err(ConnectionError::ReceivePacket(e));
             }
         };
 
@@ -252,7 +317,7 @@ impl ControllerConnection {
             Ok(string) => string,
             Err(e) => {
                 error!("Failed to convert data to string: {:?}", e);
-                return Err(ConnectionError::FailedToReceive);
+                return Err(ConnectionError::ReceiveNotUtf8);
             }
         };
 
@@ -260,7 +325,7 @@ impl ControllerConnection {
             Ok(data) => data,
             Err(e) => {
                 error!("Failed to deserialize data: {:?}", e);
-                return Err(ConnectionError::FailedToReceive);
+                return Err(ConnectionError::ReceiveNotDeserializable);
             }
         };
 
@@ -271,24 +336,34 @@ impl ControllerConnection {
             }
         }
 
+        #[cfg(feature = "__debug_print_udp")]
+        if matches!(data, Ota::Transport { .. }) {
+            trace!("Pre-Received: {:?}, cur seq {}", data, self.sequence_number_rx);
+        }
+
         if let Ota::Transport { session, id, .. } = &data {
             if *session != self.remote_session {
+                #[cfg(feature = "__debug_print_udp")]
                 warn!("Received packet with new session: {}", session);
-                self.sequence_number_rx = 0;
+                self.sequence_number_rx = *id;
                 self.remote_session = *session;
             } else if *id < self.sequence_number_rx {
+                #[cfg(feature = "__debug_print_udp")]
                 warn!("Received packet with retired sequence number: {}", id);
                 return Ok(None);
             } else if *id == self.sequence_number_rx {
+                #[cfg(feature = "__debug_print_udp")]
                 warn!("Received packet with same sequence number: {}", id);
                 return Ok(None);
-            } else {
+            } else { // *id > self.sequence_number_rx
                 self.sequence_number_rx = *id;
             }
         }
 
-        // todo remove
-        println!("Received: {:?}", data);
+        #[cfg(feature = "__debug_print_udp")]
+        if matches!(data, Ota::Transport { .. }) {
+            trace!("Received: {:?}, cur seq {}", data, self.sequence_number_rx);
+        }
 
         Ok(Some(data))
     }
@@ -296,6 +371,7 @@ impl ControllerConnection {
 
 impl Drop for ControllerConnection {
     fn drop(&mut self) {
+        drop(self.channel.take());
         drop(self.network.take());
         drop(self.udp_handle.take());
     }

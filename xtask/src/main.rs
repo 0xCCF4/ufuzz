@@ -82,7 +82,7 @@ fn main_control_remote(args: Vec<String>) {
 
     {
         let ssh_stdin = ssh.stdin.as_mut().expect("Failed to open ssh stdin");
-        writeln!(ssh_stdin, "device_control").expect("Failed to write to ssh stdin");
+        write!(ssh_stdin, "sudo /run/current-system/sw/bin/device_control ").expect("Failed to write to ssh stdin");
         for arg in args {
             write!(ssh_stdin, "{:?} ", arg).expect("Failed to write to ssh stdin");
         }

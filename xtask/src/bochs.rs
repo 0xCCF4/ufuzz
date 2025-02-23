@@ -119,7 +119,7 @@ impl VM for Bochs {
 
         let port = self
             .port
-            .unwrap_or(rand::thread_rng().gen_range(1024..65535));
+            .unwrap_or(rand::rng().random_range(1024..65535));
 
         let data = config_directory
             .as_ref()

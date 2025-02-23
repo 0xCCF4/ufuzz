@@ -29,6 +29,7 @@ __debug_print_progress = [] # print continous progress, slows down the fuzzer, u
 __debug_print_external_interrupt_notification = [] # print external interrupt notification
 __debug_print_mutation_info = [] # print mutation info
 __debug_pretend_no_coverage = [] # pretend no coverage collection possible
+__debug_print_udp = [] # print debug information from udp interface
 
 __device_brix = ["device_brix", "rand_isaac", "mutation_all", "__debug_print_progress", "__debug_print_mutation_info"]
 __device_bochs = ["device_bochs", "rand_isaac", "mutation_all", "__debug_print_external_interrupt_notification", "__debug_print_mutation_info"]
