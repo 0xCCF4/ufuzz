@@ -100,11 +100,19 @@ unsafe fn main() -> Status {
             Ok(data) => {
                 for route in data.ip4_mode_data.ip4_route_table.to_vec() {
                     println!("Route: {:#?}", route);
-                    if let Err(err) = net.delete_route(&route.subnet_addr, &route.subnet_mask, &route.gateway_addr) {
+                    if let Err(err) = net.delete_route(
+                        &route.subnet_addr,
+                        &route.subnet_mask,
+                        &route.gateway_addr,
+                    ) {
                         info!("Failed to delete route: {:?}", err);
                     }
                 }
-                if let Err(err) = net.add_route(&Ipv4Address::new(192, 168, 0, 0), &Ipv4Address::new(255, 255, 255, 0), &Ipv4Address::new(192, 168, 0, 1)) {
+                if let Err(err) = net.add_route(
+                    &Ipv4Address::new(192, 168, 0, 0),
+                    &Ipv4Address::new(255, 255, 255, 0),
+                    &Ipv4Address::new(192, 168, 0, 1),
+                ) {
                     info!("Failed to add route: {:?}", err);
                 }
             }

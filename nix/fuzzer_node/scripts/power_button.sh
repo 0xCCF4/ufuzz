@@ -19,12 +19,14 @@ case "${1:-}" in
         ;;
     long)
         echo "Long press power button"
+        sync
         press
-        sleep 10
+        sleep 14
         release
         ;;
     short)
         echo "Short press power button"
+        sync
         press
         sleep 1
         release

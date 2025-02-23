@@ -45,6 +45,13 @@ send_left() {
 }
 
 send_right() {
+    send_keycode "4F"
+    sleep 0.1s
+    send_keycode "0"
+    sleep 0.1s
+}
+
+send_down() {
     send_keycode "51"
     sleep 0.1s
     send_keycode "0"
@@ -61,14 +68,17 @@ case "${1:-}" in
     right)
         send_right
         ;;
-    keycode)
-        send_keycode "${2:-0}" "${3:-}"
+    down)
+        send_down
         ;;
     string)
         send_string "${2:-}"
         ;;
+    code)
+        send_keycode "${2:-0}" "${3:-}"
+        ;;
     *)
-        echo "Usage: $0 {enter|left|right|keycode <code> [modifier]|string <string>}"
+        echo "Usage: $0 {enter|left|right|down|code <code> [modifier]|string <string>}"
         exit 1
         ;;
 esac

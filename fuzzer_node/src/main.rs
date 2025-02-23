@@ -63,6 +63,14 @@ fn power_button_short() -> Result<status::Custom<String>, status::Custom<String>
     execute_command(command)
 }
 
+#[post("/skip_bios")]
+fn skip_bios() -> Result<status::Custom<String>, status::Custom<String>> {
+    let mut command = Command::new(&CMD[0]);
+    command.args(&CMD[1..]);
+    command.arg("skip_bios");
+    execute_command(command)
+}
+
 #[get("/alive", format = "json")]
 fn alive() -> Result<status::Custom<Json<bool>>, status::Custom<String>> {
     Ok(status::Custom(Status::Accepted, true.into()))
@@ -74,5 +82,8 @@ fn rocket() -> _ {
         "../rocket.toml"
     )));
 
-    rocket::custom(config).mount("/", routes![power_button_long, power_button_short, alive])
+    rocket::custom(config).mount(
+        "/",
+        routes![power_button_long, power_button_short, alive, skip_bios],
+    )
 }

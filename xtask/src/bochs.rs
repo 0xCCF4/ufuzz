@@ -117,9 +117,7 @@ impl VM for Bochs {
             return Err("mcopy app.efi failed".into());
         }
 
-        let port = self
-            .port
-            .unwrap_or(rand::rng().random_range(1024..65535));
+        let port = self.port.unwrap_or(rand::rng().random_range(1024..65535));
 
         let data = config_directory
             .as_ref()

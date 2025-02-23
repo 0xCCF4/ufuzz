@@ -39,10 +39,7 @@ pub struct Sample {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum OtaD2CUnreliable {
-    Alive {
-        timestamp: u64,
-        current_iteration: u64,
-    },
+    Alive { iteration: u64 },
     Ack(u64),
 }
 
@@ -70,6 +67,7 @@ pub enum OtaC2DUnreliable {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum OtaC2DTransport {
+    AreYouThere,
     GetCapabilities,
     Blacklist {
         address: Vec<u16>,

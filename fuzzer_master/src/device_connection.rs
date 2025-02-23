@@ -256,7 +256,7 @@ impl DeviceConnection {
                         status = Some(Ok(()));
                         break 'attempt_loop;
                     } else {
-                        warn!("Received ack for past sequence number: {}", sequence_number);
+                        // warn!("Received ack for past sequence number: {}", sequence_number);
                     }
                 } else {
                     // received other package

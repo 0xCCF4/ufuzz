@@ -1,4 +1,3 @@
-use alloc::boxed::Box;
 use crate::uefi::proto::network::udp4::managed_event::ManagedEvent;
 use crate::uefi_raw::protocol::network::ip4::{
     Ip4ConfigData, Ip4IcmpType, Ip4ModeData, Ip4RouteTable, ManagedNetworkConfigData,
@@ -7,6 +6,7 @@ use crate::uefi_raw::protocol::network::udp4::{
     Udp4CompletionToken, Udp4ConfigData, Udp4FragmentData, Udp4Packet,
     Udp4ReceiveDataWrapperScoped, Udp4SessionData, Udp4TransmitData,
 };
+use alloc::boxed::Box;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::error::Error;
@@ -17,7 +17,6 @@ use core::pin::Pin;
 use core::sync::atomic::AtomicBool;
 use log::{trace, warn};
 use uefi::boot::TimerTrigger;
-use uefi::{print, println};
 use uefi::proto::unsafe_protocol;
 use uefi_raw::table::boot::{EventType, Tpl};
 use uefi_raw::{Ipv4Address, Status};
@@ -115,7 +114,9 @@ impl Display for TransmitError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             TransmitError::TransmitFailed(status) => write!(f, "Transmit failed: {:x?}", status),
-            TransmitError::PostLate(status) => write!(f, "Transmit post-late failed: {:x?}", status),
+            TransmitError::PostLate(status) => {
+                write!(f, "Transmit post-late failed: {:x?}", status)
+            }
         }
     }
 }
@@ -294,27 +295,25 @@ impl<'a> UdpChannel<'a> {
         let rx_event = ManagedEvent::new(EventType::NOTIFY_SIGNAL, move |_| {
             status_rx_result_clone.swap(true, core::sync::atomic::Ordering::Relaxed);
         });
-        let timeout_event = ManagedEvent::new(EventType::NOTIFY_SIGNAL | EventType::TIMER, move |_| {
-            status_timeout_result_clone.swap(true, core::sync::atomic::Ordering::Relaxed);
-        });
+        let timeout_event =
+            ManagedEvent::new(EventType::NOTIFY_SIGNAL | EventType::TIMER, move |_| {
+                status_timeout_result_clone.swap(true, core::sync::atomic::Ordering::Relaxed);
+            });
 
         let tx_completion_token = Box::pin(Udp4CompletionToken {
             event: unsafe { tx_event.event.unsafe_clone() },
             status: Status::SUCCESS,
-            packet: Udp4Packet {
-                rx_data: None,
-            },
+            packet: Udp4Packet { rx_data: None },
         });
 
         let rx_completion_token = Box::pin(Udp4CompletionToken {
             event: unsafe { rx_event.event.unsafe_clone() },
             status: Status::SUCCESS,
-            packet: Udp4Packet {
-                rx_data: None,
-            },
+            packet: Udp4Packet { rx_data: None },
         });
 
-        UdpChannel { udp,
+        UdpChannel {
+            udp,
             status_rx_result,
             status_tx_result,
             status_timeout_result,
@@ -348,7 +347,8 @@ impl<'a> UdpChannel<'a> {
         let _ = (self.udp.cancel_fn)(self.udp, Some(&mut *self.tx_completion_token));
         self.tx_completion_token.packet.tx_data = Some(transmit_data_ref);
         self.tx_completion_token.status = Status::SUCCESS;
-        self.status_tx_result.store(false, core::sync::atomic::Ordering::Relaxed);
+        self.status_tx_result
+            .store(false, core::sync::atomic::Ordering::Relaxed);
 
         let _ = self.udp.poll();
         let result = (self.udp.transmit_fn)(self.udp, &mut self.tx_completion_token);
@@ -364,12 +364,19 @@ impl<'a> UdpChannel<'a> {
             return Err(TransmitError::TransmitFailed(result));
         }
 
-        while self.status_tx_result.load(core::sync::atomic::Ordering::Relaxed) == false {
+        while self
+            .status_tx_result
+            .load(core::sync::atomic::Ordering::Relaxed)
+            == false
+        {
             let _ = self.udp.poll();
         }
 
         if self.tx_completion_token.status != Status::SUCCESS {
-            trace!("Transmit failed post-late: {:x?}", self.tx_completion_token.status);
+            trace!(
+                "Transmit failed post-late: {:x?}",
+                self.tx_completion_token.status
+            );
 
             let _ = (self.udp.cancel_fn)(self.udp, Some(&mut *self.tx_completion_token));
             self.tx_completion_token.packet.tx_data = None;
@@ -387,8 +394,10 @@ impl<'a> UdpChannel<'a> {
 
     pub fn receive(&mut self, timeout_millis: Option<u64>) -> Result<Vec<u8>, ReceiveError> {
         let _ = (self.udp.cancel_fn)(self.udp, Some(&mut *self.rx_completion_token));
-        self.status_rx_result.store(false, core::sync::atomic::Ordering::Relaxed);
-        self.status_timeout_result.store(false, core::sync::atomic::Ordering::Relaxed);
+        self.status_rx_result
+            .store(false, core::sync::atomic::Ordering::Relaxed);
+        self.status_timeout_result
+            .store(false, core::sync::atomic::Ordering::Relaxed);
 
         self.rx_completion_token.packet.rx_data = None;
         self.rx_completion_token.status = Status::SUCCESS;
@@ -413,8 +422,14 @@ impl<'a> UdpChannel<'a> {
             .expect("timer setup failed");
         }
 
-        while self.status_rx_result.load(core::sync::atomic::Ordering::Relaxed) == false
-            && self.status_timeout_result.load(core::sync::atomic::Ordering::Relaxed) == false
+        while self
+            .status_rx_result
+            .load(core::sync::atomic::Ordering::Relaxed)
+            == false
+            && self
+                .status_timeout_result
+                .load(core::sync::atomic::Ordering::Relaxed)
+                == false
         {
             let _ = self.udp.poll();
         }
@@ -426,7 +441,11 @@ impl<'a> UdpChannel<'a> {
                 .expect("timer setup failed");
         }
 
-        if self.status_rx_result.load(core::sync::atomic::Ordering::Relaxed) == false {
+        if self
+            .status_rx_result
+            .load(core::sync::atomic::Ordering::Relaxed)
+            == false
+        {
             // cancel the receive
             let cancel = (self.udp.cancel_fn)(self.udp, Some(&mut self.rx_completion_token));
             if cancel != Status::SUCCESS {
@@ -434,8 +453,14 @@ impl<'a> UdpChannel<'a> {
             }
         }
 
-        if self.status_rx_result.load(core::sync::atomic::Ordering::Relaxed) == false
-            && self.status_timeout_result.load(core::sync::atomic::Ordering::Relaxed) == true
+        if self
+            .status_rx_result
+            .load(core::sync::atomic::Ordering::Relaxed)
+            == false
+            && self
+                .status_timeout_result
+                .load(core::sync::atomic::Ordering::Relaxed)
+                == true
         {
             // trace!("Receive timed out: {:x?}", (self.cancel_fn)(self, Some(&mut token)));
             let _ = (self.udp.cancel_fn)(self.udp, Some(&mut *self.rx_completion_token));
@@ -453,7 +478,9 @@ impl<'a> UdpChannel<'a> {
 
         assert!(unsafe { self.rx_completion_token.packet.rx_data }.is_some());
 
-        let rx_data = unsafe { Udp4ReceiveDataWrapperScoped::new(self.rx_completion_token.packet.rx_data.unwrap()) };
+        let rx_data = unsafe {
+            Udp4ReceiveDataWrapperScoped::new(self.rx_completion_token.packet.rx_data.unwrap())
+        };
 
         let data_length = rx_data.data_length;
         if data_length > 8192 {
@@ -480,7 +507,9 @@ impl<'a> UdpChannel<'a> {
 
             if result.len() + fragment_buffer.len() > result.capacity() {
                 warn!("Buffer too small for received fragment data");
-                return Err(ReceiveError::ReceiveBufferTooSmall(result.len() + fragment_buffer.len()));
+                return Err(ReceiveError::ReceiveBufferTooSmall(
+                    result.len() + fragment_buffer.len(),
+                ));
             }
 
             result.extend_from_slice(fragment_buffer);

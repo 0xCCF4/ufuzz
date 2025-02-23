@@ -82,7 +82,8 @@ fn main_control_remote(args: Vec<String>) {
 
     {
         let ssh_stdin = ssh.stdin.as_mut().expect("Failed to open ssh stdin");
-        write!(ssh_stdin, "sudo /run/current-system/sw/bin/device_control ").expect("Failed to write to ssh stdin");
+        write!(ssh_stdin, "sudo /run/current-system/sw/bin/device_control ")
+            .expect("Failed to write to ssh stdin");
         for arg in args {
             write!(ssh_stdin, "{:?} ", arg).expect("Failed to write to ssh stdin");
         }
@@ -138,10 +139,12 @@ fn main_put_remote(name: &str) {
         writeln!(ssh_stdin, "if [ ! -f ~/disk.img ]; then echo 'Creating disk image' && dd if=/dev/zero of=~/disk.img bs=1M count=1024 && echo 'Formatting disk image' && mkfs.fat -F 32 ~/disk.img; fi").expect("Failed to write to ssh stdin");
         writeln!(ssh_stdin, "sudo mkdir -p /mnt ; sudo mount ~/disk.img /mnt")
             .expect("Failed to write to ssh stdin");
-        writeln!(ssh_stdin, "sudo cp \"/tmp/{}\" /mnt/{}", name, name)
+        writeln!(ssh_stdin, "sudo cp \"/tmp/{}\" \"/mnt/{}\"", name, name)
+            .expect("Failed to write to ssh stdin");
+        writeln!(ssh_stdin, "echo \"{}\" | sudo tee /mnt/startup.nsh", name)
             .expect("Failed to write to ssh stdin");
         writeln!(ssh_stdin, "sudo umount /mnt").expect("Failed to write to ssh stdin");
-        writeln!(ssh_stdin, "sudo rm /tmp/{}", name).expect("Failed to write to ssh stdin");
+        writeln!(ssh_stdin, "sudo rm \"/tmp/{}\"", name).expect("Failed to write to ssh stdin");
         writeln!(ssh_stdin, "echo Syncing && sudo sync").expect("Failed to write to ssh stdin");
         writeln!(
             ssh_stdin,

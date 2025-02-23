@@ -14,7 +14,7 @@ use core::cell::RefCell;
 use core::fmt::Display;
 use core::ops::DerefMut;
 use data_types::addresses::UCInstructionAddress;
-use fuzzer_data::{OtaC2D, OtaC2DTransport, OtaD2CTransport};
+use fuzzer_data::{OtaC2D, OtaC2DTransport, OtaD2CTransport, OtaD2CUnreliable};
 use fuzzer_device::cmos::CMOS;
 use fuzzer_device::controller_connection::{ConnectionSettings, ControllerConnection};
 use fuzzer_device::executor::{
@@ -106,7 +106,7 @@ unsafe fn main() -> Status {
         }
     };
 
-    trace!("Excluded addresses: {:?}", excluded_addresses.addresses);
+    trace!("Excluded addresses: {:x?}", excluded_addresses.addresses);
     let excluded_addresses = Rc::new(RefCell::new(excluded_addresses.addresses));
 
     trace!("Starting executor...");
@@ -135,6 +135,7 @@ unsafe fn main() -> Status {
             0,
             GeneticPoolSettings::default(),
             10,
+            None,
         );
     }
 
@@ -215,6 +216,7 @@ unsafe fn main() -> Status {
                             random_mutation_chance,
                         },
                         evolutions,
+                        Some(&mut udp),
                     );
 
                     // todo use result
@@ -230,6 +232,7 @@ unsafe fn main() -> Status {
                     #[cfg(not(feature = "device_bochs"))]
                     break;
                 }
+                OtaC2DTransport::AreYouThere => {}
             }
         }
     } else {
@@ -252,6 +255,7 @@ fn genetic_pool_fuzzing(
     seed: u64,
     pool_settings: GeneticPoolSettings,
     evolutions: u64,
+    mut network: Option<&mut ControllerConnection>,
 ) -> Vec<genetic_breeding::Sample> {
     let mut random = random_source(seed);
 
@@ -293,6 +297,16 @@ fn genetic_pool_fuzzing(
     for evolution_count in 0..evolutions {
         for sample in genetic_pool.all_samples_mut() {
             global_stats.iteration_count += 1;
+
+            // Alive message
+            // todo make sending this message less often
+            if let Some(net) = &mut network {
+                if let Err(err) = net.send(OtaD2CUnreliable::Alive {
+                    iteration: global_stats.iteration_count,
+                }) {
+                    warn!("Failed to send alive message: {:?}", err);
+                }
+            }
 
             // Execute
             let ExecutionSampleResult { serialized_sample } =
@@ -595,8 +609,8 @@ pub fn random_source(seed: u64) -> rand_isaac::Isaac64Rng {
 
 #[derive(Debug, Default)]
 pub struct GlobalStats {
-    pub iteration_count: usize,
-    pub iterations_since_last_gain: usize,
+    pub iteration_count: u64,
+    pub iterations_since_last_gain: u64,
     pub coverage_sofar: usize,
 }
 

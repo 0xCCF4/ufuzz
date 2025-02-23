@@ -3,11 +3,12 @@ use alloc::collections::VecDeque;
 use alloc::string::String;
 use core::pin::Pin;
 use fuzzer_data::{Ota, OtaC2D, OtaC2DUnreliable, OtaD2CTransport, OtaD2CUnreliable, OtaPacket};
-use log::{error, info, warn};
+use log::{error, info, trace, warn};
 use uefi::boot::ScopedProtocol;
-use uefi::{print, println};
-use uefi_raw::{Ipv4Address};
-use uefi_udp4::uefi::proto::network::udp4::proto::{ReceiveError, TransmitError, UDP4Protocol, UdpChannel};
+use uefi_raw::Ipv4Address;
+use uefi_udp4::uefi::proto::network::udp4::proto::{
+    ReceiveError, TransmitError, UDP4Protocol, UdpChannel,
+};
 use uefi_udp4::uefi_raw::protocol::network::udp4::{
     ScopedBindingProtocol, UDP4ServiceBindingProtocol, Udp4ConfigData,
 };
@@ -159,14 +160,24 @@ impl ControllerConnection {
         match net.get_mode_data() {
             Ok(data) => {
                 for route in data.ip4_mode_data.ip4_route_table.to_vec() {
-                    if let Err(err) = net.delete_route(&route.subnet_addr, &route.subnet_mask, &route.gateway_addr) {
+                    if let Err(err) = net.delete_route(
+                        &route.subnet_addr,
+                        &route.subnet_mask,
+                        &route.gateway_addr,
+                    ) {
                         error!("Failed to delete route: {:?}", err);
                     }
                 }
                 let subnet = settings.remote_address.0;
-                let subnet = (subnet[0] as u32) << 24 | (subnet[1] as u32) << 16 | (subnet[2] as u32) << 8 | subnet[3] as u32;
+                let subnet = (subnet[0] as u32) << 24
+                    | (subnet[1] as u32) << 16
+                    | (subnet[2] as u32) << 8
+                    | subnet[3] as u32;
                 let subnet_mask = settings.subnet_mask;
-                let subnet_mask = (subnet_mask.0[0] as u32) << 24 | (subnet_mask.0[1] as u32) << 16 | (subnet_mask.0[2] as u32) << 8 | subnet_mask.0[3] as u32;
+                let subnet_mask = (subnet_mask.0[0] as u32) << 24
+                    | (subnet_mask.0[1] as u32) << 16
+                    | (subnet_mask.0[2] as u32) << 8
+                    | subnet_mask.0[3] as u32;
 
                 let subnet_ip = subnet & subnet_mask;
                 let subnet_ip = Ipv4Address::new(
@@ -175,12 +186,8 @@ impl ControllerConnection {
                     (subnet_ip >> 8) as u8,
                     subnet_ip as u8,
                 );
-                let gateway_ip = Ipv4Address::new(
-                    subnet_ip.0[0],
-                    subnet_ip.0[1],
-                    subnet_ip.0[2],
-                    1,
-                );
+                let gateway_ip =
+                    Ipv4Address::new(subnet_ip.0[0], subnet_ip.0[1], subnet_ip.0[2], 1);
 
                 if let Err(err) = net.add_route(&subnet_ip, &settings.subnet_mask, &gateway_ip) {
                     error!("Failed to add route: {:?}", err);
@@ -193,7 +200,8 @@ impl ControllerConnection {
 
         let mut net = Box::pin(net);
         let net_ref: &mut ScopedProtocol<UDP4Protocol> = &mut net;
-        let net_ref: &'static mut ScopedProtocol<UDP4Protocol> = unsafe { core::mem::transmute(net_ref) }; // safe, since from now on, net will not be used anymore
+        let net_ref: &'static mut ScopedProtocol<UDP4Protocol> =
+            unsafe { core::mem::transmute(net_ref) }; // safe, since from now on, net will not be used anymore
         let channel: UdpChannel<'static> = net_ref.channel();
 
         Ok(Self {
@@ -255,14 +263,15 @@ impl ControllerConnection {
                     Err(err) => {
                         if !matches!(err, ConnectionError::ReceiveTimeout) {
                             error!("Failed to transmit data: {:?}", err);
-                            status = Some(Err(ConnectionError::TransmitWaitForAckFailedHard(Box::new(err))));
+                            status = Some(Err(ConnectionError::TransmitWaitForAckFailedHard(
+                                Box::new(err),
+                            )));
                             break 'attempt_loop;
                         }
                         continue 'attempt_loop;
                     }
                 }
-            }
-            {
+            } {
                 if let OtaC2D::Unreliable(OtaC2DUnreliable::Ack(sequence_number)) = received_packet
                 {
                     if sequence_number > self.sequence_number_tx {
@@ -338,7 +347,11 @@ impl ControllerConnection {
 
         #[cfg(feature = "__debug_print_udp")]
         if matches!(data, Ota::Transport { .. }) {
-            trace!("Pre-Received: {:?}, cur seq {}", data, self.sequence_number_rx);
+            trace!(
+                "Pre-Received: {:?}, cur seq {}",
+                data,
+                self.sequence_number_rx
+            );
         }
 
         if let Ota::Transport { session, id, .. } = &data {
@@ -355,7 +368,8 @@ impl ControllerConnection {
                 #[cfg(feature = "__debug_print_udp")]
                 warn!("Received packet with same sequence number: {}", id);
                 return Ok(None);
-            } else { // *id > self.sequence_number_rx
+            } else {
+                // *id > self.sequence_number_rx
                 self.sequence_number_rx = *id;
             }
         }
