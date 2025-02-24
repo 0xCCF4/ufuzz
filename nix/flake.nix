@@ -27,6 +27,21 @@
       };
       images.node = nixosConfigurations.node.config.system.build.sdImage;
 
+      nixosConfigurations.master = nixpkgs.lib.nixosSystem rec {
+        system = "x86_64-linux";
+        modules = [
+          nixos-hardware.nixosModules.raspberry-pi-4
+          "${nixpkgs}/nixos/modules/installer/sd-card/sd-image-aarch64.nix"
+          ./fuzzer_master/system.nix
+          ./system.nix
+        ];
+        specialArgs = {
+          settings.hostName = "fuzzer-master";
+          inherit packages system;
+        };
+      };
+      images.master = nixosConfigurations.master.config.system.build.sdImage;
+
       packages = forAllSystems (system: {
         fuzzer_node = pkgsFor.${system}.callPackage ./fuzzer_node/package.nix { inherit nixpkgs system crate2nix; };
         fuzzer_master = pkgsFor.${system}.callPackage ./fuzzer_master/package.nix { inherit nixpkgs system crate2nix; };

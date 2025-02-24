@@ -83,7 +83,7 @@ in
         };
       };
 
-      environment.systemPackages = with pkgs; [ pinctrl wol rustup helix killall htop dig lsof file coreutils openssl wget bat eza fd fzf ripgrep age tldr nh nix-output-monitor nvd git ];
+      environment.systemPackages = with pkgs; [ nixos-firewall-tool pinctrl wol rustup helix killall htop dig lsof file coreutils openssl wget bat eza fd fzf ripgrep age tldr nh nix-output-monitor nvd git ];
 
       services.openssh.enable = true;
 

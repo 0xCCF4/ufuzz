@@ -63,12 +63,14 @@ pub struct Sample {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum OtaD2CUnreliable {
-    Alive { iteration: u64 },
     Ack(u64),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum OtaD2CTransport {
+    Alive {
+        iteration: u64,
+    },
     LastRunBlacklisted {
         address: Option<u16>,
     },

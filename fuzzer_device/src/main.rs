@@ -316,7 +316,7 @@ fn genetic_pool_fuzzing(
             // Alive message
             // todo make sending this message less often
             if let Some(net) = &mut network {
-                if let Err(err) = net.send(OtaD2CUnreliable::Alive {
+                if let Err(err) = net.send(OtaD2CTransport::Alive {
                     iteration: global_stats.iteration_count,
                 }) {
                     warn!("Failed to send alive message: {:?}", err);

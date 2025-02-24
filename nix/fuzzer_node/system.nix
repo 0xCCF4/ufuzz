@@ -8,7 +8,7 @@
       boot.kernelModules = [ "libcomposite" ];
       hardware.raspberry-pi."4".dwc2.enable = true;
 
-      environment.systemPackages = with pkgs; [ packages."${system}".fuzzer_node v4l-utils nixos-firewall-tool ] ++ scripts;
+      environment.systemPackages = with pkgs; [ packages."${system}".fuzzer_node ] ++ scripts;
 
       networking.firewall.allowedTCPPorts = [ 8000 ];
       networking.interfaces.eth0 = {

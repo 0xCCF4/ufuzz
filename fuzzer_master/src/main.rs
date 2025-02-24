@@ -8,6 +8,7 @@ use std::io;
 use std::io::Write;
 use std::sync::Arc;
 use std::time::Duration;
+use rand::random;
 use tokio::time::Instant;
 
 pub const DATABASE_FILE: &str = "database.json";
@@ -83,7 +84,7 @@ async fn main() {
         error!("Failed to save the database: {:?}", e);
     });
 
-    let mut seed = 0;
+    let mut seed = random();
     let mut last_seed_iteration_last_time = None;
     let mut last_seed_iteration = 0;
 
@@ -172,7 +173,7 @@ async fn main() {
         let mut last_iteration_time = Instant::now();
 
         loop {
-            if last_iteration_time.elapsed() > Duration::from_secs(20) {
+            if last_iteration_time.elapsed() > Duration::from_secs(30) {
                 error!("Device is alive, but not updating the iteration count");
             }
 
@@ -182,17 +183,17 @@ async fn main() {
                         Ota::Unreliable(OtaD2CUnreliable::Ack(_)) => {
                             // ignore
                         }
-                        Ota::Unreliable(OtaD2CUnreliable::Alive { iteration }) => {
-                            info!("Iteration: {}", iteration);
-                            if iteration > last_iteration_count {
-                                last_iteration_count = iteration;
-                                last_iteration_time = Instant::now();
-                            }
-                            if iteration > last_seed_iteration {
-                                last_seed_iteration = iteration;
-                            }
-                        }
                         Ota::Transport { content, .. } => match content {
+                            OtaD2CTransport::Alive { iteration } => {
+                                info!("Iteration: {}", iteration);
+                                if iteration > last_iteration_count {
+                                    last_iteration_count = iteration;
+                                    last_iteration_time = Instant::now();
+                                }
+                                if iteration > last_seed_iteration {
+                                    last_seed_iteration = iteration;
+                                }
+                            }
                             OtaD2CTransport::FinishedGeneticFuzzing => {
                                 break;
                             }
