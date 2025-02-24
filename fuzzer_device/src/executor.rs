@@ -24,6 +24,7 @@ use coverage::harness::coverage_harness::{CoverageExecutionResult, ExecutionResu
 use coverage::harness::iteration_harness::IterationHarness;
 use coverage::interface_definition::CoverageCount;
 use data_types::addresses::{Address, UCInstructionAddress};
+use fuzzer_data::ReportExecutionProblemType;
 use log::trace;
 use log::{error, warn};
 use rand_core::RngCore;
@@ -390,7 +391,7 @@ impl SampleExecutor {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ExecutionEvent {
     VmExitMismatchCoverageCollection {
         addresses: Vec<UCInstructionAddress>,
@@ -416,6 +417,42 @@ pub enum ExecutionEvent {
         normal_state: VmState,
         serialized_state: VmState,
     },
+}
+
+impl From<ExecutionEvent> for Option<ReportExecutionProblemType> {
+    fn from(value: ExecutionEvent) -> Self {
+        match value {
+            ExecutionEvent::SerializedExitMismatch {
+                normal_exit,
+                serialized_exit,
+            } => Some(ReportExecutionProblemType::SerializedExitMismatch {
+                normal_exit,
+                serialized_exit,
+            }),
+            ExecutionEvent::SerializedStateMismatch {
+                normal_exit,
+                serialized_exit,
+                normal_state,
+                serialized_state,
+            } => Some(ReportExecutionProblemType::SerializedStateMismatch {
+                normal_exit,
+                serialized_exit,
+                normal_state,
+                serialized_state,
+            }),
+            ExecutionEvent::CoverageCollectionError { .. } => None,
+            ExecutionEvent::VmExitMismatchCoverageCollection { addresses, .. } => {
+                Some(ReportExecutionProblemType::CoverageProblem {
+                    addresses: addresses.iter().map(|x| x.address() as u16).collect(),
+                })
+            }
+            ExecutionEvent::VmStateMismatchCoverageCollection { addresses, .. } => {
+                Some(ReportExecutionProblemType::CoverageProblem {
+                    addresses: addresses.iter().map(|x| x.address() as u16).collect(),
+                })
+            }
+        }
+    }
 }
 
 #[derive(Default)]

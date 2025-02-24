@@ -175,7 +175,7 @@ impl DeviceConnection {
                     }
                     Err(e) => {
                         if e.kind() == io::ErrorKind::WouldBlock {
-                            tokio::time::sleep(Duration::from_millis(500)).await;
+                            tokio::time::sleep(Duration::from_millis(10)).await;
                             continue;
                         }
                         error!("Error receiving data: {:?}", e);
@@ -289,6 +289,76 @@ impl DeviceConnection {
             }
             if now.elapsed() > timeout {
                 return None;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }
+
+    pub async fn receive_packet<F: Fn(&OtaD2C) -> bool>(
+        &mut self,
+        filter: F,
+    ) -> Result<Option<OtaD2C>, DeviceConnectionError> {
+        let mut queue = VecDeque::with_capacity(self.virtual_receive_queue.len() + 3);
+
+        let mut result = None;
+
+        while let Some(data) = self.receive() {
+            if filter(&data) {
+                result = Some(data);
+                break;
+            }
+            queue.push_back(data);
+        }
+
+        for data in queue.into_iter().rev() {
+            self.virtual_receive_queue.push_front(data);
+        }
+
+        Ok(result)
+    }
+
+    pub async fn receive_packet_timeout<F: Fn(&OtaD2C) -> bool>(
+        &mut self,
+        filter: F,
+        timeout: Duration,
+    ) -> Result<Option<OtaD2C>, DeviceConnectionError> {
+        let now = Instant::now();
+        let mut result = None;
+        let mut queue = VecDeque::with_capacity(self.virtual_receive_queue.len() + 3);
+
+        'outer: loop {
+            while let Some(data) = self.receive() {
+                if filter(&data) {
+                    result = Some(data);
+                    break 'outer;
+                }
+                queue.push_back(data);
+            }
+
+            if now.elapsed() > timeout {
+                break;
+            }
+
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+
+        for data in queue.into_iter().rev() {
+            self.virtual_receive_queue.push_front(data);
+        }
+
+        Ok(result)
+    }
+
+    pub fn flush_read(&mut self) {
+        while let Some(_) = self.receive() {}
+    }
+
+    pub async fn flush_read_timeout(&mut self, timeout: Duration) {
+        let now = Instant::now();
+        loop {
+            self.flush_read();
+            if now.elapsed() > timeout {
+                break;
             }
             tokio::time::sleep(Duration::from_millis(10)).await;
         }

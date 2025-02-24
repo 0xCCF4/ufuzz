@@ -7,6 +7,7 @@ use rocket::figment::providers::Format;
 use rocket::http::Status;
 use rocket::response::status;
 use rocket::serde::json::Json;
+use rocket::Shutdown;
 use std::process::Command;
 
 lazy_static! {
@@ -45,7 +46,7 @@ fn execute_command(mut command: Command) -> Result<status::Custom<String>, statu
     }
 }
 
-#[post("/power_button/long")]
+#[post("/power_button_long")]
 fn power_button_long() -> Result<status::Custom<String>, status::Custom<String>> {
     let mut command = Command::new(&CMD[0]);
     command.args(&CMD[1..]);
@@ -54,7 +55,7 @@ fn power_button_long() -> Result<status::Custom<String>, status::Custom<String>>
     execute_command(command)
 }
 
-#[post("/power_button/short")]
+#[post("/power_button_short")]
 fn power_button_short() -> Result<status::Custom<String>, status::Custom<String>> {
     let mut command = Command::new(&CMD[0]);
     command.args(&CMD[1..]);
@@ -76,6 +77,12 @@ fn alive() -> Result<status::Custom<Json<bool>>, status::Custom<String>> {
     Ok(status::Custom(Status::Accepted, true.into()))
 }
 
+#[get("/shutdown")]
+fn shutdown(shutdown: Shutdown) -> Result<status::Custom<String>, status::Custom<String>> {
+    shutdown.notify();
+    Ok(status::Custom(Status::Ok, "Shutting down".to_string()))
+}
+
 #[launch]
 fn rocket() -> _ {
     let config = Config::figment().merge(rocket::figment::providers::Toml::string(include_str!(
@@ -84,6 +91,12 @@ fn rocket() -> _ {
 
     rocket::custom(config).mount(
         "/",
-        routes![power_button_long, power_button_short, alive, skip_bios],
+        routes![
+            power_button_long,
+            power_button_short,
+            alive,
+            skip_bios,
+            shutdown
+        ],
     )
 }

@@ -14,7 +14,10 @@ use core::cell::RefCell;
 use core::fmt::Display;
 use core::ops::DerefMut;
 use data_types::addresses::UCInstructionAddress;
-use fuzzer_data::{OtaC2D, OtaC2DTransport, OtaD2CTransport, OtaD2CUnreliable};
+use fuzzer_data::{
+    OtaC2D, OtaC2DTransport, OtaD2CTransport, OtaD2CUnreliable, ReportExecutionProblem,
+    ReportExecutionProblemType,
+};
 use fuzzer_device::cmos::CMOS;
 use fuzzer_device::controller_connection::{ConnectionSettings, ControllerConnection};
 use fuzzer_device::executor::{
@@ -186,7 +189,7 @@ unsafe fn main() -> Status {
                     executor.update_excluded_addresses();
                 }
                 OtaC2DTransport::DidYouExcludeAnAddressLastRun => {
-                    let blacklisted = OtaD2CTransport::Blacklisted {
+                    let blacklisted = OtaD2CTransport::LastRunBlacklisted {
                         address: excluded_last_run,
                     };
                     if let Err(err) = udp.send(blacklisted) {
@@ -233,6 +236,17 @@ unsafe fn main() -> Status {
                     break;
                 }
                 OtaC2DTransport::AreYouThere => {}
+                OtaC2DTransport::GiveMeYourBlacklistedAddresses => {
+                    let borrow = excluded_addresses.borrow();
+                    for blacklisted in borrow.iter().cloned().collect::<Vec<u16>>().chunks(30) {
+                        let blacklisted = OtaD2CTransport::BlacklistedAddresses {
+                            addresses: blacklisted.to_vec(),
+                        };
+                        if let Err(err) = udp.send(blacklisted) {
+                            error!("Failed to send blacklisted addresses: {:?}", err);
+                        }
+                    }
+                }
             }
         }
     } else {
@@ -278,6 +292,7 @@ fn genetic_pool_fuzzing(
     if execution_result.events.len() > 0 {
         error!("Initial sample execution had events");
         initial_execution_events_to_file(&execution_result);
+        #[cfg(feature = "__debug_print_events")]
         for event in &execution_result.events {
             println!("{:#?}", event);
         }
@@ -314,6 +329,7 @@ fn genetic_pool_fuzzing(
 
             // Handle events
             for event in &execution_result.events {
+                #[cfg(feature = "__debug_print_events")]
                 match event {
                     ExecutionEvent::CoverageCollectionError { error } => {
                         error!(
@@ -462,6 +478,19 @@ fn genetic_pool_fuzzing(
                         );
                         println!("Serialized-Trace: {:x?}", trace_scratchpad);
                         println!();
+                    }
+                }
+                if let Some(event) = Option::<ReportExecutionProblemType>::from(event.clone()) {
+                    if let Some(net) = network.as_mut() {
+                        if let Err(err) =
+                            net.send(OtaD2CTransport::ExecutionEvent(ReportExecutionProblem {
+                                event,
+                                sample: sample.code().to_vec(),
+                                serialized: serialized_sample.clone().unwrap_or_default(),
+                            }))
+                        {
+                            error!("Failed to send event: {:?}", err);
+                        }
                     }
                 }
             }

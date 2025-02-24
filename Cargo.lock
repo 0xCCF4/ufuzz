@@ -773,9 +773,13 @@ version = "0.1.0"
 dependencies = [
  "env_logger",
  "fuzzer_data",
+ "itertools 0.14.0",
+ "lazy_static",
  "log",
  "rand 0.9.0",
+ "regex",
  "reqwest",
+ "serde",
  "serde_json",
  "tokio",
 ]

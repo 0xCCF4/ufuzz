@@ -1,6 +1,6 @@
 #![no_std]
 
-use alloc::collections::BTreeMap;
+use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt::Debug;
@@ -8,6 +8,30 @@ use hypervisor::state::{VmExitReason, VmState};
 use serde::{Deserialize, Serialize};
 
 extern crate alloc;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub enum ReportExecutionProblemType {
+    CoverageProblem {
+        addresses: BTreeSet<u16>,
+    },
+    SerializedExitMismatch {
+        normal_exit: VmExitReason,
+        serialized_exit: VmExitReason,
+    },
+    SerializedStateMismatch {
+        normal_exit: VmExitReason,
+        serialized_exit: VmExitReason,
+        normal_state: VmState,
+        serialized_state: VmState,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ReportExecutionProblem {
+    pub event: ReportExecutionProblemType,
+    pub sample: Vec<u8>,
+    pub serialized: Vec<u8>,
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ExecutionExit {
@@ -45,9 +69,13 @@ pub enum OtaD2CUnreliable {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum OtaD2CTransport {
-    Blacklisted {
+    LastRunBlacklisted {
         address: Option<u16>,
     },
+    BlacklistedAddresses {
+        addresses: Vec<u16>,
+    },
+    ExecutionEvent(ReportExecutionProblem),
     FinishedGeneticFuzzing,
     Capabilities {
         coverage_collection: bool,
@@ -73,6 +101,7 @@ pub enum OtaC2DTransport {
         address: Vec<u16>,
     },
     DidYouExcludeAnAddressLastRun,
+    GiveMeYourBlacklistedAddresses,
     StartGeneticFuzzing {
         seed: u64,
         evolutions: u64,

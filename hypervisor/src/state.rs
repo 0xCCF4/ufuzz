@@ -1,20 +1,21 @@
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 use core::fmt::Debug;
+use core::hash::Hash;
 use core::ops::{Deref, DerefMut};
 use core::{fmt, ptr};
 use serde::{Deserialize, Serialize};
 #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
 use x86::dtables::DescriptorTablePointer;
 
-#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub struct VmState {
     pub standard_registers: GuestRegisters,
     pub extended_registers: VmStateExtendedRegisters,
 }
 
 /// The collection of the guest general purpose register values.
-#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 #[repr(C)]
 pub struct GuestRegisters {
     pub rax: u64,
@@ -94,7 +95,7 @@ impl GuestRegisters {
 
 #[repr(C)]
 #[repr(align(16))]
-#[derive(Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub struct M128A {
     pub low: u64,
     pub high: i64,
@@ -107,7 +108,7 @@ impl fmt::Debug for M128A {
 }
 
 /// 26.4.1 Guest Register State
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub struct VmStateExtendedRegisters {
     pub gdtr: DescriptorTablePointerWrapper<u64>,
     pub idtr: DescriptorTablePointerWrapper<u64>,
@@ -202,6 +203,15 @@ impl<'de, T> Deserialize<'de> for DescriptorTablePointerWrapper<T> {
             base: ptr::null(),
             limit: 0,
         }))
+    }
+}
+
+// we are not using *const on the remote side
+unsafe impl Send for DescriptorTablePointerWrapper<u64> {}
+
+impl Hash for DescriptorTablePointerWrapper<u64> {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        (self.0.base as usize).hash(state);
     }
 }
 
@@ -449,7 +459,7 @@ impl VmState {
 }
 
 /// Reasons of VM exit.
-#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize, Hash)]
 pub enum VmExitReason {
     /// An address translation failure with nested paging. GPA->LA. Contains a guest
     /// physical address that failed translation and whether the access was
@@ -584,7 +594,7 @@ impl Default for VmExitReason {
 }
 
 /// Details of the cause of nested page fault.
-#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize, Hash)]
 pub struct EPTPageFaultQualification {
     pub rip: usize,
     pub gpa: usize,
@@ -601,14 +611,14 @@ pub struct EPTPageFaultQualification {
     pub guest_paging_verification: bool,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize, Hash)]
 pub struct ExceptionQualification {
     pub rip: u64,
     pub exception_code: GuestException,
 }
 
 /// The cause of guest exception.
-#[derive(Clone, Copy, PartialEq, Debug, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, PartialEq, Debug, Eq, Serialize, Deserialize, Hash)]
 pub enum GuestException {
     DivideError,
     DebugException,

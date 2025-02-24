@@ -10,12 +10,16 @@ impl FuzzerNodeInterface {
     pub fn new(host: &str) -> Self {
         FuzzerNodeInterface {
             host: host.to_string(),
-            client: Client::builder()
-                .connect_timeout(Duration::from_secs(5))
-                .timeout(Duration::from_secs(5))
-                .build()
-                .unwrap(),
+            client: Self::client(),
         }
+    }
+
+    pub fn client() -> Client {
+        Client::builder()
+            .connect_timeout(Duration::from_secs(5))
+            .timeout(Duration::from_secs(20))
+            .build()
+            .unwrap()
     }
 
     pub async fn skip_bios(&self) -> Result<bool, reqwest::Error> {
@@ -25,13 +29,13 @@ impl FuzzerNodeInterface {
     }
 
     pub async fn power_button_long(&self) -> Result<bool, reqwest::Error> {
-        let url = format!("{}/power_button/long", self.host);
+        let url = format!("{}/power_button_long", self.host);
         let response = self.client.post(&url).send().await?;
         Ok(response.status().is_success())
     }
 
     pub async fn power_button_short(&self) -> Result<bool, reqwest::Error> {
-        let url = format!("{}/power_button/short", self.host);
+        let url = format!("{}/power_button_short", self.host);
         let response = self.client.post(&url).send().await?;
         Ok(response.status().is_success())
     }

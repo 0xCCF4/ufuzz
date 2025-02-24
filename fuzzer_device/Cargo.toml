@@ -30,8 +30,9 @@ __debug_print_external_interrupt_notification = [] # print external interrupt no
 __debug_print_mutation_info = [] # print mutation info
 __debug_pretend_no_coverage = [] # pretend no coverage collection possible
 __debug_print_udp = [] # print debug information from udp interface
+__debug_print_events = [] # print coverage events
 
-__device_brix = ["device_brix", "rand_isaac", "mutation_all", "__debug_print_progress", "__debug_print_mutation_info"]
+__device_brix = ["device_brix", "rand_isaac", "mutation_all", "__debug_print_mutation_info"]
 __device_bochs = ["device_bochs", "rand_isaac", "mutation_all", "__debug_print_external_interrupt_notification", "__debug_print_mutation_info"]
 
 [dependencies]

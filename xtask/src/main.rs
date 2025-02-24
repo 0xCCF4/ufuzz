@@ -55,6 +55,8 @@ struct EmulateCli {
     command: Commands,
 }
 
+pub const TARGET_HOST: &str = "192.168.0.10";
+
 #[derive(Subcommand)]
 enum Commands {
     /// Start a Bochs VM with an Intel processor
@@ -109,7 +111,7 @@ fn main_put_remote(name: &str) {
 
     println!("Pushing {} to the remote", name);
     let mut sftp = Command::new("sftp")
-        .arg("thesis@192.168.0.6:/tmp")
+        .arg(&format!("thesis@{}:/tmp", TARGET_HOST))
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .spawn()
@@ -123,7 +125,7 @@ fn main_put_remote(name: &str) {
     let _status = sftp.wait().expect("Failed to wait on sftp");
 
     let mut ssh = Command::new("ssh")
-        .arg("thesis@192.168.0.6")
+        .arg(&format!("thesis@{}", TARGET_HOST))
         .stdin(Stdio::piped())
         .spawn()
         .expect("Failed to start ssh");
