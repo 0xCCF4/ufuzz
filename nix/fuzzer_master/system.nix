@@ -27,6 +27,9 @@
           Restart = "always";
           RestartSec = 5;
         };
+        environment = {
+          RUST_LOG = "trace";
+        };
       };
     };
 }

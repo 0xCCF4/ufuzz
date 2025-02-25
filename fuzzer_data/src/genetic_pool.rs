@@ -1,8 +1,7 @@
-use crate::executor::ExecutionResult;
-use crate::mutation_engine::InstructionDecoder;
 use alloc::vec::Vec;
 use core::cmp::Ordering;
 use rand_core::RngCore;
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone)]
 pub struct GeneticPoolSettings {
@@ -26,7 +25,7 @@ impl Default for GeneticPoolSettings {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct GeneticPool {
     population: Vec<Sample>,
     settings: GeneticPoolSettings,
@@ -97,7 +96,7 @@ impl GeneticPool {
 #[derive(Clone, PartialEq, Eq)]
 pub struct Sample {
     code_blob: Vec<u8>,
-    pub rating: Option<SampleRating>,
+    pub rating: Option<GeneticSampleRating>,
 }
 
 impl Sample {
@@ -114,39 +113,6 @@ impl Sample {
     pub fn code(&self) -> &[u8] {
         &self.code_blob
     }
-
-    pub fn rate_from_execution(
-        &mut self,
-        execution_result: &ExecutionResult,
-        _decoder: &mut InstructionDecoder,
-    ) {
-        // expects existing entries to all have values >0
-        let unique_address_coverage = execution_result.coverage.keys().count();
-        let total_address_coverage = execution_result
-            .coverage
-            .values()
-            .map(|val| *val as usize)
-            .sum();
-        let unique_trace_addresses = execution_result
-            .trace
-            .hit
-            .keys()
-            .filter(|&ip| *ip < self.code_blob.len() as u64)
-            .count();
-        let program_utilization = (f32::clamp(
-            unique_trace_addresses as f32 / self.code_blob.len() as f32,
-            0.0,
-            1.0,
-        ) * 100.0) as usize;
-        let loop_count = execution_result.trace.hit.values().max().unwrap_or(&1) - 1;
-
-        self.rating = Some(SampleRating {
-            unique_address_coverage,
-            total_address_coverage,
-            program_utilization,
-            loop_count,
-        });
-    }
 }
 
 impl Ord for Sample {
@@ -161,15 +127,15 @@ impl PartialOrd for Sample {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub struct SampleRating {
-    unique_address_coverage: usize,
-    total_address_coverage: usize,
-    program_utilization: usize, // in range 0 = 0% to 100 = 100%
-    loop_count: u64,
+#[derive(Clone, PartialEq, Eq, Debug, Hash, Serialize, Deserialize, Default)]
+pub struct GeneticSampleRating {
+    pub unique_address_coverage: u16,
+    pub total_address_coverage: u32,
+    pub program_utilization: u8, // in range 0 = 0% to 100 = 100%
+    pub loop_count: u64,
 }
 
-impl SampleRating {
+impl GeneticSampleRating {
     pub const MIN: Self = Self {
         unique_address_coverage: 0,
         total_address_coverage: 0,
@@ -178,7 +144,7 @@ impl SampleRating {
     };
 }
 
-impl Ord for SampleRating {
+impl Ord for GeneticSampleRating {
     fn cmp(&self, other: &Self) -> Ordering {
         let unique_address_coverage_order = self
             .unique_address_coverage
@@ -209,7 +175,7 @@ impl Ord for SampleRating {
     }
 }
 
-impl PartialOrd for SampleRating {
+impl PartialOrd for GeneticSampleRating {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         self.cmp(other).into()
     }

@@ -25,6 +25,12 @@ pub enum DeviceConnectionError {
     NoAckReceived,
 }
 
+impl DeviceConnectionError {
+    pub fn is_timeout(&self) -> bool {
+        matches!(self, DeviceConnectionError::NoAckReceived)
+    }
+}
+
 impl Display for DeviceConnectionError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -125,7 +131,7 @@ impl DeviceConnection {
                     }
                 }
 
-                match socket_clone.try_recv(&mut buffer) {
+                match socket_clone.recv(&mut buffer).await {
                     Ok(count) => {
                         let data: OtaD2C = match OtaD2C::deserialize(&buffer[..count]) {
                             Ok(d) => d,
@@ -196,11 +202,12 @@ impl DeviceConnection {
         })
     }
 
+    #[allow(unreachable_code)]
     pub async fn send<Packet: OtaPacket<OtaC2DUnreliable, OtaC2DTransport>>(
         &mut self,
         data: Packet,
     ) -> Result<(), DeviceConnectionError> {
-        let mut packet = if data.reliable_transport() {
+        let packet = if data.reliable_transport() {
             self.sequence_number_tx += 1;
 
             data.to_packet(self.sequence_number_tx, self.session)
@@ -328,6 +335,8 @@ impl DeviceConnection {
         }
     }
 
+    #[allow(unreachable_code)]
+    #[allow(unused_variables)]
     pub async fn receive(&mut self, timeout: Option<Duration>) -> Option<OtaD2C> {
         let initial_packet = match self.receive_native(timeout).await {
             Some(packet) => packet,

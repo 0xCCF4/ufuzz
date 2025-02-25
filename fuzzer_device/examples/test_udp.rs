@@ -33,7 +33,7 @@ unsafe fn main() -> Status {
     while let Ok(x) = udp.receive(Some(60_000)) {
         if let Some(x) = x {
             info!("Received: {:?}", x);
-            if let Err(err) = udp.send_native(&numbers, false) {
+            if let Err(err) = udp.send(OtaD2CTransport::Alive { iteration: 0xFF }) {
                 info!("Failed to send: {:?}", err);
                 return Status::ABORTED;
             }

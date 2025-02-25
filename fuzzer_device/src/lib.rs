@@ -6,7 +6,6 @@
 pub mod cmos;
 pub mod controller_connection;
 pub mod executor;
-pub mod genetic_breeding;
 pub mod heuristic;
 pub mod mutation_engine;
 

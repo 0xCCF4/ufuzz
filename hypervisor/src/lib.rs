@@ -9,11 +9,15 @@
 #![feature(once_cell_try)]
 #![feature(decl_macro)]
 */
-#![feature(new_zeroed_alloc)]
+#![cfg_attr(
+    any(target_arch = "x86_64", target_arch = "x86"),
+    feature(new_zeroed_alloc)
+)]
 
 extern crate alloc;
 
 use alloc::boxed::Box;
+use core::mem::size_of;
 
 const BASE_PAGE_SIZE: usize = 4096;
 
@@ -60,6 +64,7 @@ impl Page {
         self as *mut Page
     }
 
+    #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
     pub fn alloc_zeroed() -> Box<Self> {
         unsafe { Box::<Page>::new_zeroed().assume_init() }
     }

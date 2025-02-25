@@ -756,8 +756,8 @@ version = "0.1.0"
 dependencies = [
  "hypervisor",
  "postcard",
+ "rand_core 0.9.2",
  "serde",
- "serde_json",
 ]
 
 [[package]]
@@ -771,10 +771,11 @@ dependencies = [
  "fuzzer_data",
  "hypervisor",
  "iced-x86",
+ "itertools 0.14.0",
  "libm",
  "log",
  "num-traits",
- "rand_core 0.9.0",
+ "rand_core 0.9.2",
  "rand_isaac",
  "serde",
  "sha2",
@@ -791,10 +792,12 @@ version = "0.1.0"
 dependencies = [
  "env_logger",
  "fuzzer_data",
+ "hypervisor",
  "itertools 0.14.0",
  "lazy_static",
  "log",
  "rand 0.9.0",
+ "rand_isaac",
  "regex",
  "reqwest",
  "serde",
@@ -1823,7 +1826,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3779b94aeb87e8bd4e834cee3650289ee9e0d5677f976ecdb6d219e5f4f6cd94"
 dependencies = [
  "rand_chacha 0.9.0",
- "rand_core 0.9.0",
+ "rand_core 0.9.2",
  "zerocopy 0.8.14",
 ]
 
@@ -1844,7 +1847,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d3022b5f1df60f26e1ffddd6c66e8aa15de382ae63b3a0c1bfc0e4d3e3f325cb"
 dependencies = [
  "ppv-lite86",
- "rand_core 0.9.0",
+ "rand_core 0.9.2",
 ]
 
 [[package]]
@@ -1858,9 +1861,9 @@ dependencies = [
 
 [[package]]
 name = "rand_core"
-version = "0.9.0"
+version = "0.9.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b08f3c9802962f7e1b25113931d94f43ed9725bebc59db9d0c3e9a23b67e15ff"
+checksum = "7a509b1a2ffbe92afab0e55c8fd99dea1c280e8171bd2d88682bb20bc41cbc2c"
 dependencies = [
  "getrandom 0.3.1",
  "zerocopy 0.8.14",
@@ -1872,7 +1875,7 @@ version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3382fc9f0aad4f2e2a56b53d9133c8c810b4dbf21e7e370e24346161a5b2c7bd"
 dependencies = [
- "rand_core 0.9.0",
+ "rand_core 0.9.2",
 ]
 
 [[package]]

@@ -5,6 +5,6 @@ edition = "2021"
 
 [dependencies]
 serde = { version = "1.0.218", features = ["alloc", "derive"], default-features = false }
-serde_json = { version = "1.0.139", features = ["alloc"], default-features = false }
 hypervisor = { path = "../hypervisor" }
 postcard = { version = "1.1.1", features = ["alloc"], default-features = false }
+rand_core = "0.9.2"

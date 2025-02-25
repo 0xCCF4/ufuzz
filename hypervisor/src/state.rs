@@ -2,6 +2,8 @@ use alloc::boxed::Box;
 use alloc::vec::Vec;
 use core::fmt::Debug;
 use core::hash::Hash;
+#[allow(unused_imports)]
+use core::mem::size_of;
 use core::ops::{Deref, DerefMut};
 use core::{fmt, ptr};
 use serde::{Deserialize, Serialize};
@@ -110,7 +112,9 @@ impl fmt::Debug for M128A {
 /// 26.4.1 Guest Register State
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub struct VmStateExtendedRegisters {
+    #[serde(skip_serializing)]
     pub gdtr: DescriptorTablePointerWrapper<u64>,
+    #[serde(skip_serializing)]
     pub idtr: DescriptorTablePointerWrapper<u64>,
     pub ldtr_base: u64,
     pub ldtr: u16,
@@ -184,15 +188,6 @@ impl<T> Clone for DescriptorTablePointerWrapper<T> {
 }
 
 impl<T> Eq for DescriptorTablePointerWrapper<T> {}
-
-impl<T> Serialize for DescriptorTablePointerWrapper<T> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::ser::Serializer,
-    {
-        0.serialize(serializer)
-    }
-}
 
 impl<'de, T> Deserialize<'de> for DescriptorTablePointerWrapper<T> {
     fn deserialize<D>(_deserializer: D) -> Result<DescriptorTablePointerWrapper<T>, D::Error>

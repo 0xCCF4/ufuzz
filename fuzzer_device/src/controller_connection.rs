@@ -1,6 +1,5 @@
 use alloc::boxed::Box;
 use alloc::collections::VecDeque;
-use alloc::string::String;
 use alloc::vec::Vec;
 use core::pin::Pin;
 use fuzzer_data::{
@@ -9,7 +8,6 @@ use fuzzer_data::{
 };
 use log::{error, info, trace, warn};
 use uefi::boot::ScopedProtocol;
-use uefi::println;
 use uefi_raw::Ipv4Address;
 use uefi_udp4::uefi::proto::network::udp4::proto::{
     ReceiveError, TransmitError, UDP4Protocol, UdpChannel,
@@ -56,7 +54,7 @@ pub struct ConnectionSettings {
 impl Default for ConnectionSettings {
     fn default() -> Self {
         Self {
-            remote_address: Ipv4Address::new(192, 168, 0, 4),
+            remote_address: Ipv4Address::new(192, 168, 0, 11),
             source_address: Ipv4Address::new(192, 168, 0, 44),
             subnet_mask: Ipv4Address::new(255, 255, 255, 0),
             remote_port: 4444,
@@ -230,11 +228,12 @@ impl ControllerConnection {
         })
     }
 
+    #[allow(unreachable_code)]
     pub fn send<Packet: OtaPacket<OtaD2CUnreliable, OtaD2CTransport>>(
         &mut self,
         data: Packet,
     ) -> Result<(), ConnectionError> {
-        let mut packet = if data.reliable_transport() {
+        let packet = if data.reliable_transport() {
             self.sequence_number_tx += 1;
 
             data.to_packet(self.sequence_number_tx, self.remote_session)
@@ -423,6 +422,8 @@ impl ControllerConnection {
         Ok(Some(data))
     }
 
+    #[allow(unreachable_code)]
+    #[allow(unused_variables)]
     pub fn receive(
         &mut self,
         timeout_millis: Option<u64>,

@@ -1,6 +1,7 @@
 #![no_std]
 
-use alloc::collections::{BTreeMap, BTreeSet};
+use crate::genetic_pool::GeneticSampleRating;
+use alloc::collections::BTreeMap;
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -10,56 +11,39 @@ use serde::{Deserialize, Serialize};
 
 extern crate alloc;
 
+pub mod genetic_pool;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
-pub enum ReportExecutionProblemType {
+#[repr(C)]
+pub enum ReportExecutionProblem {
     CoverageProblem {
-        addresses: BTreeSet<u16>,
+        address: u16,
+        coverage_exit: Option<VmExitReason>,
+        coverage_state: Option<VmState>,
     },
-    SerializedExitMismatch {
-        normal_exit: VmExitReason,
-        serialized_exit: VmExitReason,
+    SerializedMismatch {
+        serialized_exit: Option<VmExitReason>,
+        serialized_state: Option<VmState>,
     },
-    SerializedStateMismatch {
-        normal_exit: VmExitReason,
-        serialized_exit: VmExitReason,
-        normal_state: VmState,
-        serialized_state: VmState,
+    StateTraceMismatch {
+        index: u64,
+        normal: Option<VmState>,
+        serialized: Option<VmState>,
     },
+    VeryLikelyBug,
+}
+
+impl ReportExecutionProblem {
+    pub const MAX_PER_PACKET: usize = 3;
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct ReportExecutionProblem {
-    pub event: ReportExecutionProblemType,
-    pub sample: Vec<u8>,
-    pub serialized: Vec<u8>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ExecutionExit {
-    pub exit_reason: VmExitReason,
+pub struct ExecutionResult {
+    pub coverage: BTreeMap<u16, u16>,
+    pub exit: VmExitReason,
     pub state: VmState,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct SampleExecutionResult {
-    pub coverage: Option<BTreeMap<usize, usize>>, // mapping address -> count
-
-    pub normal_execution: ExecutionExit,
-    pub traced_execution: Option<ExecutionExit>, // None if not different to normal
-    pub serialized_execution: Option<ExecutionExit>, // None if not different to normal
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct SampleRunResult {
-    pub code: Vec<u8>,
-    pub result: SampleExecutionResult,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Sample {
-    pub code: Vec<u8>,
-
-    pub results: BTreeMap<String, SampleExecutionResult>, // device -> result
+    pub serialized: Option<Code>,
+    pub fitness: GeneticSampleRating,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -69,17 +53,14 @@ pub enum OtaD2CUnreliable {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum OtaD2CTransport {
-    Alive {
-        iteration: u64,
-    },
     LastRunBlacklisted {
         address: Option<u16>,
     },
     BlacklistedAddresses {
         addresses: Vec<u16>,
     },
-    ExecutionEvent(ReportExecutionProblem),
-    FinishedGeneticFuzzing,
+    ExecutionEvents(Vec<ReportExecutionProblem>),
+    ExecutionResult(ExecutionResult),
     Capabilities {
         coverage_collection: bool,
         manufacturer: String,
@@ -89,6 +70,8 @@ pub enum OtaD2CTransport {
         processor_version_edx: u32, // cpuid 1:edx
     },
 }
+
+pub type Code = Vec<u8>;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum OtaC2DUnreliable {
@@ -100,22 +83,13 @@ pub enum OtaC2DUnreliable {
 pub enum OtaC2DTransport {
     AreYouThere,
     GetCapabilities,
-    Blacklist {
-        address: Vec<u16>,
-    },
+    Blacklist { address: Vec<u16> },
     DidYouExcludeAnAddressLastRun,
     GiveMeYourBlacklistedAddresses,
-    StartGeneticFuzzing {
-        seed: u64,
-        evolutions: u64,
 
-        population_size: usize,
-        code_size: usize,
+    SetRandomSeed { seed: u64 },
+    ExecuteSample { code: Code },
 
-        random_solutions_each_generation: usize,
-        keep_best_x_solutions: usize,
-        random_mutation_chance: f64,
-    },
     Reboot,
 }
 

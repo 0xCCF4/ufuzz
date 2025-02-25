@@ -6,33 +6,30 @@
 extern crate alloc;
 
 use alloc::collections::{BTreeMap, BTreeSet};
-use alloc::format;
 use alloc::rc::Rc;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
+use alloc::{format, vec};
 use core::cell::RefCell;
 use core::fmt::Display;
 use core::ops::DerefMut;
-use data_types::addresses::UCInstructionAddress;
-use fuzzer_data::{
-    OtaC2D, OtaC2DTransport, OtaD2CTransport, OtaD2CUnreliable, ReportExecutionProblem,
-    ReportExecutionProblemType,
-};
+use coverage::interface_definition::CoverageCount;
+use data_types::addresses::{Address, UCInstructionAddress};
+use fuzzer_data::genetic_pool::{GeneticPool, GeneticPoolSettings, GeneticSampleRating};
+use fuzzer_data::{genetic_pool, OtaC2D, OtaC2DTransport, OtaD2CTransport, ReportExecutionProblem};
 use fuzzer_device::cmos::CMOS;
 use fuzzer_device::controller_connection::{ConnectionSettings, ControllerConnection};
 use fuzzer_device::executor::{
     ExecutionEvent, ExecutionResult, ExecutionSampleResult, SampleExecutor,
 };
-use fuzzer_device::genetic_breeding::{GeneticPool, GeneticPoolSettings};
 use fuzzer_device::mutation_engine::InstructionDecoder;
 use fuzzer_device::{
-    disassemble_code, genetic_breeding, PersistentApplicationData, PersistentApplicationState,
-    StateTrace, Trace,
+    disassemble_code, PersistentApplicationData, PersistentApplicationState, StateTrace,
 };
-use hypervisor::state::StateDifference;
+use itertools::Itertools;
 use log::{debug, error, info, trace, warn};
 use num_traits::{ConstZero, SaturatingSub};
-use rand_core::SeedableRng;
+use rand_core::{RngCore, SeedableRng};
 use uefi::proto::loaded_image::LoadedImage;
 use uefi::proto::media::file::{File, FileAttribute, FileMode};
 use uefi::{entry, println, CString16, Error, Status};
@@ -144,6 +141,13 @@ unsafe fn main() -> Status {
 
     #[cfg(not(feature = "device_bochs"))]
     if let Some(mut udp) = udp {
+        // Execute initial sample to get ground truth coverage
+        let mut random = random_source(0);
+        let mut execution_result = ExecutionResult::default();
+        let mut state_trace_scratchpad_normal = StateTrace::default();
+        let mut state_trace_scratchpad_serialized = StateTrace::default();
+        let mut decoder = InstructionDecoder::new();
+
         trace!("Waiting for command...");
         loop {
             let packet = match udp.receive(None) {
@@ -196,39 +200,6 @@ unsafe fn main() -> Status {
                         error!("Failed to send blacklisted: {:?}", err);
                     }
                 }
-                OtaC2DTransport::StartGeneticFuzzing {
-                    seed,
-                    evolutions,
-
-                    population_size,
-                    code_size,
-
-                    random_solutions_each_generation,
-                    keep_best_x_solutions,
-                    random_mutation_chance,
-                } => {
-                    let result = genetic_pool_fuzzing(
-                        &mut executor,
-                        &mut cmos,
-                        seed,
-                        GeneticPoolSettings {
-                            population_size,
-                            code_size,
-                            random_solutions_each_generation,
-                            keep_best_x_solutions,
-                            random_mutation_chance,
-                        },
-                        evolutions,
-                        Some(&mut udp),
-                    );
-
-                    // todo use result
-                    drop(result);
-
-                    if let Err(err) = udp.send(OtaD2CTransport::FinishedGeneticFuzzing) {
-                        error!("Failed to send finish fuzzing: {:?}", err);
-                    }
-                }
                 OtaC2DTransport::Reboot => {
                     #[cfg(feature = "device_bochs")]
                     uefi::runtime::reset(ResetType::SHUTDOWN, Status::SUCCESS, None);
@@ -247,6 +218,130 @@ unsafe fn main() -> Status {
                         }
                     }
                 }
+                OtaC2DTransport::SetRandomSeed { seed } => {
+                    random = random_source(seed);
+                }
+                OtaC2DTransport::ExecuteSample { code } => {
+                    println!("Executing sample");
+
+                    let ExecutionSampleResult { serialized_sample } = executor.execute_sample(
+                        &code,
+                        &mut execution_result,
+                        &mut cmos,
+                        &mut random,
+                    );
+
+                    let events = execution_result
+                        .events
+                        .iter()
+                        .cloned()
+                        .filter_map(Option::<ReportExecutionProblem>::from);
+                    for event in (&events
+                        .into_iter()
+                        .chunks(ReportExecutionProblem::MAX_PER_PACKET))
+                        .into_iter()
+                        .map(|chunk| chunk.collect_vec())
+                    {
+                        if let Err(err) = udp.send(OtaD2CTransport::ExecutionEvents(event.clone()))
+                        {
+                            error!("Failed to send event: {:?}", err);
+                            if let Err(err) =
+                                udp.send(OtaD2CTransport::ExecutionEvents(event.clone()))
+                            {
+                                error!("Failed to send event: {:?}", err);
+                            }
+                        }
+                    }
+                    for event in &execution_result.events {
+                        if let ExecutionEvent::SerializedMismatch {
+                            serialized_exit: _,
+                            serialized_state: _,
+                        } = event
+                        {
+                            state_trace_scratchpad_normal.clear();
+                            state_trace_scratchpad_serialized.clear();
+
+                            executor.state_trace_sample(
+                                &code,
+                                &mut state_trace_scratchpad_normal,
+                                300,
+                            );
+                            executor.state_trace_sample(
+                                serialized_sample.as_ref().unwrap(),
+                                &mut state_trace_scratchpad_serialized,
+                                300,
+                            );
+
+                            let difference = state_trace_scratchpad_normal
+                                .first_difference_no_addresses(&state_trace_scratchpad_serialized);
+                            match difference {
+                                None => {
+                                    if let Err(_err) =
+                                        udp.send(OtaD2CTransport::ExecutionEvents(vec![
+                                            ReportExecutionProblem::VeryLikelyBug,
+                                        ]))
+                                    {
+                                        if let Err(err) =
+                                            udp.send(OtaD2CTransport::ExecutionEvents(
+                                                vec![ReportExecutionProblem::VeryLikelyBug].into(),
+                                            ))
+                                        {
+                                            error!("Failed to send event: {:?}", err);
+                                        }
+                                    }
+                                }
+                                Some(index) => {
+                                    for i in index
+                                        ..state_trace_scratchpad_normal
+                                            .len()
+                                            .max(state_trace_scratchpad_serialized.len())
+                                    {
+                                        let normal = state_trace_scratchpad_normal.get(i);
+                                        let serialized = state_trace_scratchpad_serialized.get(i);
+
+                                        let event = ReportExecutionProblem::StateTraceMismatch {
+                                            index: i as u64,
+                                            normal: normal.cloned(),
+                                            serialized: serialized.cloned(),
+                                        };
+
+                                        if let Err(_err) =
+                                            udp.send(OtaD2CTransport::ExecutionEvents(vec![
+                                                event.clone()
+                                            ]))
+                                        {
+                                            if let Err(err) = udp
+                                                .send(OtaD2CTransport::ExecutionEvents(vec![event]))
+                                            {
+                                                error!("Failed to send event: {:?}", err);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if let Err(err) = udp.send(OtaD2CTransport::ExecutionResult(
+                        fuzzer_data::ExecutionResult {
+                            coverage: execution_result
+                                .coverage
+                                .iter()
+                                .map(|(k, v)| (k.address() as u16, *v))
+                                .collect(),
+                            exit: execution_result.exit.clone(),
+                            state: execution_result.state.clone(),
+                            serialized: serialized_sample,
+                            fitness: rate_sample_from_execution(
+                                &code,
+                                &mut decoder,
+                                &execution_result,
+                            ),
+                        },
+                    )) {
+                        error!("Failed to send execution result: {:?}", err);
+                    }
+                }
             }
         }
     } else {
@@ -263,6 +358,9 @@ unsafe fn main() -> Status {
     uefi::runtime::reset(ResetType::COLD, Status::SUCCESS, None);
 }
 
+#[allow(unused_variables)]
+#[allow(unused_mut)]
+#[allow(dead_code)]
 fn genetic_pool_fuzzing(
     executor: &mut SampleExecutor,
     cmos: &mut CMOS<PersistentApplicationData>,
@@ -270,7 +368,7 @@ fn genetic_pool_fuzzing(
     pool_settings: GeneticPoolSettings,
     evolutions: u64,
     mut network: Option<&mut ControllerConnection>,
-) -> Vec<genetic_breeding::Sample> {
+) -> Vec<genetic_pool::Sample> {
     let mut random = random_source(seed);
 
     // Declared global to avoid re-allocation
@@ -286,24 +384,9 @@ fn genetic_pool_fuzzing(
     let mut genetic_pool = GeneticPool::new_random_population(pool_settings, &mut random);
 
     // Execute initial sample to get ground truth coverage
-    info!("Collecting ground truth coverage");
-    let _ = executor.execute_sample(&[], &mut execution_result, cmos, &mut random);
-    let ground_truth_coverage = execution_result.coverage.clone();
-    if execution_result.events.len() > 0 {
-        error!("Initial sample execution had events");
-        initial_execution_events_to_file(&execution_result);
-        #[cfg(feature = "__debug_print_events")]
-        for event in &execution_result.events {
-            println!("{:#?}", event);
-        }
-        //return Status::ABORTED;
-    }
-    info!(
-        "Ground truth coverage collected: {:x?}",
-        ground_truth_coverage
-    );
+    let ground_truth_coverage =
+        ground_truth_coverage(executor, &mut execution_result, cmos, &mut random);
 
-    let mut trace_scratchpad = Trace::default();
     let mut state_trace_scratchpad_normal = StateTrace::default();
     let mut state_trace_scratchpad_serialized = StateTrace::default();
     let mut decoder = InstructionDecoder::new();
@@ -316,11 +399,11 @@ fn genetic_pool_fuzzing(
             // Alive message
             // todo make sending this message less often
             if let Some(net) = &mut network {
-                if let Err(err) = net.send(OtaD2CTransport::Alive {
+                /*if let Err(err) = net.send(OtaD2CTransport::Alive {
                     iteration: global_stats.iteration_count,
                 }) {
                     warn!("Failed to send alive message: {:?}", err);
-                }
+                }*/
             }
 
             // Execute
@@ -337,51 +420,40 @@ fn genetic_pool_fuzzing(
                             error
                         );
                     }
-                    ExecutionEvent::VmExitMismatchCoverageCollection {
-                        addresses,
-                        expected_exit,
-                        actual_exit,
-                    } => {
-                        error!("CoverageCollection: Expected result {:#x?} but got {:#x?}. This should not have happened. This is a ucode bug or implementation problem!", expected_exit, actual_exit);
-                        println!("We were hooking the following addresses:");
-                        #[cfg(not(feature = "__debug_bochs_pretend"))]
-                        for address in addresses.iter() {
-                            println!(" - {:?}", address);
-                        }
-                        println!();
-                    }
-                    ExecutionEvent::VmStateMismatchCoverageCollection {
-                        addresses,
-                        exit,
-                        expected_state,
-                        actual_state,
+                    ExecutionEvent::VmMismatchCoverageCollection {
+                        address,
+                        coverage_exit,
+                        coverage_state,
                     } => {
                         error!("CoverageCollection: Expected architectural state x but got y. This should not have happened. This is a ucode bug or implementation problem!");
-                        println!("We were hooking the following addresses:");
                         #[cfg(not(feature = "__debug_bochs_pretend"))]
-                        for address in addresses.iter() {
-                            println!(" - {:?}", address);
-                        }
-                        println!("We exited with {:#x?}", exit);
-                        println!("The difference was:");
-                        for (field, expected, result) in expected_state.difference(actual_state) {
-                            println!(
-                                " - {:?}: expected {:x?}, got {:x?}",
-                                field, expected, result
-                            );
+                        println!("We were hooking the following address: {}", address);
+                        println!("We exited with {:#x?}", coverage_exit);
+                        println!("We should have exited with {:#x?}", execution_result.exit);
+                        if let Some(coverage_state) = coverage_state {
+                            println!("The state difference was:");
+                            for (field, expected, result) in
+                                execution_result.state.difference(coverage_state)
+                            {
+                                println!(
+                                    " - {:?}: expected {:x?}, got {:x?}",
+                                    field, expected, result
+                                );
+                            }
                         }
                         println!();
                     }
-                    ExecutionEvent::SerializedStateMismatch {
-                        normal_exit,
-                        normal_state,
+                    ExecutionEvent::SerializedMismatch {
                         serialized_exit,
                         serialized_state,
                     } => {
                         error!(
                             "SerializedExecution: Expected state x but got y. Is this a CPU bug?"
                         );
-                        println!("In normal execution we exited with {:#x?}", normal_exit);
+                        println!(
+                            "In normal execution we exited with {:#x?}",
+                            execution_result.exit
+                        );
                         println!(
                             "We exited in serialized execution with {:#x?}",
                             serialized_exit
@@ -410,93 +482,85 @@ fn genetic_pool_fuzzing(
                             "Serialized-Trace: {:x?}",
                             state_trace_scratchpad_serialized.trace_vec()
                         );
-                        println!("The difference was:");
-                        for (field, expected, result) in normal_state.difference(serialized_state) {
-                            let symbol = if field == "rip" { "*" } else { "-" };
-                            println!(
-                                " {} {:?}: normal {:x?}, serialized {:x?}",
-                                symbol, field, expected, result
-                            );
-                        }
-                        println!("Difference occurred at:");
-                        let difference = state_trace_scratchpad_normal
-                            .first_difference_no_addresses(&state_trace_scratchpad_serialized);
-                        match difference {
-                            None => println!("No difference found -> This is very odd! CPU bug?"),
-                            Some(index) => {
-                                for i in index
-                                    ..state_trace_scratchpad_normal
-                                        .len()
-                                        .max(state_trace_scratchpad_serialized.len())
-                                {
-                                    let normal = state_trace_scratchpad_normal.get(i);
-                                    let serialized = state_trace_scratchpad_serialized.get(i);
+                        if let Some(serialized_state) = serialized_state {
+                            println!("The difference was:");
+                            for (field, expected, result) in
+                                execution_result.state.difference(serialized_state)
+                            {
+                                let symbol = if field == "rip" { "*" } else { "-" };
+                                println!(
+                                    " {} {:?}: normal {:x?}, serialized {:x?}",
+                                    symbol, field, expected, result
+                                );
+                            }
+                            println!("Difference occurred at:");
+                            let difference = state_trace_scratchpad_normal
+                                .first_difference_no_addresses(&state_trace_scratchpad_serialized);
+                            match difference {
+                                None => {
+                                    println!("No difference found -> This is very odd! CPU bug?")
+                                }
+                                Some(index) => {
+                                    for i in index
+                                        ..state_trace_scratchpad_normal
+                                            .len()
+                                            .max(state_trace_scratchpad_serialized.len())
+                                    {
+                                        let normal = state_trace_scratchpad_normal.get(i);
+                                        let serialized = state_trace_scratchpad_serialized.get(i);
 
-                                    if let Some(normal) = normal {
-                                        println!(" -- {:x?} --", normal.standard_registers.rip);
-                                    }
-
-                                    if let (Some(normal), Some(serialized)) = (normal, serialized) {
-                                        for (field, expected, result) in
-                                            normal.difference(serialized)
-                                        {
-                                            let symbol = if field == "rip" { "*" } else { "-" };
-                                            println!(
-                                                " {} {:?}: normal {:x?}, serialized {:x?}",
-                                                symbol, field, expected, result
-                                            );
+                                        if let Some(normal) = normal {
+                                            println!(" -- {:x?} --", normal.standard_registers.rip);
                                         }
-                                    } else {
-                                        println!("Execution for one of the traces stopped");
-                                        break;
+
+                                        if let (Some(normal), Some(serialized)) =
+                                            (normal, serialized)
+                                        {
+                                            for (field, expected, result) in
+                                                normal.difference(serialized)
+                                            {
+                                                let symbol = if field == "rip" { "*" } else { "-" };
+                                                println!(
+                                                    " {} {:?}: normal {:x?}, serialized {:x?}",
+                                                    symbol, field, expected, result
+                                                );
+                                            }
+                                        } else {
+                                            println!("Execution for one of the traces stopped");
+                                            break;
+                                        }
                                     }
                                 }
                             }
                         }
                         println!();
                     }
-                    ExecutionEvent::SerializedExitMismatch {
-                        normal_exit,
-                        serialized_exit,
-                    } => {
-                        error!(
-                            "SerializedExecution: Normal exit {:#x?} but got serialized exit {:#x?}. This should not have happened. Is this a bug?",
-                            normal_exit, serialized_exit
-                        );
-                        println!("Code:");
-                        disassemble_code(sample.code());
-                        trace_scratchpad.clear();
-                        executor.trace_sample(sample.code(), &mut trace_scratchpad, 100);
-                        println!("Normal-Trace: {:x?}", trace_scratchpad);
-                        println!("Serialized code:");
-                        disassemble_code(&serialized_sample.as_ref().unwrap());
-                        trace_scratchpad.clear();
-                        executor.trace_sample(
-                            serialized_sample.as_ref().unwrap(),
-                            &mut trace_scratchpad,
-                            100,
-                        );
-                        println!("Serialized-Trace: {:x?}", trace_scratchpad);
-                        println!();
-                    }
                 }
-                if let Some(event) = Option::<ReportExecutionProblemType>::from(event.clone()) {
-                    if let Some(net) = network.as_mut() {
-                        if let Err(err) =
-                            net.send(OtaD2CTransport::ExecutionEvent(ReportExecutionProblem {
-                                event,
-                                sample: sample.code().to_vec(),
-                                serialized: serialized_sample.clone().unwrap_or_default(),
-                            }))
-                        {
-                            error!("Failed to send event: {:?}", err);
-                        }
+            }
+            if let Some(net) = network.as_mut() {
+                let events = execution_result
+                    .events
+                    .iter()
+                    .cloned()
+                    .filter_map(Option::<ReportExecutionProblem>::from);
+                for event in (&events
+                    .into_iter()
+                    .chunks(ReportExecutionProblem::MAX_PER_PACKET))
+                    .into_iter()
+                    .map(|chunk| chunk.collect_vec())
+                {
+                    if let Err(err) = net.send(OtaD2CTransport::ExecutionEvents(event)) {
+                        error!("Failed to send event: {:?}", err);
                     }
                 }
             }
 
             // Rate
-            sample.rate_from_execution(&execution_result, &mut decoder);
+            sample.rating = Some(rate_sample_from_execution(
+                sample.code(),
+                &mut decoder,
+                &execution_result,
+            ));
 
             let mut new_coverage = Vec::with_capacity(0);
             subtract_iter_btree(&mut execution_result.coverage, &ground_truth_coverage);
@@ -537,76 +601,63 @@ fn genetic_pool_fuzzing(
     result
 }
 
-fn initial_execution_events_to_file(result: &ExecutionResult) {
-    let mut proto = uefi::boot::get_image_file_system(uefi::boot::image_handle()).unwrap();
-    let mut root_dir = proto.open_volume().unwrap();
-    let file = root_dir
-        .open(
-            CString16::try_from("initial_execution_events.txt")
-                .unwrap()
-                .as_ref(),
-            FileMode::CreateReadWrite,
-            FileAttribute::empty(),
-        )
-        .unwrap();
-    let mut regular_file = file.into_regular_file().unwrap();
-    let mut data = String::new();
-    for event in &result.events {
-        match event {
-            ExecutionEvent::CoverageCollectionError { .. } => {
-                data.push_str(&format!("{:#x?}\n", event));
-            }
-            ExecutionEvent::VmExitMismatchCoverageCollection { .. } => {
-                data.push_str(&format!("{:#x?}\n", event));
-            }
-            ExecutionEvent::VmStateMismatchCoverageCollection {
-                actual_state,
-                expected_state,
-                exit,
-                addresses,
-            } => {
-                data.push_str("VmStateMismatchCoverageCollection\n");
-                data.push_str(&format!("Addresses: {:#x?}\n", addresses));
-                data.push_str(&format!("Exit: {:#x?}\n", exit));
-                data.push_str("State mismatched:\n");
-                for (field, expected, result) in expected_state.difference(actual_state) {
-                    data.push_str(&format!(
-                        " - {:?}: expected {:x?}, got {:x?}\n",
-                        field, expected, result
-                    ));
-                }
-            }
-            ExecutionEvent::SerializedExitMismatch { .. } => {
-                data.push_str(&format!("{:#x?}\n", event));
-            }
-            ExecutionEvent::SerializedStateMismatch {
-                normal_exit: _,
-                normal_state,
-                serialized_exit,
-                serialized_state,
-            } => {
-                data.push_str("SerializedStateMismatch\n");
-                data.push_str(&format!("Exit: {:#x?}\n", serialized_exit));
-                data.push_str("State mismatched:\n");
-                for (field, expected, result) in normal_state.difference(serialized_state) {
-                    data.push_str(&format!(
-                        " - {:?}: normal {:x?}, serialized {:x?}\n",
-                        field, expected, result
-                    ));
-                }
-            }
+fn ground_truth_coverage<R: RngCore>(
+    executor: &mut SampleExecutor,
+    execution_result: &mut ExecutionResult,
+    cmos: &mut CMOS<PersistentApplicationData>,
+    random: &mut R,
+) -> BTreeMap<UCInstructionAddress, CoverageCount> {
+    info!("Collecting ground truth coverage");
+    let _ = executor.execute_sample(&[], execution_result, cmos, random);
+    let ground_truth_coverage = execution_result.coverage.clone();
+    if execution_result.events.len() > 0 {
+        error!("Initial sample execution had events");
+        #[cfg(feature = "__debug_print_events")]
+        for event in &execution_result.events {
+            println!("{:#?}", event);
         }
-        data.push_str("\n\n");
+        //return Status::ABORTED;
     }
-    data.push_str("Coverage:\n");
-    for (address, count) in result.coverage.iter() {
-        data.push_str(&format!("{:#x?}: {:#x?}\n", address, count));
+    info!(
+        "Ground truth coverage collected: {:x?}",
+        ground_truth_coverage
+    );
+    ground_truth_coverage
+}
+
+pub fn rate_sample_from_execution(
+    code: &[u8],
+    decoder: &mut InstructionDecoder,
+    execution_result: &ExecutionResult,
+) -> GeneticSampleRating {
+    let number_of_instructions = decoder.decode(code).len();
+
+    // expects existing entries to all have values >0
+    let unique_address_coverage = execution_result.coverage.keys().count();
+    let total_address_coverage = execution_result
+        .coverage
+        .values()
+        .map(|val| *val as u32)
+        .sum();
+    let unique_trace_addresses = execution_result
+        .trace
+        .hit
+        .keys()
+        .filter(|&ip| *ip < code.len() as u64)
+        .count();
+    let program_utilization = (f32::clamp(
+        unique_trace_addresses as f32 / number_of_instructions as f32,
+        0.0,
+        1.0,
+    ) * 100.0) as usize;
+    let loop_count = execution_result.trace.hit.values().max().unwrap_or(&1) - 1;
+
+    GeneticSampleRating {
+        unique_address_coverage: unique_address_coverage as u16,
+        total_address_coverage,
+        program_utilization: program_utilization as u8,
+        loop_count,
     }
-    data.push_str("\n\n");
-    regular_file.write(data.as_bytes()).unwrap();
-    regular_file.flush().unwrap();
-    root_dir.flush().unwrap();
-    root_dir.close();
 }
 
 fn subtract_iter_btree<

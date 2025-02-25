@@ -1,14 +1,14 @@
-use fuzzer_data::{Ota, OtaC2DTransport, OtaD2C, OtaD2CTransport, OtaD2CUnreliable};
+use fuzzer_data::{Ota, OtaC2DTransport, OtaD2C, OtaD2CTransport};
 use fuzzer_master::database::Database;
 use fuzzer_master::device_connection::{DeviceConnection, DeviceConnectionError};
 use fuzzer_master::fuzzer_node_bridge::FuzzerNodeInterface;
-use itertools::Itertools;
-use log::{error, info, trace, warn};
+use fuzzer_master::genetic_breeding;
+use fuzzer_master::genetic_breeding::{BreedingState, GeneticBreedingResult};
+use log::{debug, error, info, trace, warn};
 use std::io;
 use std::io::Write;
 use std::sync::Arc;
 use std::time::Duration;
-use rand::random;
 use tokio::time::Instant;
 
 pub const DATABASE_FILE: &str = "database.json";
@@ -84,200 +84,88 @@ async fn main() {
         error!("Failed to save the database: {:?}", e);
     });
 
-    let mut seed = random();
-    let mut last_seed_iteration_last_time = None;
-    let mut last_seed_iteration = 0;
+    let mut state = BreedingState::default();
+
+    let mut continue_count = 0;
 
     loop {
-        info!("Starting genetic fuzzing with seed {}", seed);
+        let result = genetic_breeding::main(&mut udp, &mut database, &mut state).await;
 
-        udp.flush_read(Some(Duration::from_secs(1))).await;
-
-        let _ = udp
-            .send(OtaC2DTransport::DidYouExcludeAnAddressLastRun)
-            .await
-            .map_err(|e| {
-                error!(
-                    "Failed to ask if the device excluded an address last run: {:?}",
-                    e
-                );
-            });
-
-        let answer = udp
-            .receive_packet(
-                |p| {
-                    matches!(
-                        p,
-                        OtaD2C::Transport {
-                            content: OtaD2CTransport::LastRunBlacklisted { .. },
-                            ..
-                        }
-                    )
-                },
-                Some(Duration::from_secs(3)),
-            )
-            .await;
-        if let Ok(Some(Ota::Transport {
-            content: OtaD2CTransport::LastRunBlacklisted { address },
-            ..
-        })) = answer
-        {
-            if let Some(address) = address {
-                info!("Device excluded address: {:04x}", address);
-                database.blacklisted_addresses.insert(address);
-                let _ = database.save(DATABASE_FILE).map_err(|e| {
-                    error!("Failed to save the database: {:?}", e);
-                });
+        let connection_lost = match result {
+            GeneticBreedingResult::ConnectionLost => {
+                continue_count = 0;
+                GeneticBreedingResult::ConnectionLost
             }
-        } else {
-            error!(
-                "Failed to ask if the device excluded an address last run: {:?}",
-                answer
-            );
-        }
-
-        for blacklisted_addresses in &database
-            .blacklisted_addresses
-            .iter()
-            .chain(database.get_blacklisted_because_coverage_problem().iter())
-            .chunks(60)
-        {
-            let _ = udp
-                .send(OtaC2DTransport::Blacklist {
-                    address: blacklisted_addresses.cloned().collect_vec(),
-                })
-                .await
-                .map_err(|e| {
-                    error!("Failed to blacklist addresses: {:?}", e);
-                });
-        }
-
-        let _ = udp
-            .send(OtaC2DTransport::StartGeneticFuzzing {
-                seed,
-                evolutions: 1,
-                random_mutation_chance: 0.01,
-                code_size: 10,
-                keep_best_x_solutions: 10,
-                population_size: 100,
-                random_solutions_each_generation: 2,
-            })
-            .await
-            .map_err(|e| {
-                error!("Failed to start genetic fuzzing: {:?}", e);
-            });
-
-        let mut connection_lost = false;
-
-        let mut last_iteration_count = 0;
-        let mut last_iteration_time = Instant::now();
-
-        loop {
-            if last_iteration_time.elapsed() > Duration::from_secs(30) {
-                error!("Device is alive, but not updating the iteration count");
-            }
-
-            match udp.receive(Some(Duration::from_secs(60))).await {
-                Some(data) => {
-                    match data {
-                        Ota::Unreliable(OtaD2CUnreliable::Ack(_)) => {
-                            // ignore
-                        }
-                        Ota::ChunkedTransport { .. } => {
-                            // ignore
-                            warn!("Unexpected chunked transport");
-                        }
-                        Ota::Transport { content, .. } => match content {
-                            OtaD2CTransport::Alive { iteration } => {
-                                info!("Iteration: {}", iteration);
-                                if iteration > last_iteration_count {
-                                    last_iteration_count = iteration;
-                                    last_iteration_time = Instant::now();
-                                }
-                                if iteration > last_seed_iteration {
-                                    last_seed_iteration = iteration;
-                                }
-                            }
-                            OtaD2CTransport::FinishedGeneticFuzzing => {
-                                break;
-                            }
-                            OtaD2CTransport::ExecutionEvent(event) => {
-                                database.push_event(event);
-
-                                let _ = database.save(DATABASE_FILE).map_err(|e| {
-                                    error!("Failed to save the database: {:?}", e);
-                                });
-                            }
-                            x => {
-                                warn!("Unexpected response: {:?}", x);
-                            }
-                        },
-                    }
-                }
-                None => {
-                    connection_lost = true;
-                    break;
+            GeneticBreedingResult::Reconnect => {
+                continue_count += 1;
+                if continue_count > 3 {
+                    GeneticBreedingResult::ConnectionLost
+                } else {
+                    GeneticBreedingResult::Reconnect
                 }
             }
-        }
+            GeneticBreedingResult::Finished => {
+                continue_count = 0;
+                GeneticBreedingResult::Finished
+            }
+            GeneticBreedingResult::Continue => {
+                continue_count = 0;
+                GeneticBreedingResult::Continue
+            }
+        };
 
-        if connection_lost {
-            seed += 1; // todo remove
+        let db_clone = database.clone();
+        std::thread::spawn(move || {
+            let _ = db_clone.save(DATABASE_FILE).map_err(|e| {
+                error!("Failed to save the database: {:?}", e);
+            });
+        });
 
+        if let GeneticBreedingResult::ConnectionLost = connection_lost {
             info!("Connection lost");
-            let now = Instant::now();
-            let _ = interface.power_button_long().await;
 
-            match &mut last_seed_iteration_last_time {
-                None => {
-                    last_seed_iteration_last_time = Some(last_seed_iteration);
-                    last_seed_iteration = 0;
-                }
-                Some(last_seed_iteration_last_time) => {
-                    if *last_seed_iteration_last_time == last_seed_iteration {
-                        // we made no progress
-                        error!("Failed to make progress.");
-                    }
-                    *last_seed_iteration_last_time = last_seed_iteration;
-                    last_seed_iteration = 0;
-                }
-            }
+            let _ = interface.power_button_long().await;
 
             // wait for pi reboot
 
-            loop {
-                if now.elapsed() > Duration::from_secs(120) {
-                    error!("Failed to reboot the PI");
-                    std::process::exit(-1); // we cant do anything since the PI is not responding
-                }
+            wait_for_pi(&interface).await;
+            tokio::time::sleep(Duration::from_secs(5)).await;
 
-                if let Ok(true) = interface.alive().await {
-                    break;
-                }
-
-                match interface.alive().await {
-                    Ok(true) => {
-                        break;
-                    }
-                    x => {
-                        trace!("HTTP not ready: {:?}", x);
-                    }
-                }
-
-                tokio::time::sleep(Duration::from_secs(1)).await;
-            }
-            info!("Rebooted the PI");
-
-            tokio::time::sleep(Duration::from_secs(3)).await;
             let _ = power_on(&interface).await;
+
+            wait_for_pi(&interface).await;
+            tokio::time::sleep(Duration::from_secs(5)).await;
 
             guarantee_initial_state(&interface, &mut udp).await;
         }
-
-        seed += 1;
-        last_seed_iteration = 0;
-        last_seed_iteration_last_time = None;
     }
+}
+
+async fn wait_for_pi(interface: &FuzzerNodeInterface) {
+    trace!("Waiting for the PI to reboot");
+    let now = Instant::now();
+    loop {
+        if now.elapsed() > Duration::from_secs(120) {
+            error!("Failed to reboot the PI");
+            std::process::exit(-1); // we cant do anything since the PI is not responding
+        }
+
+        if let Ok(true) = interface.alive().await {
+            break;
+        }
+
+        match interface.alive().await {
+            Ok(true) => {
+                break;
+            }
+            x => {
+                trace!("HTTP not ready: {:?}", x);
+            }
+        }
+
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    }
+    trace!("PI is ready");
 }
 
 async fn guarantee_initial_state(interface: &Arc<FuzzerNodeInterface>, udp: &mut DeviceConnection) {
@@ -348,11 +236,13 @@ async fn wait_for_device(net: &mut DeviceConnection) -> WaitForDeviceResult {
         counter = (counter + 1) % 4;
 
         if now.elapsed() > std::time::Duration::from_secs(120) {
+            debug!("No");
             return WaitForDeviceResult::NoResponse;
         }
 
         match net.send(OtaC2DTransport::AreYouThere).await {
             Ok(_) => {
+                info!("Yes");
                 return WaitForDeviceResult::DeviceFound;
             }
             Err(DeviceConnectionError::NoAckReceived) => {
