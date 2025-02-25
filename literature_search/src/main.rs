@@ -904,7 +904,13 @@ async fn update_database(all_papers: &mut Vec<RelevancePaper>) -> Result<()> {
         println!("Updating paper {i}/{len}");
         let new_paper_data = paper.paper.paper_id.clone().map(query_paper_data);
         if let Some(new_paper_data) = new_paper_data {
-            let new_paper_data = new_paper_data.await?;
+            let new_paper_data = match new_paper_data.await {
+                Ok(data) => data,
+                Err(e) => {
+                    println!("Error: {}", e);
+                    continue;
+                }
+            };
 
             *paper = new_paper_data;
             changes += 1;

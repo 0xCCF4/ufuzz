@@ -32,7 +32,7 @@ __debug_pretend_no_coverage = [] # pretend no coverage collection possible
 __debug_print_udp = [] # print debug information from udp interface
 __debug_print_events = [] # print coverage events
 
-__device_brix = ["device_brix", "rand_isaac", "mutation_all", "__debug_print_mutation_info"]
+__device_brix = ["device_brix", "rand_isaac", "mutation_all", "__debug_print_mutation_info", "__debug_print_progress"]
 __device_bochs = ["device_bochs", "rand_isaac", "mutation_all", "__debug_print_external_interrupt_notification", "__debug_print_mutation_info"]
 
 [dependencies]
@@ -52,7 +52,6 @@ uefi = { version = "0.34.1", features = ["logger", "panic_handler", "alloc", "gl
 uefi_udp4 = { path = "../uefi_udp4", optional = true }
 uefi-raw = {version = "0.10.0", optional = true}
 fuzzer_data = { path = "../fuzzer_data" }
-serde_json = {version = "1.0.139", default-features = false, features = ["alloc"]}
 serde = {version = "1.0.218", default-features = false, features = ["alloc"]}
 
 [build-dependencies]

@@ -64,7 +64,7 @@ async fn main() {
         content: OtaD2CTransport::BlacklistedAddresses { addresses },
         ..
     })) = udp
-        .receive_packet_timeout(
+        .receive_packet(
             |p| {
                 matches!(
                     p,
@@ -74,7 +74,7 @@ async fn main() {
                     }
                 )
             },
-            Duration::from_secs(3),
+            Some(Duration::from_secs(3)),
         )
         .await
     {
@@ -91,7 +91,7 @@ async fn main() {
     loop {
         info!("Starting genetic fuzzing with seed {}", seed);
 
-        udp.flush_read_timeout(Duration::from_secs(1)).await;
+        udp.flush_read(Some(Duration::from_secs(1))).await;
 
         let _ = udp
             .send(OtaC2DTransport::DidYouExcludeAnAddressLastRun)
@@ -104,7 +104,7 @@ async fn main() {
             });
 
         let answer = udp
-            .receive_packet_timeout(
+            .receive_packet(
                 |p| {
                     matches!(
                         p,
@@ -114,7 +114,7 @@ async fn main() {
                         }
                     )
                 },
-                Duration::from_secs(3),
+                Some(Duration::from_secs(3)),
             )
             .await;
         if let Ok(Some(Ota::Transport {
@@ -177,11 +177,15 @@ async fn main() {
                 error!("Device is alive, but not updating the iteration count");
             }
 
-            match udp.receive_timeout(Duration::from_secs(60)).await {
+            match udp.receive(Some(Duration::from_secs(60))).await {
                 Some(data) => {
                     match data {
                         Ota::Unreliable(OtaD2CUnreliable::Ack(_)) => {
                             // ignore
+                        }
+                        Ota::ChunkedTransport { .. } => {
+                            // ignore
+                            warn!("Unexpected chunked transport");
                         }
                         Ota::Transport { content, .. } => match content {
                             OtaD2CTransport::Alive { iteration } => {

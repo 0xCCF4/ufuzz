@@ -1,10 +1,15 @@
 use alloc::boxed::Box;
 use alloc::collections::VecDeque;
 use alloc::string::String;
+use alloc::vec::Vec;
 use core::pin::Pin;
-use fuzzer_data::{Ota, OtaC2D, OtaC2DUnreliable, OtaD2CTransport, OtaD2CUnreliable, OtaPacket};
+use fuzzer_data::{
+    Ota, OtaC2D, OtaC2DUnreliable, OtaD2C, OtaD2CTransport, OtaD2CUnreliable, OtaPacket,
+    MAX_FRAGMENT_SIZE, MAX_PAYLOAD_SIZE,
+};
 use log::{error, info, trace, warn};
 use uefi::boot::ScopedProtocol;
+use uefi::println;
 use uefi_raw::Ipv4Address;
 use uefi_udp4::uefi::proto::network::udp4::proto::{
     ReceiveError, TransmitError, UDP4Protocol, UdpChannel,
@@ -32,6 +37,9 @@ pub enum ConnectionError {
     ReceiveTimeout,
     ReceiveNotUtf8,
     ReceiveNotDeserializable,
+    PacketTooLarge,
+    FragmentOutOfOrder,
+    FragmentSessionClosed,
 }
 
 pub struct ConnectionSettings {
@@ -41,7 +49,8 @@ pub struct ConnectionSettings {
     pub remote_port: u16,
     pub source_port: u16,
     pub resent_attempts: u8,
-    pub ack_timeout: u64, // ms
+    pub ack_timeout: u64,      // ms
+    pub fragment_timeout: u64, // ms
 }
 
 impl Default for ConnectionSettings {
@@ -54,6 +63,7 @@ impl Default for ConnectionSettings {
             source_port: 4444,
             resent_attempts: 10,
             ack_timeout: 200,
+            fragment_timeout: 1000,
         }
     }
 }
@@ -66,6 +76,7 @@ pub struct ControllerConnection {
     virtual_receive_buffer: VecDeque<OtaC2D>,
     resent_attempts: u8,
     ack_timeout: u64,
+    fragment_timeout: u64,
 
     remote_session: u16,
     sequence_number_rx: u64,
@@ -209,6 +220,7 @@ impl ControllerConnection {
             channel: Some(channel),
             network: Some(net),
             ack_timeout: settings.ack_timeout,
+            fragment_timeout: settings.fragment_timeout,
             resent_attempts: settings.resent_attempts,
             virtual_receive_buffer: VecDeque::new(),
 
@@ -222,7 +234,7 @@ impl ControllerConnection {
         &mut self,
         data: Packet,
     ) -> Result<(), ConnectionError> {
-        let packet = if data.reliable_transport() {
+        let mut packet = if data.reliable_transport() {
             self.sequence_number_tx += 1;
 
             data.to_packet(self.sequence_number_tx, self.remote_session)
@@ -230,10 +242,45 @@ impl ControllerConnection {
             data.to_packet(0, 0)
         };
 
-        let string = serde_json::to_string(&packet).expect("Must always serialize");
-        let buf = string.as_bytes();
+        let buf = packet.serialize().expect("Must always serialize");
 
-        if buf.len() > 4000 {
+        if buf.len() as u64 > MAX_FRAGMENT_SIZE {
+            // fragment
+
+            return Err(ConnectionError::TransmitLengthExceeded); // todo
+
+            if let Ota::Transport { id, session, .. } = &mut packet {
+                *id = 0;
+                *session = 0;
+            }
+
+            drop(buf);
+            let buf = packet.serialize().expect("Must always serialize");
+
+            let chunks = buf
+                .chunks(MAX_FRAGMENT_SIZE as usize - 128)
+                .collect::<Vec<&[u8]>>();
+            for (i, chunk) in chunks.iter().enumerate() {
+                self.sequence_number_tx += 1;
+                let packet = OtaD2C::ChunkedTransport {
+                    session: self.remote_session,
+                    id: self.sequence_number_tx,
+                    fragment: i as u64,
+                    total_fragments: chunks.len() as u64,
+                    content: chunk.to_vec(),
+                };
+                let buf = packet.serialize().expect("Must always serialize");
+                self.send_native(&buf, true)?;
+            }
+            Ok(())
+        } else {
+            // just send
+            self.send_native(&buf, matches!(packet, Ota::Transport { .. }))
+        }
+    }
+
+    fn send_native(&mut self, data: &[u8], require_ack: bool) -> Result<(), ConnectionError> {
+        if data.len() as u64 > MAX_FRAGMENT_SIZE {
             return Err(ConnectionError::TransmitLengthExceeded);
         }
 
@@ -242,14 +289,14 @@ impl ControllerConnection {
         let mut status = None;
         'attempt_loop: for _attempt in 0..self.resent_attempts {
             // initial packet sending
-            if let Err(err) = self.channel.as_mut().unwrap().transmit(None, None, buf) {
+            if let Err(err) = self.channel.as_mut().unwrap().transmit(None, None, data) {
                 error!("Failed to transmit data: {:?}", err);
                 status = Some(Err(ConnectionError::TransmitPacket(err)));
                 break 'attempt_loop;
             }
 
             // check if requires ack
-            if !matches!(packet, Ota::Transport { .. }) {
+            if !require_ack {
                 // does not require ack
                 status = Some(Ok(()));
                 break 'attempt_loop;
@@ -303,7 +350,7 @@ impl ControllerConnection {
         status.unwrap_or(Err(ConnectionError::TransmitNotAcknowledged))
     }
 
-    pub fn receive(
+    fn receive_native(
         &mut self,
         timeout_millis: Option<u64>,
     ) -> Result<Option<OtaC2D>, ConnectionError> {
@@ -322,15 +369,7 @@ impl ControllerConnection {
             }
         };
 
-        let string = match String::from_utf8(data) {
-            Ok(string) => string,
-            Err(e) => {
-                error!("Failed to convert data to string: {:?}", e);
-                return Err(ConnectionError::ReceiveNotUtf8);
-            }
-        };
-
-        let data: OtaC2D = match serde_json::from_str(&string) {
+        let data: OtaC2D = match OtaC2D::deserialize(&data) {
             Ok(data) => data,
             Err(e) => {
                 error!("Failed to deserialize data: {:?}", e);
@@ -354,7 +393,9 @@ impl ControllerConnection {
             );
         }
 
-        if let Ota::Transport { session, id, .. } = &data {
+        if let Ota::Transport { session, id, .. } | Ota::ChunkedTransport { session, id, .. } =
+            &data
+        {
             if *session != self.remote_session {
                 #[cfg(feature = "__debug_print_udp")]
                 warn!("Received packet with new session: {}", session);
@@ -380,6 +421,83 @@ impl ControllerConnection {
         }
 
         Ok(Some(data))
+    }
+
+    pub fn receive(
+        &mut self,
+        timeout_millis: Option<u64>,
+    ) -> Result<Option<OtaC2D>, ConnectionError> {
+        let initial_packet = match self.receive_native(timeout_millis)? {
+            Some(packet) => packet,
+            None => return Ok(None),
+        };
+
+        match initial_packet {
+            OtaC2D::Transport { .. } | OtaC2D::Unreliable(_) => Ok(Some(initial_packet)),
+            OtaC2D::ChunkedTransport {
+                session,
+                id,
+                content,
+                fragment,
+                total_fragments,
+            } => {
+                return Err(ConnectionError::TransmitLengthExceeded); // todo
+
+                if total_fragments.saturating_mul(MAX_FRAGMENT_SIZE as u64)
+                    > MAX_PAYLOAD_SIZE as u64
+                {
+                    return Err(ConnectionError::PacketTooLarge);
+                }
+
+                if fragment != 0 {
+                    return Err(ConnectionError::FragmentOutOfOrder);
+                }
+
+                let mut packet_content: Vec<u8> = content;
+
+                for i in 1..total_fragments {
+                    'wait_for_next_fragment: while let Some(received_packet) = {
+                        match self.receive_native(Some(self.fragment_timeout)) {
+                            Ok(None) => continue 'wait_for_next_fragment,
+                            Ok(Some(packet)) => Some(packet),
+                            Err(err) => {
+                                return Err(err);
+                            }
+                        }
+                    } {
+                        if let OtaC2D::ChunkedTransport {
+                            session: received_session,
+                            id: received_id,
+                            content: received_content,
+                            fragment: received_fragment,
+                            total_fragments: received_total_fragments,
+                        } = received_packet
+                        {
+                            if session != received_session {
+                                error!("Received packet with new session: {}", received_session);
+                                return Err(ConnectionError::FragmentSessionClosed);
+                            }
+                            if i != received_fragment {
+                                return Err(ConnectionError::FragmentOutOfOrder);
+                            }
+                            packet_content.extend(received_content);
+                        } else {
+                            // received other package
+                            trace!("Dropped packet: {:?}", received_packet);
+                        }
+                    }
+                }
+
+                let data: OtaC2D = match OtaC2D::deserialize(&packet_content) {
+                    Ok(data) => data,
+                    Err(e) => {
+                        error!("Failed to deserialize data: {:?}", e);
+                        return Err(ConnectionError::ReceiveNotDeserializable);
+                    }
+                };
+                Ok(Some(data))
+            }
+        }
     }
 }
 

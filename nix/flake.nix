@@ -28,7 +28,7 @@
       images.node = nixosConfigurations.node.config.system.build.sdImage;
 
       nixosConfigurations.master = nixpkgs.lib.nixosSystem rec {
-        system = "x86_64-linux";
+        system = "aarch64-linux";
         modules = [
           nixos-hardware.nixosModules.raspberry-pi-4
           "${nixpkgs}/nixos/modules/installer/sd-card/sd-image-aarch64.nix"

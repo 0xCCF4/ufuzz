@@ -1,6 +1,7 @@
 #![no_std]
 
 use alloc::collections::{BTreeMap, BTreeSet};
+use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt::Debug;
@@ -118,6 +119,9 @@ pub enum OtaC2DTransport {
     Reboot,
 }
 
+pub const MAX_FRAGMENT_SIZE: u64 = 1200;
+pub const MAX_PAYLOAD_SIZE: u64 = 4_000_000; // ~4MB
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum Ota<Unreliable, Transport> {
     Unreliable(Unreliable),
@@ -125,6 +129,13 @@ pub enum Ota<Unreliable, Transport> {
         session: u16,
         id: u64,
         content: Transport,
+    },
+    ChunkedTransport {
+        session: u16,
+        id: u64,
+        fragment: u64,
+        total_fragments: u64,
+        content: Vec<u8>,
     },
 }
 
@@ -208,6 +219,14 @@ impl OtaD2C {
             None
         }
     }
+
+    pub fn serialize(&self) -> Result<Vec<u8>, String> {
+        postcard::to_allocvec(self).map_err(|e| format!("Failed to serialize OTA packet: {:?}", e))
+    }
+
+    pub fn deserialize(data: &[u8]) -> Result<Self, String> {
+        postcard::from_bytes(data).map_err(|e| format!("Failed to deserialize OTA packet: {:?}", e))
+    }
 }
 
 impl OtaC2D {
@@ -217,5 +236,13 @@ impl OtaC2D {
         } else {
             None
         }
+    }
+
+    pub fn serialize(&self) -> Result<Vec<u8>, String> {
+        postcard::to_allocvec(self).map_err(|e| format!("Failed to serialize OTA packet: {:?}", e))
+    }
+
+    pub fn deserialize(data: &[u8]) -> Result<Self, String> {
+        postcard::from_bytes(data).map_err(|e| format!("Failed to deserialize OTA packet: {:?}", e))
     }
 }

@@ -1,7 +1,8 @@
 use fuzzer_data::{
     Ota, OtaC2D, OtaC2DTransport, OtaC2DUnreliable, OtaD2C, OtaD2CUnreliable, OtaPacket,
+    MAX_FRAGMENT_SIZE, MAX_PAYLOAD_SIZE,
 };
-use log::{error, warn};
+use log::{error, trace, warn};
 use rand::random;
 use std::collections::VecDeque;
 use std::error::Error;
@@ -18,7 +19,7 @@ use tokio::time::Instant;
 #[derive(Debug)]
 pub enum DeviceConnectionError {
     Io(io::Error),
-    Serde(serde_json::Error),
+    Serde(String),
     Eof,
     MessageTooLong(usize),
     NoAckReceived,
@@ -44,8 +45,8 @@ impl From<io::Error> for DeviceConnectionError {
     }
 }
 
-impl From<serde_json::Error> for DeviceConnectionError {
-    fn from(error: serde_json::Error) -> Self {
+impl From<String> for DeviceConnectionError {
+    fn from(error: String) -> Self {
         DeviceConnectionError::Serde(error)
     }
 }
@@ -57,6 +58,7 @@ pub struct DeviceConnection {
 
     resent_attempts: u8,
     ack_timeout: Duration,
+    fragment_timeout: Duration,
 
     virtual_receive_queue: VecDeque<OtaD2C>,
 
@@ -90,9 +92,9 @@ impl DeviceConnection {
 
         {
             // ice-breaker
-            let send_buf_str = serde_json::to_string(&OtaC2D::Unreliable(OtaC2DUnreliable::NOP))
+            let send_buf = OtaC2D::Unreliable(OtaC2DUnreliable::NOP)
+                .serialize()
                 .expect("must work");
-            let send_buf = send_buf_str.as_bytes();
 
             for _ in 0..10 {
                 if let Err(err) = socket_clone.send(&send_buf).await {
@@ -107,10 +109,9 @@ impl DeviceConnection {
             let mut rx_sequence_number = 0;
 
             // ice-breaker
-            let ice_breaker_send_buf_str =
-                serde_json::to_string(&OtaC2D::Unreliable(OtaC2DUnreliable::NOP))
-                    .expect("must work");
-            let ice_breaker_send_buf = ice_breaker_send_buf_str.as_bytes();
+            let ice_breaker_send_buf = OtaC2D::Unreliable(OtaC2DUnreliable::NOP)
+                .serialize()
+                .expect("must work");
 
             let mut last_ice_break = Instant::now();
 
@@ -126,15 +127,7 @@ impl DeviceConnection {
 
                 match socket_clone.try_recv(&mut buffer) {
                     Ok(count) => {
-                        let string = match std::str::from_utf8(&buffer[..count]) {
-                            Ok(s) => s,
-                            Err(e) => {
-                                error!("Error converting buffer to string: {:?}", e);
-                                continue;
-                            }
-                        };
-
-                        let data: OtaD2C = match serde_json::from_str(string) {
+                        let data: OtaD2C = match OtaD2C::deserialize(&buffer[..count]) {
                             Ok(d) => d,
                             Err(e) => {
                                 error!("Error parsing JSON: {:?}", e);
@@ -143,9 +136,8 @@ impl DeviceConnection {
                         };
 
                         if let Some(ack) = data.ack() {
-                            let string =
-                                serde_json::to_string(&OtaC2D::Unreliable(ack)).expect("must work");
-                            if let Err(err) = socket_clone.send(string.as_bytes()).await {
+                            let string = &OtaC2D::Unreliable(ack).serialize().expect("must work");
+                            if let Err(err) = socket_clone.send(&string).await {
                                 error!("Failed to send ack: {:?}", err);
                             }
                         }
@@ -154,10 +146,16 @@ impl DeviceConnection {
                             session: packet_session,
                             id,
                             ..
+                        }
+                        | Ota::ChunkedTransport {
+                            session: packet_session,
+                            id,
+                            ..
                         } = &data
                         {
                             if session != *packet_session {
                                 warn!("Received packet from wrong session: {}", packet_session);
+                                println!("Packet: {:?}", data);
                                 continue;
                             } else if *id < rx_sequence_number {
                                 warn!("Received packet with old sequence number: {}", id);
@@ -190,6 +188,7 @@ impl DeviceConnection {
             receiver,
             virtual_receive_queue: VecDeque::new(),
             ack_timeout: Duration::from_millis(200),
+            fragment_timeout: Duration::from_secs(1),
             resent_attempts: 10,
 
             sequence_number_tx: 0,
@@ -201,7 +200,7 @@ impl DeviceConnection {
         &mut self,
         data: Packet,
     ) -> Result<(), DeviceConnectionError> {
-        let packet = if data.reliable_transport() {
+        let mut packet = if data.reliable_transport() {
             self.sequence_number_tx += 1;
 
             data.to_packet(self.sequence_number_tx, self.session)
@@ -209,21 +208,57 @@ impl DeviceConnection {
             data.to_packet(0, 0)
         };
 
-        let string = serde_json::to_string(&packet).expect("Always works");
-        let bytes = string.as_bytes();
+        let buf = packet.serialize().expect("Always works");
 
-        if bytes.len() > 4000 {
-            return Err(DeviceConnectionError::MessageTooLong(bytes.len()));
+        if buf.len() as u64 > MAX_FRAGMENT_SIZE {
+            // fragment
+
+            return Err(DeviceConnectionError::MessageTooLong(buf.len())); // todo
+
+            if let Ota::Transport { id, session, .. } = &mut packet {
+                *id = 0;
+                *session = 0;
+            }
+
+            drop(buf);
+            let buf = packet.serialize().expect("Always works");
+
+            let chunks = buf
+                .chunks(MAX_FRAGMENT_SIZE as usize - 128)
+                .collect::<Vec<&[u8]>>();
+            for (i, chunk) in chunks.iter().enumerate() {
+                self.sequence_number_tx += 1;
+                let packet = OtaC2D::ChunkedTransport {
+                    session: self.session,
+                    id: self.sequence_number_tx,
+                    fragment: i as u64,
+                    total_fragments: chunks.len() as u64,
+                    content: chunk.to_vec(),
+                };
+                let buf = packet.serialize().expect("Always works");
+                self.send_native(&buf, true).await?;
+            }
+            Ok(())
+        } else {
+            // just send
+            self.send_native(&buf, matches!(packet, OtaC2D::Transport { .. }))
+                .await
         }
+    }
 
+    async fn send_native(
+        &mut self,
+        data: &[u8],
+        requires_ack: bool,
+    ) -> Result<(), DeviceConnectionError> {
         let mut virtual_receive_buffer = VecDeque::new();
 
         let mut status = None;
         'attempt_loop: for _attempt in 0..self.resent_attempts {
             // initial packet sending
-            match self.socket.send(bytes).await {
+            match self.socket.send(data).await {
                 Ok(count) => {
-                    if count != bytes.len() {
+                    if count != data.len() {
                         status = Some(Err(DeviceConnectionError::Eof));
                         break 'attempt_loop;
                     }
@@ -235,14 +270,14 @@ impl DeviceConnection {
             }
 
             // check if requires ack
-            if !matches!(packet, Ota::Transport { .. }) {
+            if !requires_ack {
                 // does not require ack
                 status = Some(Ok(()));
                 break 'attempt_loop;
             }
 
             // wait for ack
-            while let Some(received_packet) = self.receive_timeout(self.ack_timeout).await {
+            while let Some(received_packet) = self.receive(Some(self.ack_timeout)).await {
                 if let OtaD2C::Unreliable(OtaD2CUnreliable::Ack(sequence_number)) = received_packet
                 {
                     if sequence_number > self.sequence_number_tx {
@@ -273,61 +308,123 @@ impl DeviceConnection {
         status.unwrap_or(Err(DeviceConnectionError::NoAckReceived))
     }
 
-    pub fn receive(&mut self) -> Option<OtaD2C> {
-        if let Some(data) = self.virtual_receive_queue.pop_front() {
-            return Some(data);
-        }
-
-        self.receiver.try_recv().ok()
-    }
-
-    pub async fn receive_timeout(&mut self, timeout: Duration) -> Option<OtaD2C> {
+    async fn receive_native(&mut self, timeout: Option<Duration>) -> Option<OtaD2C> {
         let now = Instant::now();
         loop {
-            if let Some(data) = self.receive() {
+            if let Some(data) = self.virtual_receive_queue.pop_front() {
                 return Some(data);
             }
-            if now.elapsed() > timeout {
+            if let Some(data) = self.receiver.try_recv().ok() {
+                return Some(data);
+            }
+            if let Some(timeout) = timeout {
+                if now.elapsed() > timeout {
+                    return None;
+                }
+            } else {
                 return None;
             }
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
     }
 
+    pub async fn receive(&mut self, timeout: Option<Duration>) -> Option<OtaD2C> {
+        let initial_packet = match self.receive_native(timeout).await {
+            Some(packet) => packet,
+            None => return None,
+        };
+
+        match initial_packet {
+            OtaD2C::Transport { .. } => Some(initial_packet),
+            OtaD2C::Unreliable(_) => Some(initial_packet),
+            OtaD2C::ChunkedTransport {
+                session,
+                id,
+                content,
+                fragment,
+                total_fragments,
+            } => {
+                return None; // todo
+
+                if total_fragments.saturating_mul(MAX_FRAGMENT_SIZE as u64)
+                    > MAX_PAYLOAD_SIZE as u64
+                {
+                    error!("Fragmented packet too large");
+                    return None;
+                }
+
+                if fragment != 0 {
+                    error!("Received fragment without initial packet");
+                    return None;
+                }
+
+                let mut packet_content: Vec<u8> = content;
+
+                trace!("Received chunked packet: {:?}", total_fragments);
+
+                for i in 1..total_fragments {
+                    trace!("{}", i);
+                    let mut received = false;
+                    while let Some(received_packet) =
+                        { self.receive_native(Some(self.fragment_timeout)).await }
+                    {
+                        if let OtaD2C::ChunkedTransport {
+                            session: received_session,
+                            id: received_id,
+                            content: received_content,
+                            fragment: received_fragment,
+                            total_fragments: received_total_fragments,
+                        } = received_packet
+                        {
+                            trace!(" -> {:?}", received_content.len());
+                            if session != received_session {
+                                error!("Received packet with new session: {}", received_session);
+                                return None;
+                            }
+                            if i != received_fragment {
+                                error!(
+                                    "Received packet with wrong fragment: {}",
+                                    received_fragment
+                                );
+                                return None;
+                            }
+                            packet_content.extend(received_content);
+                            received = true;
+                            break;
+                        } else {
+                            // received other package
+                            trace!("Dropped packet: {:?}", received_packet);
+                        }
+                    }
+                    if !received {
+                        error!("Failed to receive fragment: {}", i);
+                        return None;
+                    }
+                }
+
+                let data: OtaD2C = match OtaD2C::deserialize(&packet_content) {
+                    Ok(data) => data,
+                    Err(e) => {
+                        error!("Failed to deserialize data: {:?}", e);
+                        return None;
+                    }
+                };
+                Some(data)
+            }
+        }
+    }
+
     pub async fn receive_packet<F: Fn(&OtaD2C) -> bool>(
         &mut self,
         filter: F,
-    ) -> Result<Option<OtaD2C>, DeviceConnectionError> {
-        let mut queue = VecDeque::with_capacity(self.virtual_receive_queue.len() + 3);
-
-        let mut result = None;
-
-        while let Some(data) = self.receive() {
-            if filter(&data) {
-                result = Some(data);
-                break;
-            }
-            queue.push_back(data);
-        }
-
-        for data in queue.into_iter().rev() {
-            self.virtual_receive_queue.push_front(data);
-        }
-
-        Ok(result)
-    }
-
-    pub async fn receive_packet_timeout<F: Fn(&OtaD2C) -> bool>(
-        &mut self,
-        filter: F,
-        timeout: Duration,
+        timeout: Option<Duration>,
     ) -> Result<Option<OtaD2C>, DeviceConnectionError> {
         let now = Instant::now();
         let mut result = None;
         let mut queue = VecDeque::with_capacity(self.virtual_receive_queue.len() + 3);
 
         'outer: loop {
-            while let Some(data) = self.receive() {
+            while let Some(data) = self.receive(timeout).await {
                 if filter(&data) {
                     result = Some(data);
                     break 'outer;
@@ -335,7 +432,11 @@ impl DeviceConnection {
                 queue.push_back(data);
             }
 
-            if now.elapsed() > timeout {
+            if let Some(timeout) = timeout {
+                if now.elapsed() > timeout {
+                    break;
+                }
+            } else {
                 break;
             }
 
@@ -349,18 +450,21 @@ impl DeviceConnection {
         Ok(result)
     }
 
-    pub fn flush_read(&mut self) {
-        while let Some(_) = self.receive() {}
-    }
+    pub async fn flush_read(&mut self, timeout: Option<Duration>) {
+        match timeout {
+            None => while let Some(_) = self.receive(None).await {},
+            Some(timeout) => {
+                let now = Instant::now();
+                loop {
+                    while let Some(_) = self.receive(None).await {}
 
-    pub async fn flush_read_timeout(&mut self, timeout: Duration) {
-        let now = Instant::now();
-        loop {
-            self.flush_read();
-            if now.elapsed() > timeout {
-                break;
+                    if now.elapsed() > timeout {
+                        break;
+                    }
+
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
             }
-            tokio::time::sleep(Duration::from_millis(10)).await;
         }
     }
 }
