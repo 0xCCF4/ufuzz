@@ -209,7 +209,7 @@ unsafe fn main() -> Status {
                 OtaC2DTransport::AreYouThere => {}
                 OtaC2DTransport::GiveMeYourBlacklistedAddresses => {
                     let borrow = excluded_addresses.borrow();
-                    for blacklisted in borrow.iter().cloned().collect::<Vec<u16>>().chunks(30) {
+                    for blacklisted in borrow.iter().cloned().collect::<Vec<u16>>().chunks(200) {
                         let blacklisted = OtaD2CTransport::BlacklistedAddresses {
                             addresses: blacklisted.to_vec(),
                         };

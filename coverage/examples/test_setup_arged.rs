@@ -11,10 +11,11 @@ use alloc::vec::Vec;
 use core::arch::asm;
 use coverage::harness::coverage_harness::CoverageHarness;
 use coverage::interface::safe::ComInterface;
+use coverage::interface_definition::COM_INTERFACE_DESCRIPTION;
 use coverage::{coverage_collector, coverage_collector_debug_tools, interface_definition};
 use custom_processing_unit::{
-    apply_patch, call_custom_ucode_function, lmfence, ms_patch_instruction_read, ms_seqw_read,
-    CustomProcessingUnit, FunctionResult, HookGuard,
+    apply_patch, calculate_hook_value, call_custom_ucode_function, lmfence,
+    ms_patch_instruction_read, ms_seqw_read, CustomProcessingUnit, FunctionResult, HookGuard,
 };
 use data_types::addresses::UCInstructionAddress;
 use itertools::Itertools;
@@ -77,7 +78,7 @@ unsafe fn main() -> Status {
         return Status::ABORTED;
     }
     if let Err(err) = apply_patch(&coverage_collector_debug_tools::PATCH) {
-        println!("Failed to apply patch: {:?}", err);
+        println!("Failed to apply patch: {:x?}", err);
         return Status::ABORTED;
     }
 
@@ -87,8 +88,8 @@ unsafe fn main() -> Status {
     println!(" ---- SETUP ---- ");
     let guard = HookGuard::disable_all();
     if let Err(err) = harness.setup(&addresses) {
-        println!("Failed to setup harness: {:?}", err);
-        return Status::ABORTED;
+        println!("Failed to setup harness: {:x?}", err);
+        //return Status::ABORTED;
     }
     drop(guard);
 
@@ -117,7 +118,7 @@ unsafe fn main() -> Status {
             }
         }
         Err(err) => {
-            println!("Failed to execute harness: {:?}", err);
+            println!("Failed to execute harness: {:x?}", err);
             return Status::ABORTED;
         }
     }
@@ -186,7 +187,7 @@ fn get_args() -> Option<Vec<UCInstructionAddress>> {
 }
 
 fn print_status(max_count: usize, hooks: &[UCInstructionAddress]) {
-    print!("Hooks  : ");
+    print!("Hooks     : ");
     for i in 0..max_count
         .min(interface_definition::COM_INTERFACE_DESCRIPTION.max_number_of_hooks as usize)
     {
@@ -196,6 +197,14 @@ fn print_status(max_count: usize, hooks: &[UCInstructionAddress]) {
         )
         .rax;
         print!("{:08x}, ", hook);
+    }
+    println!();
+    print!("Should be : ");
+    for (i, hook) in hooks.iter().enumerate() {
+        let val =
+            calculate_hook_value(*hook, coverage_collector::LABEL_HOOK_ENTRY_00 + 4 * i, true)
+                .unwrap_or_default();
+        print!("{:08x}, ", val);
     }
     println!();
 

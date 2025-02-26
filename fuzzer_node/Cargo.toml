@@ -6,3 +6,4 @@ edition = "2021"
 [dependencies]
 rocket = { version = "0.5.1", features = ["json"] }
 lazy_static = "1.5.0"
+sd-notify = "0.4.5"

@@ -182,7 +182,7 @@ pub fn is_hookable(
         // instructions seem very simple, cant come up with a reason why hooking does not work
         // maybe some reorder/scheduling magic, when updating hooks?
 
-        // is this lfence instruction?
+        /* // is this lfence instruction?
         0xd0,  // U00d0: 000000000000 NOP
         0xd1,  // U00d1: 000000000000 LFNCEMARK-> NOP SEQW GOTO U008e
         0x8e,  // LFNCEWAIT-> NOP SEQW UEND0
@@ -223,7 +223,7 @@ pub fn is_hookable(
         0x48d, // already blacklisted unk222
         0x48e, // U048e: 0064ff7fdf5f tmp13:= SHL_DSZ64(0xffffffffffffffff, tmp13) SEQW GOTO U078d
         0x68e, // todo generalize?
-        0x9b6, 0x9dc, 0x9de, 0x3b58, 0x48b0, 0x63d8, 0x6452,
+        0x9b6, 0x9dc, 0x9de, 0x3b58, 0x48b0, 0x63d8, 0x6452, */
     ];
 
     if blacklist

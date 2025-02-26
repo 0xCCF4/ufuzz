@@ -298,6 +298,46 @@ fn build_app(project: &str, release: bool, device: bool) -> Result<PathBuf, DynE
     } else if project == "test_hypervisor" {
         status.args(["-p", "hypervisor", "--example", "test_hypervisor"]);
         "examples/test_hypervisor"
+    } else if project == "test_setup" {
+        status.args([
+            "-p",
+            "coverage",
+            "--example",
+            "test_setup_arged",
+            "--features",
+            "uefi",
+        ]);
+        "examples/test_setup_arged"
+    } else if project == "test_rdrand" {
+        status.args([
+            "-p",
+            "coverage",
+            "--example",
+            "test_rdrand",
+            "--features",
+            "uefi",
+        ]);
+        "examples/test_rdrand"
+    } else if project == "test_exp_hook_odd" {
+        status.args([
+            "-p",
+            "coverage",
+            "--example",
+            "test_exp_hook_odd",
+            "--features",
+            "uefi",
+        ]);
+        "examples/test_exp_hook_odd"
+    } else if project == "test_exp_hook_even" {
+        status.args([
+            "-p",
+            "coverage",
+            "--example",
+            "test_exp_hook_even",
+            "--features",
+            "uefi",
+        ]);
+        "examples/test_exp_hook_even"
     } else {
         status.args(["-p", project]);
         project

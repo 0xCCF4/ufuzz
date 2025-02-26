@@ -139,10 +139,13 @@ pub mod raw {
 pub mod safe {
     use crate::interface_definition::{
         ComInterfaceDescription, CoverageEntry, InstructionTableEntry, JumpTableEntry,
+        COVERAGE_RESULT_TABLE_BYTE_SIZE, INSTRUCTION_TABLE_BYTE_SIZE, JUMP_TABLE_BYTE_SIZE,
     };
     use crate::page_allocation::PageAllocation;
     use data_types::addresses::UCInstructionAddress;
+    use log::error;
     use uefi::data_types::PhysicalAddress;
+    use uefi::println;
 
     pub struct ComInterface<'a> {
         base: super::raw::ComInterface<'a>,
@@ -154,6 +157,26 @@ pub mod safe {
     impl<'a> ComInterface<'a> {
         pub fn new(description: &'a ComInterfaceDescription) -> uefi::Result<Self> {
             if description.base == 0 {
+                return Err(uefi::Status::INVALID_PARAMETER.into());
+            }
+
+            if !description.check_overlap() {
+                error!("Overlap detected in ComInterfaceDescription");
+                error!(
+                    " - Coverage table    [{:04x} - {:04x}]",
+                    description.offset_coverage_result_table,
+                    description.offset_coverage_result_table + COVERAGE_RESULT_TABLE_BYTE_SIZE - 1
+                );
+                error!(
+                    " - Jump table        [{:04x} - {:04x}]",
+                    description.offset_jump_back_table,
+                    description.offset_jump_back_table + JUMP_TABLE_BYTE_SIZE - 1
+                );
+                error!(
+                    " - Instruction table [{:04x} - {:04x}]",
+                    description.offset_instruction_table,
+                    description.offset_instruction_table + INSTRUCTION_TABLE_BYTE_SIZE - 1
+                );
                 return Err(uefi::Status::INVALID_PARAMETER.into());
             }
 

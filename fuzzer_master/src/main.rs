@@ -203,10 +203,17 @@ pub enum WaitForDeviceResult {
 async fn power_on(interface: &FuzzerNodeInterface) -> bool {
     // device is off
 
+    wait_for_pi(interface).await;
+
     trace!("Powering on the device");
     if let Err(err) = interface.power_button_short().await {
         error!("Failed to power on the device: {:?}", err);
-        return false;
+        wait_for_pi(interface).await;
+        if let Err(err) = interface.power_button_short().await {
+            error!("Failed to power on the device: {:?}", err);
+            return false;
+        }
+        wait_for_pi(interface).await;
     }
 
     // device is on

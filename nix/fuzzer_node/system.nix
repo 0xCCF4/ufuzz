@@ -29,9 +29,11 @@
 
         serviceConfig = {
           ExecStart = "${packages."${system}".fuzzer_node}/bin/fuzzer_node";
-          ExecStop = "${pkgs.curl}/bin/curl -X GET http://localhost:8000/shutdown";
           Restart = "always";
           RestartSec = 5;
+          Type = "notify";
+          WatchdogSec = "270s";
+          TimeoutStopSec= "10s";
         };
       };
 

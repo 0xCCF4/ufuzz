@@ -23,35 +23,78 @@ impl ComInterfaceDescription {
 
         max(max(jump, coverage), instructions)
     }
+
+    pub fn check_overlap(&self) -> bool {
+        let start_jump_table = self.offset_jump_back_table;
+        let end_jump_table = start_jump_table + JUMP_TABLE_BYTE_SIZE - 1;
+
+        let start_coverage_table = self.offset_coverage_result_table;
+        let end_coverage_table = start_coverage_table + COVERAGE_RESULT_TABLE_BYTE_SIZE - 1;
+
+        let start_instruction_table = self.offset_instruction_table;
+        let end_instruction_table = start_instruction_table + INSTRUCTION_TABLE_BYTE_SIZE - 1;
+
+        let pairs = [
+            (start_jump_table, end_jump_table),
+            (start_coverage_table, end_coverage_table),
+            (start_instruction_table, end_instruction_table),
+        ];
+
+        for i in 0..pairs.len() {
+            for j in 0..pairs.len() {
+                if i == j {
+                    continue;
+                }
+
+                let (start1, end1) = pairs[i];
+                let (start2, end2) = pairs[j];
+
+                if (start1 <= end2 && end1 >= start2) {
+                    //panic!("Overlap detected between tables {} and {}: {:04x}-{:04x} and {:04x}-{:04x}", i, j, start1, end1, start2, end2);
+                    return false;
+                }
+            }
+        }
+
+        true
+    }
 }
 
-const MAX_NUMBER_OF_HOOKS: usize = 1;
+const MAX_NUMBER_OF_HOOKS: usize = 3;
 
 pub type CoverageCount = u16;
 pub type CoverageEntry = [CoverageCount; 2];
-const COVERAGE_RESULT_TABLE_BYTE_SIZE: usize = size_of::<CoverageEntry>() * MAX_NUMBER_OF_HOOKS;
+pub const COVERAGE_RESULT_TABLE_BYTE_SIZE: usize = size_of::<CoverageEntry>() * MAX_NUMBER_OF_HOOKS;
 
 pub type JumpTableEntry = u16;
-const JUMP_TABLE_BYTE_SIZE: usize = size_of::<JumpTableEntry>() * MAX_NUMBER_OF_HOOKS;
+pub const JUMP_TABLE_BYTE_SIZE: usize = size_of::<JumpTableEntry>() * MAX_NUMBER_OF_HOOKS;
 
 pub type InstructionTableEntry = [[u64; 4]; 2];
-const INSTRUCTION_TABLE_BYTE_SIZE: usize = size_of::<InstructionTableEntry>() * MAX_NUMBER_OF_HOOKS;
+pub const INSTRUCTION_TABLE_BYTE_SIZE: usize =
+    size_of::<InstructionTableEntry>() * MAX_NUMBER_OF_HOOKS;
+
+const ALIGN_CORRECTION_JUMP_TABLE: usize = align_correction(
+    align_of::<JumpTableEntry>(),
+    COVERAGE_RESULT_TABLE_BYTE_SIZE,
+);
 
 pub const COM_INTERFACE_DESCRIPTION: ComInterfaceDescription = ComInterfaceDescription {
     base: 0x1000,
     max_number_of_hooks: MAX_NUMBER_OF_HOOKS,
     offset_coverage_result_table: 0,
-    offset_jump_back_table: align(
-        align_of::<JumpTableEntry>(),
-        COVERAGE_RESULT_TABLE_BYTE_SIZE,
-    ),
+    offset_jump_back_table: COVERAGE_RESULT_TABLE_BYTE_SIZE + ALIGN_CORRECTION_JUMP_TABLE,
     offset_instruction_table: align(
         align_of::<CoverageEntry>(),
-        COVERAGE_RESULT_TABLE_BYTE_SIZE + JUMP_TABLE_BYTE_SIZE,
+        COVERAGE_RESULT_TABLE_BYTE_SIZE + JUMP_TABLE_BYTE_SIZE + ALIGN_CORRECTION_JUMP_TABLE,
     ),
 };
 
-const fn align(to: usize, value: usize) -> usize {
+const fn align_correction(to: usize, value: usize) -> usize {
     let mask: usize = 2 << to;
-    value + (mask - value % mask)
+    assert!(mask - value % mask >= 0);
+    mask - value % mask
+}
+
+const fn align(to: usize, value: usize) -> usize {
+    value + align_correction(to, value)
 }

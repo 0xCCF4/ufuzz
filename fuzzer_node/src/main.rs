@@ -8,6 +8,7 @@ use rocket::http::Status;
 use rocket::response::status;
 use rocket::serde::json::Json;
 use rocket::Shutdown;
+use sd_notify::NotifyState;
 use std::process::Command;
 
 lazy_static! {
@@ -48,6 +49,7 @@ fn execute_command(mut command: Command) -> Result<status::Custom<String>, statu
 
 #[post("/power_button_long")]
 fn power_button_long() -> Result<status::Custom<String>, status::Custom<String>> {
+    let _ = sd_notify::notify(true, &[NotifyState::Ready]);
     let mut command = Command::new(&CMD[0]);
     command.args(&CMD[1..]);
     command.arg("power_button");
@@ -57,6 +59,7 @@ fn power_button_long() -> Result<status::Custom<String>, status::Custom<String>>
 
 #[post("/power_button_short")]
 fn power_button_short() -> Result<status::Custom<String>, status::Custom<String>> {
+    let _ = sd_notify::notify(true, &[NotifyState::Ready]);
     let mut command = Command::new(&CMD[0]);
     command.args(&CMD[1..]);
     command.arg("power_button");
@@ -66,6 +69,7 @@ fn power_button_short() -> Result<status::Custom<String>, status::Custom<String>
 
 #[post("/skip_bios")]
 fn skip_bios() -> Result<status::Custom<String>, status::Custom<String>> {
+    let _ = sd_notify::notify(true, &[NotifyState::Ready]);
     let mut command = Command::new(&CMD[0]);
     command.args(&CMD[1..]);
     command.arg("skip_bios");
@@ -74,6 +78,7 @@ fn skip_bios() -> Result<status::Custom<String>, status::Custom<String>> {
 
 #[get("/alive", format = "json")]
 fn alive() -> Result<status::Custom<Json<bool>>, status::Custom<String>> {
+    let _ = sd_notify::notify(true, &[NotifyState::Ready]);
     Ok(status::Custom(Status::Accepted, true.into()))
 }
 
@@ -85,6 +90,8 @@ fn shutdown(shutdown: Shutdown) -> Result<status::Custom<String>, status::Custom
 
 #[launch]
 fn rocket() -> _ {
+    let _ = sd_notify::notify(true, &[NotifyState::Ready]);
+
     let config = Config::figment().merge(rocket::figment::providers::Toml::string(include_str!(
         "../rocket.toml"
     )));
