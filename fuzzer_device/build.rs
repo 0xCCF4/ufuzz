@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use sha2::{Digest, Sha256};
 use std::process::Command;
 
@@ -20,4 +21,24 @@ fn main() {
 
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rustc-env=BUILD_TIMESTAMP_HASH={}", hash);
+
+    // recursive for each src file
+
+    let mut queue = Vec::new();
+    queue.push(PathBuf::from("src"));
+
+    while let Some(file) = queue.pop() {
+        println!("cargo:rerun-if-changed={}", file.to_string_lossy());
+        if file.is_dir() {
+            for entry in std::fs::read_dir(file).unwrap() {
+                let entry = entry.unwrap();
+                let path = entry.path();
+                if path.is_dir() {
+                    queue.push(path);
+                } else {
+                    println!("cargo:rerun-if-changed={}", path.to_string_lossy());
+                }
+            }
+        }
+    }
 }

@@ -19,6 +19,9 @@ async fn main() {
 
     let mut database = fuzzer_master::database::Database::from_file(DATABASE_FILE).map_or_else(
         |e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                return Database::default();
+            }
             println!("Failed to load the database: {:?}", e);
             print!("Do you want to create a new one? (y/n): ");
             io::stdout().flush().unwrap();

@@ -54,7 +54,7 @@ pub async fn main(
             info!("Starting new experimentation run with seed: {}", seed);
             state.random_source = Some(rand_isaac::Isaac64Rng::seed_from_u64(seed));
             state.seed = seed;
-            state.evolution = 0;
+            state.evolution = 1;
         }
         FSM::Running => {
             // device was restarted

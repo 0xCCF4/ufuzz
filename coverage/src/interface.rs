@@ -145,7 +145,6 @@ pub mod safe {
     use data_types::addresses::UCInstructionAddress;
     use log::error;
     use uefi::data_types::PhysicalAddress;
-    use uefi::println;
 
     pub struct ComInterface<'a> {
         base: super::raw::ComInterface<'a>,

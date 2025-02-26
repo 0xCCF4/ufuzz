@@ -24,6 +24,7 @@ impl ComInterfaceDescription {
         max(max(jump, coverage), instructions)
     }
 
+    #[allow(dead_code)]
     pub fn check_overlap(&self) -> bool {
         let start_jump_table = self.offset_jump_back_table;
         let end_jump_table = start_jump_table + JUMP_TABLE_BYTE_SIZE - 1;
@@ -49,7 +50,7 @@ impl ComInterfaceDescription {
                 let (start1, end1) = pairs[i];
                 let (start2, end2) = pairs[j];
 
-                if (start1 <= end2 && end1 >= start2) {
+                if start1 <= end2 && end1 >= start2 {
                     //panic!("Overlap detected between tables {} and {}: {:04x}-{:04x} and {:04x}-{:04x}", i, j, start1, end1, start2, end2);
                     return false;
                 }
@@ -60,7 +61,7 @@ impl ComInterfaceDescription {
     }
 }
 
-const MAX_NUMBER_OF_HOOKS: usize = 3;
+const MAX_NUMBER_OF_HOOKS: usize = 1;
 
 pub type CoverageCount = u16;
 pub type CoverageEntry = [CoverageCount; 2];
@@ -91,7 +92,6 @@ pub const COM_INTERFACE_DESCRIPTION: ComInterfaceDescription = ComInterfaceDescr
 
 const fn align_correction(to: usize, value: usize) -> usize {
     let mask: usize = 2 << to;
-    assert!(mask - value % mask >= 0);
     mask - value % mask
 }
 
