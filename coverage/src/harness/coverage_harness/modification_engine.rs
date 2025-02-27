@@ -18,6 +18,7 @@ bitflags::bitflags! {
         const NoSync = 1 << 5;
         const NoConditionalJumps = 1 << 6;
         const NoUnknownInstructions = 1 << 7;
+        const MoveFromCREG = 1 << 8;
     }
 }
 
@@ -29,8 +30,6 @@ impl Default for ModificationEngineSettings {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum NotHookableReason {
-    AddressNotInRom,
-    AddressNotInDump,
     TriadAlreadyHooked,
     ModificationFailedSequenceWordParse(DisassembleError),
     ModificationFailedSequenceWordBuild(AssembleError),
@@ -123,6 +122,16 @@ pub fn is_hookable(
     {
         return Err(NotHookableReason::FeatureDisabled(
             ModificationEngineSettings::NoSaveupIPRegOVRInstructions,
+        ));
+    }
+
+    if mode.contains(ModificationEngineSettings::MoveFromCREG)
+        && instruction_pair
+        .iter()
+        .any(|instruction| instruction.opcode().is_group_MOVEFROMCREG() || instruction.opcode().is_group_MOVETOCREG())
+    {
+        return Err(NotHookableReason::FeatureDisabled(
+            ModificationEngineSettings::MoveFromCREG,
         ));
     }
 

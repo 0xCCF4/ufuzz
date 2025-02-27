@@ -125,7 +125,7 @@ impl Database {
         let mut writer = std::io::BufWriter::new(file);
         serde_json::to_writer_pretty(&mut writer, &self.data)?;
 
-        std::fs::remove_file(&self.path)?;
+        let _ = std::fs::remove_file(&self.path);
         std::fs::rename(self.path.with_extension("new"), &self.path)?;
 
         self.dirty = false;

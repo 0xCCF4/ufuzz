@@ -30,6 +30,7 @@ enum Cmd {
     Genetic,
     Init,
     Reboot,
+    Cap,
     Manual {
         #[arg(short, long)]
         input: PathBuf,
@@ -132,6 +133,48 @@ async fn main() {
         let result = match args.cmd.as_ref().unwrap_or(&Cmd::default()) {
             Cmd::Genetic => {
                 genetic_breeding::main(&mut udp, &interface, &mut database, &mut state).await
+            }
+            Cmd::Cap => {
+                let _ = udp
+                    .send(OtaC2DTransport::GetCapabilities)
+                    .await
+                    .map_err(|e| {
+                        error!("Failed to send AreYouThere: {:?}", e);
+                    });
+
+                if let Ok(Some(Ota::Transport {
+                    content: OtaD2CTransport::Capabilities {
+                        coverage_collection,
+                        manufacturer,
+                        processor_version_eax,
+                        processor_version_ebx,
+                        processor_version_ecx,
+                        processor_version_edx,
+                    },
+                    ..
+                })) = udp
+                    .receive_packet(
+                        |p| {
+                            matches!(
+                                p,
+                                OtaD2C::Transport {
+                                    content: OtaD2CTransport::Capabilities { .. },
+                                    ..
+                                }
+                            )
+                        },
+                        Some(Duration::from_secs(3)),
+                    )
+                    .await
+                {
+                    println!("Capabilities:");
+                    println!(" - Coverage collection: {}", coverage_collection);
+                    println!(" - Manufacturer: {}", manufacturer);
+                    println!(" - Processor version: {:#x} {:#x} {:#x} {:#x}", processor_version_eax, processor_version_ebx, processor_version_ecx, processor_version_edx);
+                    CommandExitResult::ExitProgram
+                } else {
+                    CommandExitResult::RetryOrReconnect
+                }
             }
             Cmd::Manual {
                 input,
