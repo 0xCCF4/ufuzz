@@ -55,7 +55,7 @@ struct EmulateCli {
     command: Commands,
 }
 
-pub const TARGET_HOST: &str = "192.168.0.10";
+pub const TARGET_HOST: &str = "10.0.0.10";
 
 #[derive(Subcommand)]
 enum Commands {

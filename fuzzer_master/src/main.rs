@@ -61,7 +61,9 @@ async fn main() {
             io::stdin().read_line(&mut input).unwrap();
 
             if input.trim().eq_ignore_ascii_case("y") {
-                Database::default()
+                let mut db = Database::default();
+                db.path = PathBuf::from(DATABASE_FILE);
+                db
             } else {
                 std::process::exit(1);
             }
@@ -143,14 +145,15 @@ async fn main() {
                     });
 
                 if let Ok(Some(Ota::Transport {
-                    content: OtaD2CTransport::Capabilities {
-                        coverage_collection,
-                        manufacturer,
-                        processor_version_eax,
-                        processor_version_ebx,
-                        processor_version_ecx,
-                        processor_version_edx,
-                    },
+                    content:
+                        OtaD2CTransport::Capabilities {
+                            coverage_collection,
+                            manufacturer,
+                            processor_version_eax,
+                            processor_version_ebx,
+                            processor_version_ecx,
+                            processor_version_edx,
+                        },
                     ..
                 })) = udp
                     .receive_packet(
@@ -170,7 +173,13 @@ async fn main() {
                     println!("Capabilities:");
                     println!(" - Coverage collection: {}", coverage_collection);
                     println!(" - Manufacturer: {}", manufacturer);
-                    println!(" - Processor version: {:#x} {:#x} {:#x} {:#x}", processor_version_eax, processor_version_ebx, processor_version_ecx, processor_version_edx);
+                    println!(
+                        " - Processor version: {:#x} {:#x} {:#x} {:#x}",
+                        processor_version_eax,
+                        processor_version_ebx,
+                        processor_version_ecx,
+                        processor_version_edx
+                    );
                     CommandExitResult::ExitProgram
                 } else {
                     CommandExitResult::RetryOrReconnect

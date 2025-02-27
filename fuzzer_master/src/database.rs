@@ -10,6 +10,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::io;
+use log::error;
 
 lazy_static! {
     pub static ref NUMBER_REGEX: Regex = Regex::new(r" +[0-9]+,").unwrap();
@@ -121,13 +122,52 @@ impl Database {
         }
 
         let _guard = self.save_mutex.lock().await;
-        let file = std::fs::File::create(self.path.with_extension("new"))?;
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(self.path.with_extension("new"))
+            .map_err(|e| {
+            let msg = format!(
+                "Failed to create or open new file at {}: {}",
+                self.path.display(),
+                e
+            );
+            error!("{}", msg);
+            e
+            })?;
         let mut writer = std::io::BufWriter::new(file);
-        serde_json::to_writer_pretty(&mut writer, &self.data)?;
+        serde_json::to_writer_pretty(&mut writer, &self.data).map_err(|e| {
+            let msg = format!(
+                "Failed to write data to file at {}: {}",
+                self.path.display(),
+                e
+            );
+            error!("{}", msg);
+            e
+        })?;
+        drop(writer);
 
-        let _ = std::fs::remove_file(&self.path);
-        std::fs::rename(self.path.with_extension("new"), &self.path)?;
-
+        if self.path.exists() {
+            let _ = std::fs::remove_file(&self.path).map_err(|e| {
+                let msg = format!(
+                    "Failed to remove old file at {}: {}",
+                    self.path.display(),
+                    e
+                );
+                error!("{}", msg);
+                e
+            })?;
+        }
+        std::fs::rename(self.path.with_extension("new"), &self.path).map_err(|e| {
+            let msg = format!(
+                "Failed to rename new file to original at {}: {}",
+                self.path.display(),
+                e
+            );
+            error!("{}", msg);
+            e
+        })?;
         self.dirty = false;
 
         Ok(())

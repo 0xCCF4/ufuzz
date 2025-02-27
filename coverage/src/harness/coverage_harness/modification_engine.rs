@@ -18,19 +18,21 @@ bitflags::bitflags! {
         const NoSync = 1 << 5;
         const NoConditionalJumps = 1 << 6;
         const NoUnknownInstructions = 1 << 7;
-        const MoveFromCREG = 1 << 8;
+        const NoMoveFromCREG = 1 << 8;
     }
 }
 
 impl Default for ModificationEngineSettings {
     fn default() -> Self {
-        Self::empty() | Self::NoUnknownInstructions
+        Self::empty() | Self::NoUnknownInstructions | Self::NoMoveFromCREG
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum NotHookableReason {
     TriadAlreadyHooked,
+    AddressNotInRom,
+    AddressNotInDump,
     ModificationFailedSequenceWordParse(DisassembleError),
     ModificationFailedSequenceWordBuild(AssembleError),
     ControlOpPresent(SequenceWordControl),
@@ -125,13 +127,14 @@ pub fn is_hookable(
         ));
     }
 
-    if mode.contains(ModificationEngineSettings::MoveFromCREG)
-        && instruction_pair
-        .iter()
-        .any(|instruction| instruction.opcode().is_group_MOVEFROMCREG() || instruction.opcode().is_group_MOVETOCREG())
+    if mode.contains(ModificationEngineSettings::NoMoveFromCREG)
+        && instruction_pair.iter().any(|instruction| {
+            instruction.opcode().is_group_MOVEFROMCREG()
+                || instruction.opcode().is_group_MOVETOCREG()
+        })
     {
         return Err(NotHookableReason::FeatureDisabled(
-            ModificationEngineSettings::MoveFromCREG,
+            ModificationEngineSettings::NoMoveFromCREG,
         ));
     }
 

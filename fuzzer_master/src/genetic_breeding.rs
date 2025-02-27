@@ -269,7 +269,7 @@ pub async fn net_execute_sample(
     if let Some(first) = cov_mismatch {
         info!("VM entry failure during coverage collection: {:#x}", first);
         db.data.vm_entry_blacklist.insert(first);
-        db.data.vm_entry_blacklist.insert(first-2);
+        db.data.vm_entry_blacklist.insert(first - 2);
         db.mark_dirty();
 
         trace!("Rebooting device...");
