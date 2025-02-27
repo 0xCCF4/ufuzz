@@ -126,9 +126,6 @@ impl SampleExecutor {
             // plan the following executions to collect coverage
             let execution_plan = coverage.planner.execute_for_all_addresses(
                 |addresses: &[UCInstructionAddress]| {
-                    // prepare hypervisor for execution
-                    self.hypervisor.prepare_vm_state();
-
                     if addresses.len() == 1 {
                         cmos.data_mut_or_insert().state =
                             PersistentApplicationState::CollectingCoverage(
@@ -144,6 +141,10 @@ impl SampleExecutor {
                     let mut iteration: usize = 0;
                     loop {
                         iteration += 1;
+
+                        // prepare hypervisor for execution
+                        self.hypervisor.prepare_vm_state();
+
                         let result =
                             coverage
                                 .collector
@@ -250,6 +251,9 @@ impl SampleExecutor {
                     }
                 }
             }
+
+            #[cfg(feature = "__debug_print_progress")]
+            print!("     \r");
         }
 
         // do a serialized execution

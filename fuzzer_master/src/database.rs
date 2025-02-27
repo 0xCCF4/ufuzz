@@ -7,7 +7,8 @@ use serde::ser::SerializeSeq;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use tokio::io;
 
 lazy_static! {
@@ -72,26 +73,68 @@ pub struct CodeResult {
 }
 
 #[derive(Debug, Default, Serialize, Deserialize, Clone)]
-pub struct Database {
+pub struct DatabaseData {
     #[serde(serialize_with = "serialize_hex", deserialize_with = "deserialize_hex")]
     pub blacklisted_addresses: BTreeSet<u16>,
+
+    #[serde(serialize_with = "serialize_hex", deserialize_with = "deserialize_hex")]
+    pub vm_entry_blacklist: BTreeSet<u16>,
 
     pub results: Vec<CodeResult>,
 }
 
+#[derive(Default)]
+pub struct Database {
+    pub path: PathBuf,
+    pub data: DatabaseData,
+    pub save_mutex: Arc<tokio::sync::Mutex<()>>,
+    pub dirty: bool,
+}
+
+impl Clone for Database {
+    fn clone(&self) -> Self {
+        Database {
+            path: self.path.clone(),
+            data: self.data.clone(),
+            save_mutex: Arc::clone(&self.save_mutex),
+            dirty: self.dirty,
+        }
+    }
+}
+
 impl Database {
     pub fn from_file<A: AsRef<Path>>(path: A) -> io::Result<Self> {
-        let file = std::fs::File::open(path)?;
+        let file = std::fs::File::open(&path)?;
         let reader = std::io::BufReader::new(file);
         let db = serde_json::from_reader(reader)?;
-        Ok(db)
+        Ok(Database {
+            path: path.as_ref().to_path_buf(),
+            data: db,
+            save_mutex: Arc::new(tokio::sync::Mutex::new(())),
+            dirty: false,
+        })
     }
 
-    pub fn save<A: AsRef<Path>>(&self, path: A) -> io::Result<()> {
-        let file = std::fs::File::create(path)?;
+    pub async fn save(&mut self) -> io::Result<()> {
+        if !self.dirty {
+            return Ok(());
+        }
+
+        let _guard = self.save_mutex.lock().await;
+        let file = std::fs::File::create(self.path.with_extension("new"))?;
         let mut writer = std::io::BufWriter::new(file);
-        serde_json::to_writer_pretty(&mut writer, self)?;
+        serde_json::to_writer_pretty(&mut writer, &self.data)?;
+
+        std::fs::remove_file(&self.path)?;
+        std::fs::rename(self.path.with_extension("new"), &self.path)?;
+
+        self.dirty = false;
+
         Ok(())
+    }
+
+    pub fn mark_dirty(&mut self) {
+        self.dirty = true;
     }
 
     pub fn push_results(
@@ -102,18 +145,27 @@ impl Database {
         evolution: u64,
         seed: u64,
     ) {
-        let entry = match self.results.iter_mut().filter(|x| x.code == code).next() {
+        let entry = match self
+            .data
+            .results
+            .iter_mut()
+            .filter(|x| x.code == code)
+            .next()
+        {
             Some(x) => x,
             None => {
-                self.results.push(CodeResult::default());
-                self.results.last_mut().unwrap()
+                self.data.results.push(CodeResult::default());
+                self.data.results.last_mut().unwrap()
             }
         };
+
+        self.dirty = true;
 
         entry.coverage.extend(result.coverage);
         entry.exit = result.exit;
         entry.state = result.state;
         entry.fitness = result.fitness;
+        entry.code = code;
 
         entry.found_at.insert(FoundAt { seed, evolution });
 

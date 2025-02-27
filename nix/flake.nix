@@ -22,6 +22,7 @@
         ];
         specialArgs = {
           settings.hostName = "fuzzer-node";
+          settings.ip = "10";
           inherit packages system;
         };
       };
@@ -37,6 +38,7 @@
         ];
         specialArgs = {
           settings.hostName = "fuzzer-master";
+          settings.ip = "11";
           inherit packages system;
         };
       };

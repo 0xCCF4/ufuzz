@@ -60,7 +60,11 @@ pub enum OtaD2CTransport {
         addresses: Vec<u16>,
     },
     ExecutionEvents(Vec<ReportExecutionProblem>),
-    ExecutionResult(ExecutionResult),
+    ExecutionResult {
+        exit: VmExitReason,
+        state: VmState,
+        fitness: GeneticSampleRating,
+    },
     Capabilities {
         coverage_collection: bool,
         manufacturer: String,
@@ -68,6 +72,12 @@ pub enum OtaD2CTransport {
         processor_version_ebx: u32, // cpuid 1:ebx
         processor_version_ecx: u32, // cpuid 1:ecx
         processor_version_edx: u32, // cpuid 1:edx
+    },
+    Coverage {
+        coverage: Vec<(u16, u16)>,
+    },
+    Serialized {
+        serialized: Option<Code>,
     },
 }
 

@@ -18,7 +18,7 @@ impl Default for GeneticPoolSettings {
         Self {
             population_size: 100,
             random_solutions_each_generation: 2,
-            code_size: 10,
+            code_size: 32,
             keep_best_x_solutions: 10,
             random_mutation_chance: 0.01,
         }

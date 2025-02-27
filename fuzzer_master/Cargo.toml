@@ -17,3 +17,17 @@ regex = "1.11.1"
 serde_json = "1.0.139"
 rand_isaac = "0.4.0"
 hypervisor = { path = "../hypervisor" }
+clap = { version = "4.5.31", features = ["derive"] }
+iced-x86 = { version = "1.21.0", default-features = false, features = ["decoder", "encoder", "block_encoder", "op_code_info", "instr_info", "gas", "intel", "masm", "nasm", "fast_fmt", "code_asm", "no_std"] }
+
+[[bin]]
+name = "fuzzer_master"
+path = "src/main.rs"
+
+[[bin]]
+name = "fuzz_compare"
+path = "src/main_compare.rs"
+
+[[bin]]
+name = "fuzz_viewer"
+path = "src/main_viewer.rs"

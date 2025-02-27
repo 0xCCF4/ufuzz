@@ -1,21 +1,51 @@
+use clap::{Parser, Subcommand};
 use fuzzer_data::{Ota, OtaC2DTransport, OtaD2C, OtaD2CTransport};
 use fuzzer_master::database::Database;
-use fuzzer_master::device_connection::{DeviceConnection, DeviceConnectionError};
+use fuzzer_master::device_connection::DeviceConnection;
 use fuzzer_master::fuzzer_node_bridge::FuzzerNodeInterface;
-use fuzzer_master::genetic_breeding;
-use fuzzer_master::genetic_breeding::{BreedingState, GeneticBreedingResult};
-use log::{debug, error, info, trace, warn};
+use fuzzer_master::genetic_breeding::BreedingState;
+use fuzzer_master::{
+    genetic_breeding, manual_execution, wait_for_device, CommandExitResult, WaitForDeviceResult,
+};
+use log::{error, info, trace, warn};
 use std::io;
 use std::io::Write;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::time::Instant;
 
 pub const DATABASE_FILE: &str = "database.json";
+
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct Args {
+    #[command(subcommand)]
+    cmd: Option<Cmd>,
+}
+
+#[derive(Subcommand, Debug, Clone, Default)]
+enum Cmd {
+    // Genetic breeding
+    #[default]
+    Genetic,
+    Init,
+    Reboot,
+    Manual {
+        #[arg(short, long)]
+        input: PathBuf,
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+        #[arg(short = 'f', long, default_value = "false")]
+        overwrite: bool,
+    },
+}
 
 #[tokio::main]
 async fn main() {
     env_logger::init();
+
+    let args = Args::parse();
+    let mut reboot_state = false;
 
     let mut database = fuzzer_master::database::Database::from_file(DATABASE_FILE).map_or_else(
         |e| {
@@ -56,119 +86,142 @@ async fn main() {
     guarantee_initial_state(&interface, &mut udp).await;
 
     // get blacklisted
-    let _ = udp
-        .send(OtaC2DTransport::GiveMeYourBlacklistedAddresses)
-        .await
-        .map_err(|e| {
-            error!("Failed to ask for blacklisted addresses: {:?}", e);
-        });
+    if database.data.blacklisted_addresses.len() == 0 {
+        let _ = udp
+            .send(OtaC2DTransport::GiveMeYourBlacklistedAddresses)
+            .await
+            .map_err(|e| {
+                error!("Failed to ask for blacklisted addresses: {:?}", e);
+            });
 
-    while let Ok(Some(Ota::Transport {
-        content: OtaD2CTransport::BlacklistedAddresses { addresses },
-        ..
-    })) = udp
-        .receive_packet(
-            |p| {
-                matches!(
-                    p,
-                    OtaD2C::Transport {
-                        content: OtaD2CTransport::BlacklistedAddresses { .. },
-                        ..
-                    }
-                )
-            },
-            Some(Duration::from_secs(3)),
-        )
-        .await
-    {
-        database.blacklisted_addresses.extend(addresses);
+        while let Ok(Some(Ota::Transport {
+            content: OtaD2CTransport::BlacklistedAddresses { addresses },
+            ..
+        })) = udp
+            .receive_packet(
+                |p| {
+                    matches!(
+                        p,
+                        OtaD2C::Transport {
+                            content: OtaD2CTransport::BlacklistedAddresses { .. },
+                            ..
+                        }
+                    )
+                },
+                Some(Duration::from_secs(3)),
+            )
+            .await
+        {
+            database.data.blacklisted_addresses.extend(addresses);
+            database.mark_dirty();
+        }
+        let _ = database.save().await.map_err(|e| {
+            error!("Failed to save the database: {:?}", e);
+        });
     }
-    let _ = database.save(DATABASE_FILE).map_err(|e| {
-        error!("Failed to save the database: {:?}", e);
-    });
 
     let mut state = BreedingState::default();
 
     let mut continue_count = 0;
 
     loop {
-        let result = genetic_breeding::main(&mut udp, &mut database, &mut state).await;
+        let _ = database.save().await.map_err(|e| {
+            error!("Failed to save the database: {:?}", e);
+        });
 
-        let connection_lost = match result {
-            GeneticBreedingResult::ConnectionLost => {
-                continue_count = 0;
-                GeneticBreedingResult::ConnectionLost
+        let result = match args.cmd.as_ref().unwrap_or(&Cmd::default()) {
+            Cmd::Genetic => {
+                genetic_breeding::main(&mut udp, &interface, &mut database, &mut state).await
             }
-            GeneticBreedingResult::Reconnect => {
-                continue_count += 1;
-                if continue_count > 3 {
-                    GeneticBreedingResult::ConnectionLost
+            Cmd::Manual {
+                input,
+                output,
+                overwrite,
+            } => {
+                manual_execution::main(
+                    &mut udp,
+                    &interface,
+                    &mut database,
+                    &input,
+                    output
+                        .as_ref()
+                        .map(|v| v.clone())
+                        .unwrap_or(input.with_extension("out")),
+                    *overwrite,
+                )
+                .await
+            }
+            Cmd::Init => {
+                let x = udp.send(OtaC2DTransport::AreYouThere).await;
+                if let Err(_) = x {
+                    CommandExitResult::RetryOrReconnect
                 } else {
-                    GeneticBreedingResult::Reconnect
+                    CommandExitResult::ExitProgram
                 }
             }
-            GeneticBreedingResult::Finished => {
-                continue_count = 0;
-                GeneticBreedingResult::Finished
-            }
-            GeneticBreedingResult::Continue => {
-                continue_count = 0;
-                GeneticBreedingResult::Continue
+            Cmd::Reboot => {
+                if !reboot_state {
+                    let x = udp.send(OtaC2DTransport::Reboot).await;
+                    if let Err(_) = x {
+                        CommandExitResult::RetryOrReconnect
+                    } else {
+                        reboot_state = true;
+                        tokio::time::sleep(Duration::from_secs(60)).await;
+                        trace!("Skipping bios");
+                        let _ = interface.skip_bios().await;
+                        tokio::time::sleep(Duration::from_secs(40)).await;
+                        let _ = wait_for_device(&mut udp);
+                        continue_count = 0;
+                        CommandExitResult::Operational
+                    }
+                } else {
+                    let x = udp.send(OtaC2DTransport::AreYouThere).await;
+                    if let Err(_) = x {
+                        CommandExitResult::RetryOrReconnect
+                    } else {
+                        CommandExitResult::ExitProgram
+                    }
+                }
             }
         };
 
-        let db_clone = database.clone();
-        std::thread::spawn(move || {
-            let _ = db_clone.save(DATABASE_FILE).map_err(|e| {
-                error!("Failed to save the database: {:?}", e);
-            });
-        });
+        let connection_lost = match result {
+            CommandExitResult::ForceReconnect => {
+                continue_count = 0;
+                true
+            }
+            CommandExitResult::RetryOrReconnect => {
+                continue_count += 1;
+                continue_count > 3
+            }
+            CommandExitResult::Operational => {
+                continue_count = 0;
+                false
+            }
+            CommandExitResult::ExitProgram => {
+                info!("Exiting");
+                break;
+            }
+        };
 
-        if let GeneticBreedingResult::ConnectionLost = connection_lost {
+        if connection_lost {
             info!("Connection lost");
 
             let _ = interface.power_button_long().await;
 
             // wait for pi reboot
 
-            wait_for_pi(&interface).await;
-            tokio::time::sleep(Duration::from_secs(5)).await;
-
             let _ = power_on(&interface).await;
 
-            wait_for_pi(&interface).await;
             tokio::time::sleep(Duration::from_secs(5)).await;
 
             guarantee_initial_state(&interface, &mut udp).await;
         }
     }
-}
 
-async fn wait_for_pi(interface: &FuzzerNodeInterface) {
-    trace!("Waiting for the PI to reboot");
-    let now = Instant::now();
-    loop {
-        if now.elapsed() > Duration::from_secs(120) {
-            error!("Failed to reboot the PI");
-            std::process::exit(-1); // we cant do anything since the PI is not responding
-        }
-
-        if let Ok(true) = interface.alive().await {
-            break;
-        }
-
-        match interface.alive().await {
-            Ok(true) => {
-                break;
-            }
-            x => {
-                trace!("HTTP not ready: {:?}", x);
-            }
-        }
-
-        tokio::time::sleep(Duration::from_secs(1)).await;
-    }
-    trace!("PI is ready");
+    let _ = database.save().await.map_err(|e| {
+        error!("Failed to save the database: {:?}", e);
+    });
 }
 
 async fn guarantee_initial_state(interface: &Arc<FuzzerNodeInterface>, udp: &mut DeviceConnection) {
@@ -197,26 +250,16 @@ async fn guarantee_initial_state(interface: &Arc<FuzzerNodeInterface>, udp: &mut
     }
 }
 
-pub enum WaitForDeviceResult {
-    DeviceFound,
-    NoResponse,
-    SocketError(DeviceConnectionError),
-}
-
 async fn power_on(interface: &FuzzerNodeInterface) -> bool {
     // device is off
-
-    wait_for_pi(interface).await;
 
     trace!("Powering on the device");
     if let Err(err) = interface.power_button_short().await {
         error!("Failed to power on the device: {:?}", err);
-        wait_for_pi(interface).await;
         if let Err(err) = interface.power_button_short().await {
             error!("Failed to power on the device: {:?}", err);
             return false;
         }
-        wait_for_pi(interface).await;
     }
 
     // device is on
@@ -236,32 +279,4 @@ async fn power_on(interface: &FuzzerNodeInterface) -> bool {
     tokio::time::sleep(Duration::from_secs(40)).await;
 
     true
-}
-
-async fn wait_for_device(net: &mut DeviceConnection) -> WaitForDeviceResult {
-    info!("Waiting if the device responds to connection attempts");
-    let now = std::time::Instant::now();
-    let mut counter = 0;
-    loop {
-        counter = (counter + 1) % 4;
-
-        if now.elapsed() > std::time::Duration::from_secs(120) {
-            debug!("No");
-            return WaitForDeviceResult::NoResponse;
-        }
-
-        match net.send(OtaC2DTransport::AreYouThere).await {
-            Ok(_) => {
-                info!("Yes");
-                return WaitForDeviceResult::DeviceFound;
-            }
-            Err(DeviceConnectionError::NoAckReceived) => {
-                // no response
-                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-            }
-            Err(e) => {
-                return WaitForDeviceResult::SocketError(e);
-            }
-        }
-    }
 }

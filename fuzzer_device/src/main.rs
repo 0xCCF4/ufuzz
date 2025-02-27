@@ -322,23 +322,31 @@ unsafe fn main() -> Status {
                         }
                     }
 
-                    if let Err(err) = udp.send(OtaD2CTransport::ExecutionResult(
-                        fuzzer_data::ExecutionResult {
-                            coverage: execution_result
-                                .coverage
-                                .iter()
-                                .map(|(k, v)| (k.address() as u16, *v))
-                                .collect(),
-                            exit: execution_result.exit.clone(),
-                            state: execution_result.state.clone(),
-                            serialized: serialized_sample,
-                            fitness: rate_sample_from_execution(
-                                &code,
-                                &mut decoder,
-                                &execution_result,
-                            ),
-                        },
-                    )) {
+                    for cov in execution_result
+                        .coverage
+                        .iter()
+                        .map(|(k, v)| (k.address() as u16, *v))
+                        .collect_vec()
+                        .chunks(200)
+                    {
+                        if let Err(err) = udp.send(OtaD2CTransport::Coverage {
+                            coverage: cov.to_vec(),
+                        }) {
+                            error!("Failed to send coverage: {:?}", err);
+                        }
+                    }
+
+                    if let Err(err) = udp.send(OtaD2CTransport::Serialized {
+                        serialized: serialized_sample,
+                    }) {
+                        error!("Failed to send serialized: {:?}", err);
+                    }
+
+                    if let Err(err) = udp.send(OtaD2CTransport::ExecutionResult {
+                        exit: execution_result.exit.clone(),
+                        state: execution_result.state.clone(),
+                        fitness: rate_sample_from_execution(&code, &mut decoder, &execution_result),
+                    }) {
                         error!("Failed to send execution result: {:?}", err);
                     }
                 }

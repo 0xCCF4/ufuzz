@@ -203,6 +203,7 @@ impl<'de, T> Deserialize<'de> for DescriptorTablePointerWrapper<T> {
 
 // we are not using *const on the remote side
 unsafe impl Send for DescriptorTablePointerWrapper<u64> {}
+unsafe impl Sync for DescriptorTablePointerWrapper<u64> {}
 
 impl Hash for DescriptorTablePointerWrapper<u64> {
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {

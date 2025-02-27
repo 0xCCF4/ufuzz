@@ -1,19 +1,15 @@
 use crate::database::Database;
 use crate::device_connection::DeviceConnection;
+use crate::fuzzer_node_bridge::FuzzerNodeInterface;
+use crate::{wait_for_device, CommandExitResult};
 use fuzzer_data::genetic_pool::{GeneticPool, GeneticPoolSettings, GeneticSampleRating};
 use fuzzer_data::{ExecutionResult, Ota, OtaC2DTransport, OtaD2CTransport, ReportExecutionProblem};
+use hypervisor::state::VmExitReason;
 use itertools::Itertools;
-use log::{error, info, warn};
+use log::{error, info, trace, warn};
 use rand::{random, SeedableRng};
 use std::collections::BTreeMap;
 use std::time::Duration;
-
-pub enum GeneticBreedingResult {
-    ConnectionLost,
-    Reconnect,
-    Finished,
-    Continue,
-}
 
 #[derive(Debug, Default, PartialEq)]
 enum FSM {
@@ -37,13 +33,14 @@ pub struct BreedingState {
 }
 
 pub const SAMPLE_TIMEOUT: u64 = 60;
-pub const MAX_EVOLUTIONS: u64 = 100;
+pub const MAX_EVOLUTIONS: u64 = 50;
 
 pub async fn main(
     net: &mut DeviceConnection,
+    interface: &FuzzerNodeInterface,
     database: &mut Database,
     state: &mut BreedingState,
-) -> GeneticBreedingResult {
+) -> CommandExitResult {
     // device is either restarted or new experimentation run
 
     match state.fsm {
@@ -66,10 +63,16 @@ pub async fn main(
         .await
     {
         error!("Failed to set random seed on device: {:?}", err);
-        return GeneticBreedingResult::Reconnect;
+        return CommandExitResult::RetryOrReconnect;
     }
 
-    for blacklist in &database.blacklisted_addresses.iter().chunks(200) {
+    for blacklist in &database
+        .data
+        .blacklisted_addresses
+        .iter()
+        .chain(database.data.vm_entry_blacklist.iter())
+        .chunks(200)
+    {
         if let Err(err) = net
             .send(OtaC2DTransport::Blacklist {
                 address: blacklist.cloned().collect_vec(),
@@ -77,26 +80,58 @@ pub async fn main(
             .await
         {
             error!("Failed to blacklist addresses: {:?}", err);
-            return GeneticBreedingResult::Reconnect;
+            return CommandExitResult::RetryOrReconnect;
+        }
+    }
+
+    if let Err(err) = net
+        .send(OtaC2DTransport::DidYouExcludeAnAddressLastRun)
+        .await
+    {
+        error!(
+            "Failed to ask device if it excluded an address last run: {:?}",
+            err
+        );
+        return CommandExitResult::RetryOrReconnect;
+    } else {
+        let address = net_receive_excluded_addresses(net).await;
+        if let Some(address) = address {
+            info!("Device excluded address last run: {}", address);
+            database.data.blacklisted_addresses.insert(address);
+
+            if let Err(err) = net
+                .send(OtaC2DTransport::Blacklist {
+                    address: vec![address],
+                })
+                .await
+            {
+                error!("Failed to blacklist address: {:?}", err);
+                return CommandExitResult::RetryOrReconnect;
+            }
+        }
+
+        match state.last_reported_exclusion {
+            Some((last_address, times)) if last_address == address => {
+                state.last_reported_exclusion = Some((last_address, times + 1));
+            }
+            Some((last_address, _)) => {
+                state.last_reported_exclusion = Some((last_address, 1));
+            }
+            None => {
+                state.last_reported_exclusion = Some((address, 1));
+            }
         }
     }
 
     if state.fsm == FSM::Uninitialized {
         // prepare for fuzzing
         // collect ground truth coverage
-        if let Err(err) = net
-            .send(OtaC2DTransport::ExecuteSample { code: vec![] })
-            .await
-        {
-            error!("Failed to execute sample: {:?}", err);
-            return GeneticBreedingResult::Reconnect;
-        }
 
-        let (mut result, events) =
-            match net_receive_execution_result(net, Duration::from_secs(SAMPLE_TIMEOUT)).await {
-                None => return GeneticBreedingResult::Reconnect,
-                Some(x) => x,
-            };
+        let (mut result, events) = match net_execute_sample(net, interface, database, &[]).await {
+            ExecuteSampleResult::Timeout => return CommandExitResult::RetryOrReconnect,
+            ExecuteSampleResult::Rerun => return CommandExitResult::Operational,
+            ExecuteSampleResult::Success(a, b) => (a, b),
+        };
 
         state.ground_truth_coverage.clear();
         for (address, coverage) in &result.coverage {
@@ -112,45 +147,6 @@ pub async fn main(
         );
 
         state.fsm = FSM::Running;
-    }
-
-    if let Err(err) = net
-        .send(OtaC2DTransport::DidYouExcludeAnAddressLastRun)
-        .await
-    {
-        error!(
-            "Failed to ask device if it excluded an address last run: {:?}",
-            err
-        );
-        return GeneticBreedingResult::Reconnect;
-    } else {
-        let address = net_receive_excluded_addresses(net).await;
-        if let Some(address) = address {
-            info!("Device excluded address last run: {}", address);
-            database.blacklisted_addresses.insert(address);
-
-            if let Err(err) = net
-                .send(OtaC2DTransport::Blacklist {
-                    address: vec![address],
-                })
-                .await
-            {
-                error!("Failed to blacklist address: {:?}", err);
-                return GeneticBreedingResult::Reconnect;
-            }
-        }
-
-        match state.last_reported_exclusion {
-            Some((last_address, times)) if last_address == address => {
-                state.last_reported_exclusion = Some((last_address, times + 1));
-            }
-            Some((last_address, _)) => {
-                state.last_reported_exclusion = Some((last_address, 1));
-            }
-            None => {
-                state.last_reported_exclusion = Some((address, 1));
-            }
-        }
     }
 
     if state.fsm == FSM::Running {
@@ -169,22 +165,11 @@ pub async fn main(
                     }
                 }
 
-                if let Err(err) = net
-                    .send(OtaC2DTransport::ExecuteSample {
-                        code: sample.code().to_vec(),
-                    })
-                    .await
-                {
-                    error!("Failed to execute sample: {:?}", err);
-                    return GeneticBreedingResult::Reconnect;
-                }
-
                 let (mut result, events) =
-                    match net_receive_execution_result(net, Duration::from_secs(SAMPLE_TIMEOUT))
-                        .await
-                    {
-                        None => return GeneticBreedingResult::Reconnect,
-                        Some(x) => x,
+                    match net_execute_sample(net, interface, database, sample.code()).await {
+                        ExecuteSampleResult::Timeout => return CommandExitResult::ForceReconnect,
+                        ExecuteSampleResult::Rerun => return CommandExitResult::Operational,
+                        ExecuteSampleResult::Success(a, b) => (a, b),
                     };
 
                 subtract_iter_btree(&mut result.coverage, &state.ground_truth_coverage);
@@ -204,7 +189,7 @@ pub async fn main(
                 .evolution(state.random_source.as_mut().unwrap());
             state.evolution += 1;
 
-            return GeneticBreedingResult::Continue;
+            return CommandExitResult::Operational;
         }
     }
 
@@ -212,10 +197,10 @@ pub async fn main(
     // start fuzzing
     state.fsm = FSM::Uninitialized;
 
-    GeneticBreedingResult::Finished
+    CommandExitResult::Operational
 }
 
-fn subtract_iter_btree<'a, 'b>(
+pub fn subtract_iter_btree<'a, 'b>(
     original: &'a mut BTreeMap<u16, u16>,
     subtract_this: &'b BTreeMap<u16, u16>,
 ) {
@@ -232,7 +217,74 @@ fn subtract_iter_btree<'a, 'b>(
     });
 }
 
-async fn net_receive_excluded_addresses(net: &mut DeviceConnection) -> Option<u16> {
+pub enum ExecuteSampleResult {
+    Timeout,
+    Rerun,
+    Success(ExecutionResult, Vec<ReportExecutionProblem>),
+}
+
+pub async fn net_execute_sample(
+    net: &mut DeviceConnection,
+    interface: &FuzzerNodeInterface,
+    db: &mut Database,
+    sample: &[u8],
+) -> ExecuteSampleResult {
+    if let Err(err) = net
+        .send(OtaC2DTransport::ExecuteSample {
+            code: sample.to_vec(),
+        })
+        .await
+    {
+        error!("Failed to execute sample: {:?}", err);
+        return ExecuteSampleResult::Timeout;
+    }
+
+    let (result, events) =
+        match net_receive_execution_result(net, Duration::from_secs(SAMPLE_TIMEOUT)).await {
+            None => return ExecuteSampleResult::Timeout,
+            Some(x) => x,
+        };
+
+    let cov_mismatch = events
+        .iter()
+        .filter_map(|x| {
+            if let ReportExecutionProblem::CoverageProblem {
+                address,
+                coverage_exit,
+                ..
+            } = x
+            {
+                if let Some(VmExitReason::VMEntryFailure(_, _)) = coverage_exit {
+                    Some(*address)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        })
+        .sorted()
+        .next();
+
+    if let Some(first) = cov_mismatch {
+        info!("VM entry failure during coverage collection: {:#x}", first);
+        db.data.vm_entry_blacklist.insert(first);
+        db.mark_dirty();
+
+        trace!("Rebooting device...");
+        let _ = net.send(OtaC2DTransport::Reboot).await;
+        tokio::time::sleep(Duration::from_secs(60)).await;
+        trace!("Skipping BIOS...");
+        let _ = interface.skip_bios().await;
+        tokio::time::sleep(Duration::from_secs(100)).await;
+        let _ = wait_for_device(net).await;
+        return ExecuteSampleResult::Rerun;
+    }
+
+    ExecuteSampleResult::Success(result, events)
+}
+
+pub async fn net_receive_excluded_addresses(net: &mut DeviceConnection) -> Option<u16> {
     let result = net
         .receive_packet(
             |p| {
@@ -267,11 +319,13 @@ async fn net_receive_excluded_addresses(net: &mut DeviceConnection) -> Option<u1
     }
 }
 
-async fn net_receive_execution_result(
+pub async fn net_receive_execution_result(
     net: &mut DeviceConnection,
     timeout: Duration,
 ) -> Option<(ExecutionResult, Vec<ReportExecutionProblem>)> {
     let mut events = Vec::new();
+    let mut serialized_code = None;
+    let mut coverage_result = BTreeMap::new();
 
     loop {
         let packet = net.receive(Some(timeout)).await;
@@ -280,8 +334,29 @@ async fn net_receive_execution_result(
             if let Ota::Transport { content, .. } = packet {
                 match content {
                     OtaD2CTransport::ExecutionEvents(new_events) => events.extend(new_events),
-                    OtaD2CTransport::ExecutionResult(result) => {
-                        return Some((result, events));
+                    OtaD2CTransport::Serialized { serialized } => {
+                        serialized_code = serialized;
+                    }
+                    OtaD2CTransport::Coverage { coverage } => {
+                        for cov in coverage {
+                            coverage_result.insert(cov.0, cov.1);
+                        }
+                    }
+                    OtaD2CTransport::ExecutionResult {
+                        exit,
+                        state,
+                        fitness,
+                    } => {
+                        return Some((
+                            ExecutionResult {
+                                coverage: coverage_result,
+                                exit,
+                                state,
+                                serialized: serialized_code,
+                                fitness,
+                            },
+                            events,
+                        ));
                     }
                     _ => {
                         warn!("Unexpected packet: {:?}", content);

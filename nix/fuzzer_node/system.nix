@@ -32,8 +32,8 @@
           Restart = "always";
           RestartSec = 5;
           Type = "notify";
-          WatchdogSec = "270s";
-          TimeoutStopSec= "10s";
+          WatchdogSec = "180s";
+          TimeoutStopSec = "10s";
         };
       };
 

@@ -1,3 +1,4 @@
+use crate::wait_for_pi;
 use reqwest::Client;
 use std::time::Duration;
 
@@ -23,20 +24,29 @@ impl FuzzerNodeInterface {
     }
 
     pub async fn skip_bios(&self) -> Result<bool, reqwest::Error> {
+        wait_for_pi(&self).await;
         let url = format!("{}/skip_bios", self.host);
         let response = self.client.post(&url).send().await?;
         Ok(response.status().is_success())
     }
 
     pub async fn power_button_long(&self) -> Result<bool, reqwest::Error> {
+        wait_for_pi(&self).await;
         let url = format!("{}/power_button_long", self.host);
         let response = self.client.post(&url).send().await?;
+        if response.status().is_success() {
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
         Ok(response.status().is_success())
     }
 
     pub async fn power_button_short(&self) -> Result<bool, reqwest::Error> {
+        wait_for_pi(&self).await;
         let url = format!("{}/power_button_short", self.host);
         let response = self.client.post(&url).send().await?;
+        if response.status().is_success() {
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
         Ok(response.status().is_success())
     }
 

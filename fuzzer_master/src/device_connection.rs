@@ -121,6 +121,8 @@ impl DeviceConnection {
 
             let mut last_ice_break = Instant::now();
 
+            let mut last_packet = Instant::now();
+
             loop {
                 let now = Instant::now();
 
@@ -164,13 +166,18 @@ impl DeviceConnection {
                                 println!("Packet: {:?}", data);
                                 continue;
                             } else if *id < rx_sequence_number {
-                                warn!("Received packet with old sequence number: {}", id);
-                                continue;
+                                if last_packet.elapsed() < Duration::from_secs(60) {
+                                    warn!("Received packet with old sequence number: {}", id);
+                                    continue;
+                                } else {
+                                    trace!("Received packet with old sequence number: {}. Resetting SEQ", id);
+                                }
                             } else if *id == rx_sequence_number {
                                 warn!("Received packet with same sequence number: {}", id);
                                 continue;
                             }
                             rx_sequence_number = *id;
+                            last_packet = Instant::now();
                         }
 
                         if let Err(_) = sender.send(data).await {

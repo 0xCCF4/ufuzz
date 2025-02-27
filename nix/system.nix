@@ -6,6 +6,8 @@ let
   interface = "wlan0";
   trusted_nix_keys = [ "laptop:zhWq+p6//VSVJiSKFitrqdJfzrJ1ajvPsXPz+M2n2Ao=" ];
   ssh_keys = [ "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILouqEVZdQe9lSB5QC0XIU15poExO4BAQDlMLLNkDwFn thesis" ];
+  wg_pubkey = "FYOAl5u+cZ0sb8jwgSF9OeeBE0pkN/4l3W53BX7DuQ0=";
+  wg_endpoint = "5.252.225.58:51820";
 in
 {
   config =
@@ -83,7 +85,25 @@ in
         };
       };
 
-      environment.systemPackages = with pkgs; [ nixos-firewall-tool pinctrl wol rustup helix killall htop dig lsof file coreutils openssl wget bat eza fd fzf ripgrep age tldr nh nix-output-monitor nvd git ];
+      networking.wg-quick.interfaces.mx = {
+        privateKeyFile = "/wg.key";
+        address = [ "10.0.0.${settings.ip}/24" ];
+        listenPort = 51820;
+        autostart = true;
+        peers = [
+          {
+            publicKey = wg_pubkey;
+            allowedIPs = [
+              "10.0.0.0/24"
+            ];
+            endpoint = wg_endpoint;
+            persistentKeepalive = 25;
+          }
+        ];
+      };
+      networking.firewall.allowedUDPPorts = [ 51820 ];
+
+      environment.systemPackages = with pkgs; [ nixos-firewall-tool pinctrl wol rustup helix killall htop dig lsof file coreutils openssl wget bat eza fd fzf ripgrep age tldr nh nix-output-monitor nvd git wireguard-tools ];
 
       services.openssh.enable = true;
 

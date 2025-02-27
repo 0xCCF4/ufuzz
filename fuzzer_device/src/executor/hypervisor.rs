@@ -1,6 +1,7 @@
 use crate::{StateTrace, Trace};
 use alloc::boxed::Box;
 use alloc::vec::Vec;
+use core::pin::Pin;
 use hypervisor::error::HypervisorError;
 use hypervisor::hardware_vt::NestedPagingStructureEntryType;
 use hypervisor::state::{ExceptionQualification, GuestException, GuestRegisters, VmExitReason};
@@ -22,20 +23,20 @@ use x86::segmentation::{
 use x86::Ring;
 
 pub struct Hypervisor {
-    memory_code_page: Box<Page>,
-    memory_stack_page: Box<Page>,
+    memory_code_page: Pin<Box<Page>>,
+    memory_stack_page: Pin<Box<Page>>,
 
     #[allow(dead_code)]
-    memory_code_entry_page: Box<Page>,
+    memory_code_entry_page: Pin<Box<Page>>,
 
     #[allow(dead_code)]
-    memory_gdt_page: Box<Page>,
+    memory_gdt_page: Pin<Box<Page>>,
     #[allow(dead_code)]
-    memory_tss_page: Box<Page>,
+    memory_tss_page: Pin<Box<Page>>,
     #[allow(dead_code)]
-    memory_page_table_4: Box<Page>,
+    memory_page_table_4: Pin<Box<Page>>,
     #[allow(dead_code)]
-    memory_page_table_3: Box<Page>,
+    memory_page_table_3: Pin<Box<Page>>,
 
     vm: Vm,
     pub initial_state: VmState,
@@ -260,13 +261,13 @@ impl Hypervisor {
         }
 
         Ok(Self {
-            memory_code_page: code_page,
-            memory_code_entry_page: code_entry_page,
-            memory_stack_page: stack_page,
-            memory_gdt_page: gdt_page,
-            memory_tss_page: tss_page,
-            memory_page_table_4: page_table_4_page,
-            memory_page_table_3: page_table_3_page,
+            memory_code_page: Pin::from(code_page),
+            memory_code_entry_page: Pin::from(code_entry_page),
+            memory_stack_page: Pin::from(stack_page),
+            memory_gdt_page: Pin::from(gdt_page),
+            memory_tss_page: Pin::from(tss_page),
+            memory_page_table_4: Pin::from(page_table_4_page),
+            memory_page_table_3: Pin::from(page_table_3_page),
             vm,
             initial_state: state,
         })
@@ -439,7 +440,7 @@ impl Hypervisor {
 
             return true;
         } else {
-            error!("Selfcheck: Unexpected exit reason: {:?}", result);
+            error!("Selfcheck: Unexpected exit reason: {:x?}", result);
             return false;
         }
     }
