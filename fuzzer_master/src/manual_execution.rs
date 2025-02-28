@@ -158,6 +158,10 @@ pub async fn main<A: AsRef<Path>, B: AsRef<Path>>(
     ));
     output_text.push_str("\nEND-EVENTS\n");
 
+    let _ = db.save().await.map_err(|e| {
+        error!("Failed to save the database: {:?}", e);
+    });
+
     if let Err(e) = std::fs::write(output, output_text) {
         eprintln!("Failed to write output file: {}", e);
         return CommandExitResult::ExitProgram;

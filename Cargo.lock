@@ -791,6 +791,8 @@ name = "fuzzer_master"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "coverage",
+ "data_types",
  "env_logger",
  "fuzzer_data",
  "hypervisor",
@@ -805,6 +807,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "ucode_dump",
 ]
 
 [[package]]

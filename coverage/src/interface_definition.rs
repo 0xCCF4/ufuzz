@@ -1,3 +1,6 @@
+use core::mem::align_of;
+use core::mem::size_of;
+
 pub struct ComInterfaceDescription {
     pub base: u16,
     pub max_number_of_hooks: usize,

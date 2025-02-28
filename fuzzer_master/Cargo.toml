@@ -19,6 +19,9 @@ rand_isaac = "0.4.0"
 hypervisor = { path = "../hypervisor" }
 clap = { version = "4.5.31", features = ["derive"] }
 iced-x86 = { version = "1.21.0", default-features = false, features = ["decoder", "encoder", "block_encoder", "op_code_info", "instr_info", "gas", "intel", "masm", "nasm", "fast_fmt", "code_asm", "no_std"] }
+coverage = { path = "../coverage", features = ["nostd"] }
+ucode_dump = { path = "../ucode_dump" }
+data_types = { path = "../data_types" }
 
 [[bin]]
 name = "fuzzer_master"

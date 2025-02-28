@@ -65,8 +65,8 @@ impl GeneticPool {
 
         let target_len = self.settings.population_size;
         while self.population.len() < target_len {
-            let parent1 = &self.population[random.next_u32() as usize % self.population.len()];
-            let parent2 = &self.population[random.next_u32() as usize % self.population.len()];
+            let parent1 = &self.population[random.next_u32() as usize % (self.settings.keep_best_x_solutions+self.settings.random_solutions_each_generation)];
+            let parent2 = &self.population[random.next_u32() as usize % (self.settings.keep_best_x_solutions+self.settings.random_solutions_each_generation)];
             let mut child = parent1.clone();
             for j in (random.next_u32() as usize % self.settings.code_size)..self.settings.code_size
             {
@@ -178,5 +178,41 @@ impl Ord for GeneticSampleRating {
 impl PartialOrd for GeneticSampleRating {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         self.cmp(other).into()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use alloc::vec;
+    use crate::genetic_pool::{GeneticPool, GeneticSampleRating, Sample};
+
+    #[test]
+    pub fn test_genetic_pool() {
+        let sample1 = Sample {
+            rating: Some(GeneticSampleRating {
+                unique_address_coverage: 10,
+                total_address_coverage: 100,
+                program_utilization: 50,
+                loop_count: 5,
+            }),
+            code_blob: vec![1],
+        };
+        let sample2 = Sample {
+            rating: Some(GeneticSampleRating {
+                unique_address_coverage: 10,
+                total_address_coverage: 110,
+                program_utilization: 50,
+                loop_count: 5,
+            }),
+            code_blob: vec![2],
+        };
+        let mut pool = GeneticPool {
+            settings: Default::default(),
+            population: vec![sample1, sample2],
+        };
+        pool.population.sort();
+        pool.population.reverse();
+        assert_eq!(pool.population[0].code_blob, vec![2]);
+
     }
 }

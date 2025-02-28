@@ -1,8 +1,12 @@
 use clap::Parser;
+use coverage::harness::coverage_harness::hookable_address_iterator::HookableAddressIterator;
+use coverage::harness::coverage_harness::modification_engine::ModificationEngineSettings;
 use fuzzer_master::database::CodeEvent;
 use hypervisor::state::StateDifference;
 use itertools::Itertools;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
+use data_types::addresses::Address;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -10,7 +14,7 @@ struct Args {
     database: Option<PathBuf>,
 }
 
-fn main() {
+pub fn main() {
     env_logger::init();
 
     let args = Args::parse();
@@ -124,6 +128,72 @@ fn main() {
                 }
             }
         }
+    }
+
+    println!("\n\nCoverage summary:");
+    let possible_cov_points = HookableAddressIterator::construct(
+        &ucode_dump::dump::ROM_cpu_000506CA,
+        &ModificationEngineSettings::default(),
+        1,
+        |a| {
+            db.data
+                .blacklisted_addresses
+                .iter()
+                .chain(db.data.vm_entry_blacklist.iter())
+                .all(|b| a.address() != *b as usize)
+        },
+    );
+    let mut coverage = BTreeSet::new();
+    for result in &db.data.results {
+        for cov in result.coverage.iter().filter(|x| *x.1 > 0) {
+            coverage.insert(*cov.0);
+        }
+    }
+    let mut coverage_normalized = BTreeSet::new();
+    for cov in coverage.iter() {
+        if !db.data.blacklisted_addresses.contains(cov) && !db.data.vm_entry_blacklist.contains(cov) {
+            coverage_normalized.insert(*cov);
+        }
+    }
+    println!("Total coverage: {} ({})", coverage.len(), coverage_normalized.len());
+    println!(" - Possible coverage points: {}", possible_cov_points.len());
+    println!(" - Percentage: {:.2}%", coverage.len() as f64 / possible_cov_points.len() as f64 * 100.0);
+
+    let seeds = db.data.results.iter().map(|x| x.found_at.iter().map(|x| x.seed)).flatten().unique().collect::<Vec<_>>();
+
+    println!("Coverage by seed:");
+    for seed in seeds {
+        println!(" - {}", seed);
+
+        let largest_evolution = db.data.results.iter().filter(|x| x.found_at.iter().any(|x| x.seed == seed)).map(|x| x.found_at.iter().map(|x| x.evolution)).flatten().max().unwrap_or(0);
+
+        let mut overall_coverage = Vec::new();
+        for evolution in 0..largest_evolution {
+            let mut coverage = BTreeMap::new();
+            let results = db.data.results.iter().filter(|x| x.found_at.iter().any(|x| x.seed == seed && x.evolution == evolution)).map(|x| x.coverage.iter().filter(|x| *x.1 > 0)).flatten();
+            for result in results {
+                if *result.1 > 0 {
+                    *coverage.entry(*result.0).or_insert(0) += result.1;
+                }
+            }
+            overall_coverage.push(coverage);
+        }
+        print!("   - Unique coverage: ");
+        for (index, coverage) in overall_coverage.iter().enumerate() {
+            print!("{}",  coverage.len());
+            if index != overall_coverage.len() - 1 {
+                print!(", ");
+            }
+        }
+        println!();
+        print!("   - Total coverage: ");
+        for (index, coverage) in overall_coverage.iter().enumerate() {
+            print!("{}", coverage.iter().map(|x| *x.1 as u64).sum::<u64>());
+            if index != overall_coverage.len() - 1 {
+                print!(", ");
+            }
+        }
+        println!();
     }
 }
 

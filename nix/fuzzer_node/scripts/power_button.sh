@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 
 press() {
-    sudo pinctrl set 0 op pn dh
+    sudo pinctrl set 1 op pn dh
 }
 
 release() {
-    sudo pinctrl set 0 ip pd
+    sudo pinctrl set 1 ip pd
 }
 
 case "${1:-}" in

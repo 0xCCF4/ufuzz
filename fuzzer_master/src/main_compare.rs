@@ -10,7 +10,7 @@ struct Args {
     sources: Vec<PathBuf>,
 }
 
-fn main() {
+pub fn main() {
     env_logger::init();
 
     let args = Args::parse();

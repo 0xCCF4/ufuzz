@@ -2,6 +2,7 @@ use fuzzer_data::genetic_pool::GeneticSampleRating;
 use fuzzer_data::{Code, ExecutionResult, ReportExecutionProblem};
 use hypervisor::state::{VmExitReason, VmState};
 use lazy_static::lazy_static;
+use log::error;
 use regex::Regex;
 use serde::ser::SerializeSeq;
 use serde::{Deserialize, Serialize};
@@ -10,7 +11,6 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::io;
-use log::error;
 
 lazy_static! {
     pub static ref NUMBER_REGEX: Regex = Regex::new(r" +[0-9]+,").unwrap();
@@ -128,16 +128,16 @@ impl Database {
             .truncate(true)
             .open(self.path.with_extension("new"))
             .map_err(|e| {
-            let msg = format!(
-                "Failed to create or open new file at {}: {}",
-                self.path.display(),
+                let msg = format!(
+                    "Failed to create or open new file at {}: {}",
+                    self.path.display(),
+                    e
+                );
+                error!("{}", msg);
                 e
-            );
-            error!("{}", msg);
-            e
             })?;
         let mut writer = std::io::BufWriter::new(file);
-        serde_json::to_writer_pretty(&mut writer, &self.data).map_err(|e| {
+        serde_json::to_writer(&mut writer, &self.data).map_err(|e| {
             let msg = format!(
                 "Failed to write data to file at {}: {}",
                 self.path.display(),

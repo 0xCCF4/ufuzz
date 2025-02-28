@@ -4,13 +4,14 @@ use crate::interface_definition::{
 };
 use std::path::Path;
 use ucode_compiler_bridge::{CompilerOptions, AUTOGEN};
+use core::mem::size_of;
 
 pub fn build_ucode_scripts() -> ucode_compiler_bridge::Result<()> {
-    if !std::fs::exists("src/patches").expect("fs perm denied") {
+    if !Path::new("src/patches").exists() {
         std::fs::create_dir("src/patches").expect("dir creation failed")
     }
 
-    if !std::fs::exists("patches/gen").expect("fs perm denied") {
+    if !Path::new("patches/gen").exists() {
         std::fs::create_dir("patches/gen").expect("dir creation failed")
     }
 

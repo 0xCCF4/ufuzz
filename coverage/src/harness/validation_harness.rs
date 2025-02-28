@@ -1,3 +1,4 @@
+#[cfg(feature = "ucode")]
 use crate::harness::coverage_harness::{CoverageError, CoverageHarness, ExecutionResultEntry};
 use alloc::vec::Vec;
 use core::arch::asm;
@@ -181,6 +182,7 @@ impl<'a, 'b, 'c, 'd> ValidationHarness<'a, 'b, 'c, 'd> {
         self.coverage_harness
     }
 
+    #[cfg(feature = "ucode")]
     #[allow(clippy::result_large_err)]
     pub fn execute<FuncParam, FuncResult: PartialEq + Eq, F: Copy + Fn() -> FuncResult>(
         &mut self,

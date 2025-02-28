@@ -54,8 +54,8 @@ pub struct ConnectionSettings {
 impl Default for ConnectionSettings {
     fn default() -> Self {
         Self {
-            remote_address: Ipv4Address::new(192, 168, 0, 11),
-            source_address: Ipv4Address::new(192, 168, 0, 44),
+            remote_address: Ipv4Address::new(10, 83, 3, 250),
+            source_address: Ipv4Address::new(10, 83, 3, 6),
             subnet_mask: Ipv4Address::new(255, 255, 255, 0),
             remote_port: 4444,
             source_port: 4444,

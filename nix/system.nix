@@ -2,6 +2,7 @@
 
 let
   user = "thesis";
+  password = "abi2mf81l0sm";
   SSID = "mxlan";
   interface = "wlan0";
   trusted_nix_keys = [ "laptop:zhWq+p6//VSVJiSKFitrqdJfzrJ1ajvPsXPz+M2n2Ao=" ];
@@ -113,6 +114,7 @@ in
           isNormalUser = true;
           extraGroups = [ "wheel" ];
           openssh.authorizedKeys.keys = ssh_keys;
+          password = password;
         };
       };
       security.sudo.wheelNeedsPassword = false;

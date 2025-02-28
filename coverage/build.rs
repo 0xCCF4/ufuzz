@@ -8,12 +8,15 @@ mod build {
 }
 
 fn main() {
-    println!("cargo::rerun-if-changed=build.rs");
-    println!("cargo::rerun-if-changed=build/static_jump_analysis.rs");
-    println!("cargo::rerun-if-changed=build/ucode_scripts.rs");
+    #[cfg(feature = "ucode")]
+    {
+        println!("cargo::rerun-if-changed=build.rs");
+        println!("cargo::rerun-if-changed=build/static_jump_analysis.rs");
+        println!("cargo::rerun-if-changed=build/ucode_scripts.rs");
 
-    // jump_analysis();
-    if let Err(err) = ucode_scripts::build_ucode_scripts() {
-        panic!("Failed to compile ucode scripts: {:?}", err);
+        // jump_analysis();
+        if let Err(err) = ucode_scripts::build_ucode_scripts() {
+            panic!("Failed to compile ucode scripts: {:?}", err);
+        }
     }
 }

@@ -4,15 +4,16 @@ use fuzzer_master::database::Database;
 use fuzzer_master::device_connection::DeviceConnection;
 use fuzzer_master::fuzzer_node_bridge::FuzzerNodeInterface;
 use fuzzer_master::genetic_breeding::BreedingState;
-use fuzzer_master::{
-    genetic_breeding, manual_execution, wait_for_device, CommandExitResult, WaitForDeviceResult,
-};
+use fuzzer_master::{genetic_breeding, manual_execution, wait_for_device, CommandExitResult, WaitForDeviceResult};
 use log::{error, info, trace, warn};
 use std::io;
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
+
+pub mod main_viewer;
+pub mod main_compare;
 
 pub const DATABASE_FILE: &str = "database.json";
 
@@ -25,7 +26,9 @@ struct Args {
 
 #[derive(Subcommand, Debug, Clone, Default)]
 enum Cmd {
-    // Genetic breeding
+    Viewer,
+    Compare,
+    Convert,
     #[default]
     Genetic,
     Init,
@@ -70,8 +73,23 @@ async fn main() {
         },
         |x| x,
     );
-    let interface = Arc::new(FuzzerNodeInterface::new("http://192.168.0.10:8000"));
-    let mut udp = DeviceConnection::new("192.168.0.44:4444").await.unwrap();
+    info!("Loaded database from {:?}", &database.path);
+
+    if let Some(Cmd::Viewer) = &args.cmd {
+        main_viewer::main();
+        return;
+    }
+    if let Some(Cmd::Compare) = &args.cmd {
+        main_compare::main();
+        return;
+    }
+    if let Some(Cmd::Convert) = &args.cmd {
+        // main_convert::main();
+        return;
+    }
+
+    let interface = Arc::new(FuzzerNodeInterface::new("http://10.83.3.198:8000"));
+    let mut udp = DeviceConnection::new("10.83.3.6:4444").await.unwrap();
 
     match interface.alive().await {
         Ok(x) => {
@@ -133,6 +151,15 @@ async fn main() {
         });
 
         let result = match args.cmd.as_ref().unwrap_or(&Cmd::default()) {
+            Cmd::Viewer => {
+                CommandExitResult::ExitProgram
+            }
+            Cmd::Compare => {
+                CommandExitResult::ExitProgram
+            }
+            Cmd::Convert => {
+                CommandExitResult::ExitProgram
+            }
             Cmd::Genetic => {
                 genetic_breeding::main(&mut udp, &interface, &mut database, &mut state).await
             }

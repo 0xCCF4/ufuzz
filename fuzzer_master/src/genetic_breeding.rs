@@ -151,9 +151,14 @@ pub async fn main(
 
     if state.fsm == FSM::Running {
         while state.evolution < MAX_EVOLUTIONS {
-            for sample in state.genetic_pool.all_samples_mut() {
+            for (i, sample) in state.genetic_pool.all_samples_mut().iter_mut().enumerate() {
                 if sample.rating.is_some() {
                     continue;
+                }
+                if (i % 10) == 0 {
+                    let _ = database.save().await.map_err(|e| {
+                        error!("Failed to save the database: {:?}", e);
+                    });
                 }
 
                 if let Some((address, times)) = state.last_reported_exclusion {
@@ -188,6 +193,12 @@ pub async fn main(
                 .genetic_pool
                 .evolution(state.random_source.as_mut().unwrap());
             state.evolution += 1;
+
+            info!("Evolution: {}", state.evolution);
+
+            let _ = database.save().await.map_err(|e| {
+                error!("Failed to save the database: {:?}", e);
+            });
 
             return CommandExitResult::Operational;
         }

@@ -1,15 +1,18 @@
 pub mod hookable_address_iterator;
 pub mod modification_engine;
 
+#[cfg(feature = "ucode")]
 use crate::coverage_collector;
 use crate::harness::coverage_harness::modification_engine::{
     ModificationEngineSettings, NotHookableReason,
 };
+#[cfg(feature = "ucode")]
 use crate::interface::safe::ComInterface;
 use crate::interface_definition::{CoverageCount, InstructionTableEntry};
 #[cfg(feature = "nostd")]
 use alloc::vec::Vec;
 use core::fmt::Debug;
+#[cfg(feature = "ucode")]
 use custom_processing_unit::{
     apply_patch, call_custom_ucode_function, disable_all_hooks, enable_hooks, lmfence,
     CustomProcessingUnit, FunctionResult, HookGuard, PatchError,
@@ -19,6 +22,7 @@ use ucode_compiler_dynamic::sequence_word::DisassembleError;
 use ucode_compiler_dynamic::Triad;
 // const COVERAGE_ENTRIES: usize = UCInstructionAddress::MAX.to_const();
 
+#[cfg(feature = "ucode")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CoverageError {
     TooManyHooks,
@@ -27,6 +31,7 @@ pub enum CoverageError {
     SequenceWordDissembleError(DisassembleError),
 }
 
+#[cfg(feature = "ucode")]
 pub struct CoverageHarness<'a, 'b, 'c> {
     interface: &'a mut ComInterface<'b>,
     // coverage: [CoverageEntry; COVERAGE_ENTRIES], // every forth entry, beginning at 3 is zero
@@ -35,6 +40,7 @@ pub struct CoverageHarness<'a, 'b, 'c> {
     compile_mode: ModificationEngineSettings,
 }
 
+#[cfg(feature = "ucode")]
 impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
     pub fn new(
         interface: &'a mut ComInterface<'b>,
@@ -186,6 +192,7 @@ impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
     }
 }
 
+#[cfg(feature = "ucode")]
 impl Drop for CoverageHarness<'_, '_, '_> {
     fn drop(&mut self) {
         let _ = call_custom_ucode_function(coverage_collector::LABEL_FUNC_SETUP, [0, 0, 0]);

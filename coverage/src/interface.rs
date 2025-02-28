@@ -258,7 +258,7 @@ pub mod safe {
 }
 
 // default os
-#[cfg(all(not(feature = "uefi"), not(feature = "nostd")))]
+#[cfg(all(not(feature = "uefi")))]
 pub mod safe {
     use crate::interface_definition::{
         ComInterfaceDescription, CoverageEntry, InstructionTableEntry, JumpTableEntry,

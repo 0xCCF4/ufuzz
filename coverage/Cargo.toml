@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 log = { version = "0.4.22" }
 uefi = { version = "0.34.1", optional = true, default-features = false, features = ["alloc"] }
-custom_processing_unit = { path = "../custom_processing_unit", features = ["nostd"] }
+custom_processing_unit = { path = "../custom_processing_unit", features = ["nostd"], optional = true }
 data_types = { path = "../data_types", features = ["nostd"] }
 ucode_compiler_dynamic = { path = "../ucode_compiler_dynamic" }
 itertools = { version = "0.14.0", default-features = false, features = ["use_alloc"] }
@@ -15,7 +15,8 @@ bitflags = "2.6.0"
 
 [features]
 nostd = [] # when using as a library: no_std
-uefi = ["dep:uefi", "nostd"] # when using uefi features
+uefi = ["dep:uefi", "nostd", "ucode"] # when using uefi features
+ucode = ["dep:custom_processing_unit"]
 
 [build-dependencies]
 ucode_compiler_bridge = { path = "../ucode_compiler_bridge" }
