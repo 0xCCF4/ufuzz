@@ -39,7 +39,7 @@ pub fn main() {
     for result in &db.data.results {
         for event in &result.events {
             if let CodeEvent::VeryLikelyBug { code } = event {
-                print!("Sample: {}", code_to_hex_string(result.code.as_slice()));
+                println!("Sample: {}", code_to_hex_string(result.code.as_slice()));
                 println!("Serialized: {}", code_to_hex_string(code.as_slice()))
             }
         }
@@ -54,7 +54,7 @@ pub fn main() {
                 code,
             } = event
             {
-                print!("Sample: {}", code_to_hex_string(result.code.as_slice()));
+                println!("Sample: {}", code_to_hex_string(result.code.as_slice()));
                 println!("Serialized: {}", code_to_hex_string(code.as_slice()));
 
                 if let Some(serialized_exit) = serialized_exit {
@@ -82,7 +82,7 @@ pub fn main() {
                 normal,
             } = event
             {
-                print!("Sample: {}", code_to_hex_string(result.code.as_slice()));
+                println!("Sample: {}", code_to_hex_string(result.code.as_slice()));
                 println!("Serialized: {}", code_to_hex_string(code.as_slice()));
                 println!("State trace mismatch at index {}", index);
 
@@ -112,7 +112,7 @@ pub fn main() {
                 coverage_state,
             } = event
             {
-                print!("Sample: {}", code_to_hex_string(result.code.as_slice()));
+                println!("Sample: {}", code_to_hex_string(result.code.as_slice()));
                 println!("Coverage problem at address {:#x}", address);
 
                 if let Some(coverage_exit) = coverage_exit {

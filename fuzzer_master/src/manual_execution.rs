@@ -1,7 +1,7 @@
 use crate::database::Database;
 use crate::device_connection::DeviceConnection;
 use crate::fuzzer_node_bridge::FuzzerNodeInterface;
-use crate::genetic_breeding::ExecuteSampleResult;
+use crate::genetic_breeding::{net_blacklist, subtract_iter_btree, ExecuteSampleResult};
 use crate::CommandExitResult;
 use fuzzer_data::OtaC2DTransport;
 use iced_x86::{Decoder, DecoderOptions, Formatter, Instruction, NasmFormatter};
@@ -61,25 +61,25 @@ pub async fn main<A: AsRef<Path>, B: AsRef<Path>>(
         return CommandExitResult::ExitProgram;
     }
 
-    for blacklist in &db
-        .data
-        .blacklisted_addresses
-        .iter()
-        .chain(db.data.vm_entry_blacklist.iter())
-        .chunks(200)
-    {
-        if let Err(err) = udp
-            .send(OtaC2DTransport::Blacklist {
-                address: blacklist.cloned().collect_vec(),
-            })
-            .await
-        {
-            error!("Failed to blacklist addresses: {:?}", err);
-            return CommandExitResult::RetryOrReconnect;
-        }
+    if !net_blacklist(udp, db).await {
+        return CommandExitResult::RetryOrReconnect;
     }
 
     let (result, events) = match crate::genetic_breeding::net_execute_sample(
+        udp,
+        interface,
+        db,
+        &[],
+    )
+        .await
+    {
+        ExecuteSampleResult::Timeout => return CommandExitResult::RetryOrReconnect,
+        ExecuteSampleResult::Rerun => return CommandExitResult::Operational,
+        ExecuteSampleResult::Success(a, b) => (a, b),
+    };
+    let base_coverage = result.coverage;
+
+    let (mut result, events) = match crate::genetic_breeding::net_execute_sample(
         udp,
         interface,
         db,
@@ -91,6 +91,7 @@ pub async fn main<A: AsRef<Path>, B: AsRef<Path>>(
         ExecuteSampleResult::Rerun => return CommandExitResult::Operational,
         ExecuteSampleResult::Success(a, b) => (a, b),
     };
+    subtract_iter_btree(&mut result.coverage, &base_coverage);
 
     let mut output_text = "Disassembly:\n".to_string();
     disassemble_code(&actual_bytes, &mut output_text);
@@ -157,6 +158,11 @@ pub async fn main<A: AsRef<Path>, B: AsRef<Path>>(
         serde_json::to_string_pretty(&events).unwrap()
     ));
     output_text.push_str("\nEND-EVENTS\n");
+
+    println!("Coverage:");
+    for c in result.coverage {
+        print!(" - {:04x}: {:04x}", c.0, c.1);
+    }
 
     let _ = db.save().await.map_err(|e| {
         error!("Failed to save the database: {:?}", e);

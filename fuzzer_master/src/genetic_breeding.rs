@@ -1,4 +1,4 @@
-use crate::database::Database;
+use crate::database::{CodeEvent, Database};
 use crate::device_connection::DeviceConnection;
 use crate::fuzzer_node_bridge::FuzzerNodeInterface;
 use crate::{wait_for_device, CommandExitResult};
@@ -67,22 +67,8 @@ pub async fn main(
         return CommandExitResult::RetryOrReconnect;
     }
 
-    for blacklist in &database
-        .data
-        .blacklisted_addresses
-        .iter()
-        .chain(database.data.vm_entry_blacklist.iter())
-        .chunks(200)
-    {
-        if let Err(err) = net
-            .send(OtaC2DTransport::Blacklist {
-                address: blacklist.cloned().collect_vec(),
-            })
-            .await
-        {
-            error!("Failed to blacklist addresses: {:?}", err);
-            return CommandExitResult::RetryOrReconnect;
-        }
+    if !net_blacklist(net, database).await {
+        return CommandExitResult::RetryOrReconnect;
     }
 
     if let Err(err) = net
@@ -171,10 +157,6 @@ pub async fn main(
                     }
                 }
 
-                let mut disasm = String::new();
-                disassemble_code(sample.code(), &mut disasm);
-                trace!("{}", disasm);
-
                 let (mut result, events) =
                     match net_execute_sample(net, interface, database, sample.code()).await {
                         ExecuteSampleResult::Timeout => return CommandExitResult::ForceReconnect,
@@ -239,12 +221,39 @@ pub enum ExecuteSampleResult {
     Success(ExecutionResult, Vec<ReportExecutionProblem>),
 }
 
+pub async fn net_blacklist(net: &mut DeviceConnection,
+                           database: &mut Database) -> bool {
+    for blacklist in &database
+        .data
+        .blacklisted_addresses
+        .iter()
+        .chain(database.data.vm_entry_blacklist.iter())
+        .chain(database.data.results.iter().map(|r|r.events.iter()).flatten().filter_map(|e|if let CodeEvent::CoverageProblem {address, ..} = e {Some(address)} else {None}).unique())
+        .chunks(200)
+    {
+        if let Err(err) = net
+            .send(OtaC2DTransport::Blacklist {
+                address: blacklist.cloned().collect_vec(),
+            })
+            .await
+        {
+            error!("Failed to blacklist addresses: {:?}", err);
+            return false;
+        }
+    }
+    true
+}
+
 pub async fn net_execute_sample(
     net: &mut DeviceConnection,
     interface: &FuzzerNodeInterface,
     db: &mut Database,
     sample: &[u8],
 ) -> ExecuteSampleResult {
+    let mut disasm = String::new();
+    disassemble_code(sample, &mut disasm);
+    trace!("{}", disasm);
+
     if let Err(err) = net
         .send(OtaC2DTransport::ExecuteSample {
             code: sample.to_vec(),
