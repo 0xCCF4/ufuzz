@@ -104,7 +104,7 @@ in
       };
       networking.firewall.allowedUDPPorts = [ 51820 ];
 
-      environment.systemPackages = with pkgs; [ nixos-firewall-tool pinctrl wol rustup helix killall htop dig lsof file coreutils openssl wget bat eza fd fzf ripgrep age tldr nh nix-output-monitor nvd git wireguard-tools ];
+      environment.systemPackages = with pkgs; [ nushell nixos-firewall-tool pinctrl wol rustup helix killall htop dig lsof file coreutils openssl wget bat eza fd fzf ripgrep age tldr nh nix-output-monitor nvd git wireguard-tools ];
 
       services.openssh.enable = true;
 

@@ -2,6 +2,7 @@ use alloc::vec::Vec;
 use core::cmp::Ordering;
 use rand_core::RngCore;
 use serde::{Deserialize, Serialize};
+use crate::decoder::InstructionDecoder;
 
 #[derive(Clone)]
 pub struct GeneticPoolSettings {
@@ -29,6 +30,7 @@ impl Default for GeneticPoolSettings {
 pub struct GeneticPool {
     population: Vec<Sample>,
     settings: GeneticPoolSettings,
+    decoder: InstructionDecoder,
 }
 
 impl GeneticPool {
@@ -43,6 +45,7 @@ impl GeneticPool {
         Self {
             population,
             settings,
+            decoder: InstructionDecoder::default(),
         }
     }
     pub fn all_samples(&self) -> &[Sample] {

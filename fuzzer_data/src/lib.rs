@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 extern crate alloc;
 
 pub mod genetic_pool;
+pub mod decoder;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[repr(C)]

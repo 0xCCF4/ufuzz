@@ -10,6 +10,7 @@ use log::{error, info, trace, warn};
 use rand::{random, SeedableRng};
 use std::collections::BTreeMap;
 use std::time::Duration;
+use crate::manual_execution::disassemble_code;
 
 #[derive(Debug, Default, PartialEq)]
 enum FSM {
@@ -169,6 +170,10 @@ pub async fn main(
                         continue;
                     }
                 }
+
+                let mut disasm = String::new();
+                disassemble_code(sample.code(), &mut disasm);
+                trace!("{}", disasm);
 
                 let (mut result, events) =
                     match net_execute_sample(net, interface, database, sample.code()).await {

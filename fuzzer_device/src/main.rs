@@ -22,7 +22,7 @@ use fuzzer_device::controller_connection::{ConnectionSettings, ControllerConnect
 use fuzzer_device::executor::{
     ExecutionEvent, ExecutionResult, ExecutionSampleResult, SampleExecutor,
 };
-use fuzzer_device::mutation_engine::InstructionDecoder;
+use fuzzer_data::decoder::InstructionDecoder;
 use fuzzer_device::{
     disassemble_code, PersistentApplicationData, PersistentApplicationState, StateTrace,
 };

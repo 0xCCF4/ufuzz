@@ -1,4 +1,3 @@
-use crate::mutation_engine::{InstructionDecoder, InstructionWithBytes};
 use crate::Trace;
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
@@ -8,6 +7,8 @@ use iced_x86::{
 };
 use log::warn;
 use rand_core::RngCore;
+use fuzzer_data::decoder::{InstructionDecoder, InstructionWithBytes};
+
 
 const FENCE_INSTRUCTIONS: &[&[u8]] = &[
     // lfence
@@ -521,6 +522,7 @@ mod test {
     use iced_x86::code_asm::CodeAssembler;
     use rand_core::SeedableRng;
     use rand_isaac::isaac64;
+    use uefi::println;
     use std::println;
 
     #[test]

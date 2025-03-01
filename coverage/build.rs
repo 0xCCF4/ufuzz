@@ -1,3 +1,4 @@
+#[cfg(feature = "ucode")]
 use crate::build::ucode_scripts;
 
 #[path = "src/interface_definition.rs"]

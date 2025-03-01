@@ -24,7 +24,7 @@ bitflags::bitflags! {
 
 impl Default for ModificationEngineSettings {
     fn default() -> Self {
-        Self::empty() | Self::NoUnknownInstructions | Self::NoMoveFromCREG
+        Self::empty() | Self::NoUnknownInstructions
     }
 }
 

@@ -8,3 +8,4 @@ serde = { version = "1.0.218", features = ["alloc", "derive"], default-features 
 hypervisor = { path = "../hypervisor" }
 postcard = { version = "1.1.1", features = ["alloc"], default-features = false }
 rand_core = "0.9.2"
+iced-x86 = { version = "1.21.0", default-features = false, features = ["decoder", "encoder", "block_encoder", "op_code_info", "instr_info", "gas", "intel", "masm", "nasm", "fast_fmt", "code_asm", "no_std"] }

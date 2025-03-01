@@ -755,6 +755,7 @@ name = "fuzzer_data"
 version = "0.1.0"
 dependencies = [
  "hypervisor",
+ "iced-x86",
  "postcard",
  "rand_core 0.9.2",
  "serde",
