@@ -111,7 +111,7 @@ const START_OF_LAST_RIP_TABLE: usize = align(
     align_of::<LastRIPEntry>(),
     GENUINE_START_OF_LAST_RIP_TABLE,
 );
-const END_OF_LAST_RIP_TABLE:usize = START_OF_LAST_RIP_TABLE+LAST_RIP_TABLE_BYTE_SIZE;
+//const END_OF_LAST_RIP_TABLE:usize = START_OF_LAST_RIP_TABLE+LAST_RIP_TABLE_BYTE_SIZE;
 
 pub const COM_INTERFACE_DESCRIPTION: ComInterfaceDescription = ComInterfaceDescription {
     base: 0x1000,

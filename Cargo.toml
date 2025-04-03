@@ -1,4 +1,4 @@
 [workspace]
 
 resolver = "2"
-members = ["custom_processing_unit", "data_types", "literature_search", "ucode_compiler_bridge", "ucode_compiler_dynamic", "coverage", "ucode_compiler_derive", "ucode_dump", "hypervisor", "xtask", "fuzzer_device","hypervisor", "uefi_udp4", "fuzzer_master", "fuzzer_node", "fuzzer_data"]
+members = ["custom_processing_unit", "data_types", "literature_search", "ucode_compiler_bridge", "ucode_compiler_dynamic", "coverage", "ucode_compiler_derive", "ucode_dump", "hypervisor", "xtask", "fuzzer_device","hypervisor", "uefi_udp4", "fuzzer_master", "fuzzer_node", "fuzzer_data", "performance-timing"]

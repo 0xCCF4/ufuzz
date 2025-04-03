@@ -272,10 +272,10 @@ pub fn modify_triad_for_hooking(
     let result_triad = Triad {
         instructions: [
             instruction,
-            Instruction::UJMP(address.next_address()),
             Instruction::NOP,
+            Instruction::UJMP(address.next_address()),
         ],
-        sequence_word: sequence_word.apply_view(address.triad_offset(), 1).apply(),
+        sequence_word: sequence_word.apply_view(address.triad_offset(), 1).apply().apply_shift(1),
     };
 
     if let Some(control) = result_triad.sequence_word.control() {

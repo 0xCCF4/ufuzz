@@ -10,6 +10,13 @@
 
 {2} := ADD_DSZ32({0}, [address_coverage_table_base]) # address
 {0} := LDPPHYS_DSZ16_ASZ32_SC1({2}) SEQW LFNCEWAIT
-{0} := ADD_DSZ16({0}, 0x0001)
-NOP
-STADPPHYS_DSZ16_ASZ32_SC1({2},, {0}) SEQW SYNCWAIT
+{0} := ADD_DSZ64({0}, 0x0001)
+STADPPHYS_DSZ16_ASZ32_SC1({2},, {0})
+
+{0} := AND_DSZ32([index_mask], {offset_input})
+{0} := SHL_DSZ32({0}, [convert_index_to_lastrip_table_offset])
+{2} := ADD_DSZ32({0}, [address_lastrip_table_base]) # address
+
+{0} := ZEROEXT_DSZ64(IMM_MACRO_ALIAS_RIP) !m0
+STADPPHYS_DSZ64_ASZ32_SC1({2},, {0})
+NOP SEQW SYNCWAIT
