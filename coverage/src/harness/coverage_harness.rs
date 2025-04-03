@@ -122,12 +122,14 @@ impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
             let address = address.align_even();
 
             let covered = self.interface.read_coverage_table(index);
+            let last_rip = self.interface.read_last_rip(index);
 
-            for (offset, count) in covered.into_iter().enumerate() {
+            for (offset, (count, last_rip)) in covered.into_iter().zip(last_rip.into_iter()).enumerate() {
                 result.push(if count > 0 {
                     ExecutionResultEntry::Covered {
                         address: address + offset,
                         count,
+                        last_rip,
                     }
                 } else {
                     ExecutionResultEntry::NotCovered {
@@ -210,6 +212,7 @@ pub enum ExecutionResultEntry {
     Covered {
         address: UCInstructionAddress,
         count: CoverageCount,
+        last_rip: u64,
     },
 }
 
@@ -221,7 +224,7 @@ impl ExecutionResultEntry {
         }
     }
 
-    pub fn coverage(&self) -> CoverageCount {
+    pub fn coverage(&self) -> u16 {
         match self {
             ExecutionResultEntry::Covered { count, .. } => *count,
             ExecutionResultEntry::NotCovered { .. } => 0,

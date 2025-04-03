@@ -2,9 +2,10 @@ use crate::interface_definition;
 use crate::interface_definition::{
     ComInterfaceDescription, CoverageEntry, InstructionTableEntry, JumpTableEntry,
 };
+use core::mem::size_of;
 use std::path::Path;
 use ucode_compiler_bridge::{CompilerOptions, AUTOGEN};
-use core::mem::size_of;
+use crate::interface_definition::LastRIPEntry;
 
 pub fn build_ucode_scripts() -> ucode_compiler_bridge::Result<()> {
     if !Path::new("src/patches").exists() {
@@ -176,6 +177,11 @@ fn generate_interface_definitions<A: AsRef<Path>>(
         "base address of the instruction table",
     ));
     definitions.push((
+        "address_lastrip_table_base",
+        interface.base as usize + interface.offset_last_rip_table,
+        "base address of the last rip table",
+    ));
+    definitions.push((
         "table_length",
         interface.max_number_of_hooks,
         "number of entries in the tables",
@@ -229,6 +235,11 @@ fn generate_interface_definitions<A: AsRef<Path>>(
         "shift by this amount to get the offset in the instruction table",
     ));
     assert!(interface.offset_jump_back_table > interface.offset_coverage_result_table);
+    definitions.push((
+        "convert_index_to_lastrip_table_offset",
+        size_of::<LastRIPEntry>().ilog2() as usize - 1, // since two entries, make it prettier later
+        "shift by this amount to get the offset in the last rip table",
+    ));
     definitions.push((
         "offset_cov2jump_table",
         interface.offset_jump_back_table - interface.offset_coverage_result_table,

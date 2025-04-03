@@ -378,10 +378,29 @@ mod test {
 
         println!(
             "{}",
-            modify_triad_for_hooking(0x19d4.into(), &rom)
+            modify_triad_for_hooking(0x19d4.into(), &rom, &ModificationEngineSettings::default())
                 .unwrap()
-                .map(|x| format!("{}", x))
-                .join(" ; ")
         );
+    }
+
+    #[test]
+    fn print_address() {
+        let rom = ucode_dump::dump::ROM_cpu_000506CA;
+        let offset = 0x208c;
+        for n in offset..offset+4 {
+            let address = UCInstructionAddress::from_const(n);
+            print!("{}  ", address);
+            let x = modify_triad_for_hooking(address, &rom, &ModificationEngineSettings::default())
+                .unwrap();
+            print!(
+                "{}",
+                x
+            );
+            print!("  ");;
+            for i in x.instructions {
+                print!("{:x?} ", i.assemble_no_crc());
+            }
+            println!();
+        }
     }
 }

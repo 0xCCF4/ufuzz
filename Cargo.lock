@@ -756,6 +756,7 @@ version = "0.1.0"
 dependencies = [
  "hypervisor",
  "iced-x86",
+ "log",
  "postcard",
  "rand_core 0.9.2",
  "serde",
@@ -1447,9 +1448,12 @@ dependencies = [
 
 [[package]]
 name = "log"
-version = "0.4.25"
+version = "0.4.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "04cbf5b083de1c7e0222a7a51dbfdba1cbe1c6ab0b15e29fff3f6c077fd9cd9f"
+checksum = "30bde2b3dc3671ae49d8e2e9f044c7c005836e7a023ee57cffa25ab82764bb9e"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "loom"
@@ -1672,6 +1676,10 @@ name = "percent-encoding"
 version = "2.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3148f5046208a5d56bcfc03053e3ca6334e51da8dfb19b6cdc8b306fae3283e"
+
+[[package]]
+name = "performance-timing"
+version = "0.1.0"
 
 [[package]]
 name = "pin-project-lite"

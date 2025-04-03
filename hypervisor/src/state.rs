@@ -481,6 +481,8 @@ pub enum VmExitReason {
 
     Rdtsc,
 
+    Rdpmc,
+
     Cr8Write,
 
     IoWrite,
@@ -527,6 +529,7 @@ impl VmExitReason {
             VmExitReason::Io => matches!(other, VmExitReason::Io),
             VmExitReason::Rdmsr => matches!(other, VmExitReason::Rdmsr),
             VmExitReason::Wrmsr => matches!(other, VmExitReason::Wrmsr),
+            VmExitReason::Rdpmc => matches!(other, VmExitReason::Rdpmc),
             VmExitReason::Rdrand => matches!(other, VmExitReason::Rdrand),
             VmExitReason::Rdseed => matches!(other, VmExitReason::Rdseed),
             VmExitReason::Rdtsc => matches!(other, VmExitReason::Rdtsc),

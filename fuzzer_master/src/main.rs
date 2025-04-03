@@ -3,8 +3,10 @@ use fuzzer_data::{Ota, OtaC2DTransport, OtaD2C, OtaD2CTransport};
 use fuzzer_master::database::Database;
 use fuzzer_master::device_connection::DeviceConnection;
 use fuzzer_master::fuzzer_node_bridge::FuzzerNodeInterface;
-use fuzzer_master::genetic_breeding::BreedingState;
-use fuzzer_master::{genetic_breeding, manual_execution, wait_for_device, CommandExitResult, WaitForDeviceResult};
+use fuzzer_master::genetic_breeding::{net_reboot_device, BreedingState};
+use fuzzer_master::{
+    genetic_breeding, manual_execution, wait_for_device, CommandExitResult, WaitForDeviceResult,
+};
 use log::{error, info, trace, warn};
 use std::io;
 use std::io::Write;
@@ -12,8 +14,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-pub mod main_viewer;
 pub mod main_compare;
+pub mod main_viewer;
 
 pub const DATABASE_FILE: &str = "database.json";
 
@@ -54,7 +56,9 @@ async fn main() {
     let mut database = fuzzer_master::database::Database::from_file(DATABASE_FILE).map_or_else(
         |e| {
             if e.kind() == std::io::ErrorKind::NotFound {
-                return Database::default();
+                let mut db = Database::default();
+                db.path = PathBuf::from(DATABASE_FILE);
+                return db;
             }
             println!("Failed to load the database: {:?}", e);
             print!("Do you want to create a new one? (y/n): ");
@@ -151,15 +155,9 @@ async fn main() {
         });
 
         let result = match args.cmd.as_ref().unwrap_or(&Cmd::default()) {
-            Cmd::Viewer => {
-                CommandExitResult::ExitProgram
-            }
-            Cmd::Compare => {
-                CommandExitResult::ExitProgram
-            }
-            Cmd::Convert => {
-                CommandExitResult::ExitProgram
-            }
+            Cmd::Viewer => CommandExitResult::ExitProgram,
+            Cmd::Compare => CommandExitResult::ExitProgram,
+            Cmd::Convert => CommandExitResult::ExitProgram,
             Cmd::Genetic => {
                 genetic_breeding::main(&mut udp, &interface, &mut database, &mut state).await
             }
@@ -240,17 +238,11 @@ async fn main() {
             }
             Cmd::Reboot => {
                 if !reboot_state {
-                    let x = udp.send(OtaC2DTransport::Reboot).await;
-                    if let Err(_) = x {
-                        CommandExitResult::RetryOrReconnect
+                    reboot_state = true;
+                    continue_count = 0;
+                    if let Some(state) = net_reboot_device(&mut udp,  &interface).await {
+                        state
                     } else {
-                        reboot_state = true;
-                        tokio::time::sleep(Duration::from_secs(60)).await;
-                        trace!("Skipping bios");
-                        let _ = interface.skip_bios().await;
-                        tokio::time::sleep(Duration::from_secs(40)).await;
-                        let _ = wait_for_device(&mut udp);
-                        continue_count = 0;
                         CommandExitResult::Operational
                     }
                 } else {

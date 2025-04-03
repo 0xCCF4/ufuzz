@@ -1,8 +1,8 @@
 use fuzzer_data::{
-    Ota, OtaC2D, OtaC2DTransport, OtaC2DUnreliable, OtaD2C, OtaD2CUnreliable, OtaPacket,
-    MAX_FRAGMENT_SIZE, MAX_PAYLOAD_SIZE,
+    Ota, OtaC2D, OtaC2DTransport, OtaC2DUnreliable, OtaD2C, OtaD2CTransport, OtaD2CUnreliable,
+    OtaPacket, MAX_FRAGMENT_SIZE, MAX_PAYLOAD_SIZE,
 };
-use log::{error, trace, warn};
+use log::{debug, error, info, trace, warn, Level};
 use rand::random;
 use std::collections::VecDeque;
 use std::error::Error;
@@ -178,6 +178,23 @@ impl DeviceConnection {
                             }
                             rx_sequence_number = *id;
                             last_packet = Instant::now();
+                        }
+
+                        if let Ota::Transport {
+                            content: OtaD2CTransport::LogMessage { level, message },
+                            ..
+                        }
+                        | Ota::Unreliable(OtaD2CUnreliable::LogMessage { level, message }) = data
+                        {
+                            match level {
+                                Level::Error => error!(target: "device", "{}", message),
+                                Level::Warn => warn!(target: "device", "{}", message),
+                                Level::Info => info!(target: "device", "{}", message),
+                                Level::Debug => debug!(target: "device", "{}", message),
+                                Level::Trace => debug!(target: "device", "{}", message),
+                            }
+
+                            continue; // do not send to frontend
                         }
 
                         if let Err(_) = sender.send(data).await {

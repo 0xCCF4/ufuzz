@@ -1,8 +1,8 @@
+use crate::decoder::InstructionDecoder;
 use alloc::vec::Vec;
 use core::cmp::Ordering;
 use rand_core::RngCore;
 use serde::{Deserialize, Serialize};
-use crate::decoder::InstructionDecoder;
 
 #[derive(Clone)]
 pub struct GeneticPoolSettings {
@@ -68,8 +68,12 @@ impl GeneticPool {
 
         let target_len = self.settings.population_size;
         while self.population.len() < target_len {
-            let parent1 = &self.population[random.next_u32() as usize % (self.settings.keep_best_x_solutions+self.settings.random_solutions_each_generation)];
-            let parent2 = &self.population[random.next_u32() as usize % (self.settings.keep_best_x_solutions+self.settings.random_solutions_each_generation)];
+            let parent1 = &self.population[random.next_u32() as usize
+                % (self.settings.keep_best_x_solutions
+                    + self.settings.random_solutions_each_generation)];
+            let parent2 = &self.population[random.next_u32() as usize
+                % (self.settings.keep_best_x_solutions
+                    + self.settings.random_solutions_each_generation)];
             let mut child = parent1.clone();
             for j in (random.next_u32() as usize % self.settings.code_size)..self.settings.code_size
             {
@@ -186,8 +190,8 @@ impl PartialOrd for GeneticSampleRating {
 
 #[cfg(test)]
 mod tests {
-    use alloc::vec;
     use crate::genetic_pool::{GeneticPool, GeneticSampleRating, Sample};
+    use alloc::vec;
 
     #[test]
     pub fn test_genetic_pool() {
@@ -216,6 +220,5 @@ mod tests {
         pool.population.sort();
         pool.population.reverse();
         assert_eq!(pool.population[0].code_blob, vec![2]);
-
     }
 }

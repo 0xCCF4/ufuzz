@@ -11,8 +11,8 @@ use serde::{Deserialize, Serialize};
 
 extern crate alloc;
 
-pub mod genetic_pool;
 pub mod decoder;
+pub mod genetic_pool;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[repr(C)]
@@ -50,6 +50,7 @@ pub struct ExecutionResult {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum OtaD2CUnreliable {
     Ack(u64),
+    LogMessage { level: log::Level, message: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -79,6 +80,10 @@ pub enum OtaD2CTransport {
     },
     Serialized {
         serialized: Option<Code>,
+    },
+    LogMessage {
+        level: log::Level,
+        message: String,
     },
 }
 

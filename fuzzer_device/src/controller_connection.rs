@@ -1,6 +1,8 @@
 use alloc::boxed::Box;
 use alloc::collections::VecDeque;
+use alloc::format;
 use alloc::vec::Vec;
+use core::fmt::Display;
 use core::pin::Pin;
 use fuzzer_data::{
     Ota, OtaC2D, OtaC2DUnreliable, OtaD2C, OtaD2CTransport, OtaD2CUnreliable, OtaPacket,
@@ -233,7 +235,7 @@ impl ControllerConnection {
         &mut self,
         data: Packet,
     ) -> Result<(), ConnectionError> {
-        let packet = if data.reliable_transport() {
+        let mut packet = if data.reliable_transport() {
             self.sequence_number_tx += 1;
 
             data.to_packet(self.sequence_number_tx, self.remote_session)
@@ -499,6 +501,42 @@ impl ControllerConnection {
                 Ok(Some(data))
             }
         }
+    }
+
+    #[track_caller]
+    pub fn log_unreliable<S: Display>(
+        &mut self,
+        level: log::Level,
+        message: S,
+    ) -> Result<(), ConnectionError> {
+        let location = core::panic::Location::caller();
+        let _ = self.network.as_mut().unwrap().poll();
+        let mut file_name = location.file();
+        if let Some(find) = file_name.rfind("/") {
+            file_name = &file_name[find+1..];
+        }
+        self.send(OtaD2CUnreliable::LogMessage {
+            level,
+            message: format!("[{}:{}] {}", file_name, location.column(), message),
+        })
+    }
+
+    #[track_caller]
+    pub fn log_reliable<S: Display>(
+        &mut self,
+        level: log::Level,
+        message: S,
+    ) -> Result<(), ConnectionError> {
+        let location = core::panic::Location::caller();
+        let _ = self.network.as_mut().unwrap().poll();
+        let mut file_name = location.file();
+        if let Some(find) = file_name.rfind("/") {
+            file_name = &file_name[find+1..];
+        }
+        self.send(OtaD2CTransport::LogMessage {
+            level,
+            message: format!("[{}:{}] {}", file_name, location.column(), message),
+        })
     }
 }
 

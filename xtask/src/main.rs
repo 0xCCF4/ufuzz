@@ -253,7 +253,11 @@ fn build_app(project: &str, release: bool, device: bool) -> Result<PathBuf, DynE
         "build",
         "-Zbuild-std",
         "--target",
-        target_file.to_str().unwrap(),
+        if device {
+            "x86_64-unknown-uefi"
+        } else {
+            target_file.to_str().unwrap()
+        },
     ]);
 
     let executable_name = if project == "fuzzer_device" {
@@ -358,11 +362,16 @@ fn build_app(project: &str, release: bool, device: bool) -> Result<PathBuf, DynE
                 .join("target")
         });
 
+    let target_folder = if device {
+        build_folder.join("x86_64-unknown-uefi")
+    } else {
+        build_folder.join("uefi-target-with-debug")
+    };
+
     match status.status() {
         Ok(status) if !status.success() => Err("Failed to build the hypervisor")?,
         Err(_) => Err("Failed to build the hypervisor")?,
-        Ok(_) => Ok(build_folder
-            .join("uefi-target-with-debug")
+        Ok(_) => Ok(target_folder
             .join("debug")
             .join(format!("{}.efi", executable_name))),
     }

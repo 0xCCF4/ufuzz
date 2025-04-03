@@ -1,17 +1,20 @@
 use clap::Parser;
 use coverage::harness::coverage_harness::hookable_address_iterator::HookableAddressIterator;
 use coverage::harness::coverage_harness::modification_engine::ModificationEngineSettings;
+use data_types::addresses::Address;
 use fuzzer_master::database::CodeEvent;
 use hypervisor::state::StateDifference;
 use itertools::Itertools;
 use std::collections::{BTreeMap, BTreeSet};
+use std::io::BufWriter;
 use std::path::PathBuf;
-use data_types::addresses::Address;
+use std::io::Write;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
     database: Option<PathBuf>,
+    plot_path: Option<PathBuf>,
 }
 
 pub fn main() {
@@ -151,26 +154,59 @@ pub fn main() {
     }
     let mut coverage_normalized = BTreeSet::new();
     for cov in coverage.iter() {
-        if !db.data.blacklisted_addresses.contains(cov) && !db.data.vm_entry_blacklist.contains(cov) {
+        if !db.data.blacklisted_addresses.contains(cov) && !db.data.vm_entry_blacklist.contains(cov)
+        {
             coverage_normalized.insert(*cov);
         }
     }
-    println!("Total coverage: {} ({})", coverage.len(), coverage_normalized.len());
+    println!(
+        "Total coverage: {} ({})",
+        coverage.len(),
+        coverage_normalized.len()
+    );
     println!(" - Possible coverage points: {}", possible_cov_points.len());
-    println!(" - Percentage: {:.2}%", coverage.len() as f64 / possible_cov_points.len() as f64 * 100.0);
+    println!(
+        " - Percentage: {:.2}%",
+        coverage.len() as f64 / possible_cov_points.len() as f64 * 100.0
+    );
 
-    let seeds = db.data.results.iter().map(|x| x.found_at.iter().map(|x| x.seed)).flatten().unique().collect::<Vec<_>>();
+    let seeds = db
+        .data
+        .results
+        .iter()
+        .map(|x| x.found_at.iter().map(|x| x.seed))
+        .flatten()
+        .unique()
+        .collect::<Vec<_>>();
 
     println!("Coverage by seed:");
     for seed in seeds {
         println!(" - {}", seed);
 
-        let largest_evolution = db.data.results.iter().filter(|x| x.found_at.iter().any(|x| x.seed == seed)).map(|x| x.found_at.iter().map(|x| x.evolution)).flatten().max().unwrap_or(0);
+        let largest_evolution = db
+            .data
+            .results
+            .iter()
+            .filter(|x| x.found_at.iter().any(|x| x.seed == seed))
+            .map(|x| x.found_at.iter().map(|x| x.evolution))
+            .flatten()
+            .max()
+            .unwrap_or(0);
 
         let mut overall_coverage = Vec::new();
         for evolution in 0..largest_evolution {
             let mut coverage = BTreeMap::new();
-            let results = db.data.results.iter().filter(|x| x.found_at.iter().any(|x| x.seed == seed && x.evolution == evolution)).map(|x| x.coverage.iter().filter(|x| *x.1 > 0)).flatten();
+            let results = db
+                .data
+                .results
+                .iter()
+                .filter(|x| {
+                    x.found_at
+                        .iter()
+                        .any(|x| x.seed == seed && x.evolution == evolution)
+                })
+                .map(|x| x.coverage.iter().filter(|x| *x.1 > 0))
+                .flatten();
             for result in results {
                 if *result.1 > 0 {
                     *coverage.entry(*result.0).or_insert(0) += result.1;
@@ -180,7 +216,7 @@ pub fn main() {
         }
         print!("   - Unique coverage: ");
         for (index, coverage) in overall_coverage.iter().enumerate() {
-            print!("{}",  coverage.len());
+            print!("{}", coverage.len());
             if index != overall_coverage.len() - 1 {
                 print!(", ");
             }
@@ -194,6 +230,27 @@ pub fn main() {
             }
         }
         println!();
+    }
+
+    if let Some(file) = args.plot_path {
+        let file_cov = std::fs::File::create(file.with_extension("cov.csv")).expect("Could not open file");
+        let mut writer_cov = BufWriter::new(file_cov);
+
+        let file_time = std::fs::File::create(file.with_extension("time.csv")).expect("Could not open file");
+        let mut writer_time = BufWriter::new(file_time);
+
+        let mut unique_coverage: BTreeSet<u16> = BTreeSet::new();
+        for (i,program) in db.data.results.iter().enumerate() {
+            for entry in program.coverage.keys().filter(|p| !unique_coverage.contains(p)) {
+                writeln!(&mut writer_time, "{entry}, {i}").expect("Could not write to file");
+            }
+
+            let prev = unique_coverage.len();
+            unique_coverage.extend(program.coverage.keys());
+            if prev != unique_coverage.len() {
+                writeln!(&mut writer_cov, "{i}, {}", unique_coverage.len()).expect("Could not write to coverage writer");
+            }
+        }
     }
 }
 

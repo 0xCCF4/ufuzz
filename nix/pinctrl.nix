@@ -1,7 +1,7 @@
 { pkgs ? import <nixpkgs> }:
 
 let
-  version = "master";
+  version = "660bba39805585fb39d37d49b8268073932696bb";
   pname = "pinctrl";
 
   pkgConfig = pkgs.writeTextFile {
@@ -28,7 +28,7 @@ pkgs.stdenv.mkDerivation rec {
     owner = "raspberrypi";
     repo = "utils";
     rev = version;
-    sha256 = "sha256-rgBnBRo4KJI0qE9pLpGLraGL+cqWzm4rbNmOzM/wOwU=";
+    sha256 = "sha256-ItknnAWicXK1pfAVbSgSBj1SAx7oxnhsAZsRyaqfCDM=";
   };
 
   nativeBuildInputs = [

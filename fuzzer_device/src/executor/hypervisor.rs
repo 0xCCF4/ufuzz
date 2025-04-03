@@ -54,12 +54,13 @@ impl Hypervisor {
         // 6: code entry page, execution starts here
 
         const CODE_PAGE_INDEX: usize = 0;
-        const STACK_PAGE_INDEX: usize = 1;
-        const GDT_PAGE_INDEX: usize = 2;
-        const TSS_PAGE_INDEX: usize = 3;
-        const PAGE_TABLE_4_INDEX: usize = 4;
-        const PAGE_TABLE_3_INDEX: usize = 5;
-        const CODE_ENTRY_PAGE_INDEX: usize = 6;
+        const COVERAGE_PAGE_INDEX: usize = 1;
+        const STACK_PAGE_INDEX: usize = 2;
+        const GDT_PAGE_INDEX: usize = 3;
+        const TSS_PAGE_INDEX: usize = 4;
+        const PAGE_TABLE_4_INDEX: usize = 5;
+        const PAGE_TABLE_3_INDEX: usize = 6;
+        const CODE_ENTRY_PAGE_INDEX: usize = 7;
 
         let code_page = Page::alloc_zeroed();
         let mut code_entry_page = Page::alloc_zeroed();
@@ -222,6 +223,11 @@ impl Hypervisor {
                 NestedPagingStructureEntryType::X,
             ),
             vm.build_translation(
+                COVERAGE_PAGE_INDEX << BASE_PAGE_SHIFT,
+                0x1000 as *const Page, // todo!
+                NestedPagingStructureEntryType::Rw, // todo!
+            ),
+            vm.build_translation(
                 STACK_PAGE_INDEX << BASE_PAGE_SHIFT,
                 stack_page.as_ptr(),
                 NestedPagingStructureEntryType::Rw,
@@ -292,6 +298,7 @@ impl Hypervisor {
         self.vm.vt.set_preemption_timer(1e6 as u64);
 
         self.memory_stack_page.zero();
+        // unsafe { (*(0x1000 as *const Page as *mut Page)).zero(); } // todo!
     }
 
     pub fn run_vm(&mut self) -> VmExitReason {

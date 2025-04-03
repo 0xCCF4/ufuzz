@@ -266,6 +266,7 @@ impl hardware_vt::HardwareVt for Vmx {
                 VmxControl::ProcessorBased,
                 (vmcs::control::PrimaryControls::HLT_EXITING
                     | vmcs::control::PrimaryControls::RDTSC_EXITING
+                    | vmcs::control::PrimaryControls::RDPMC_EXITING
                     | vmcs::control::PrimaryControls::CR8_STORE_EXITING
                     | vmcs::control::PrimaryControls::UNCOND_IO_EXITING
                     //| vmcs::control::PrimaryControls::USE_MSR_BITMAPS

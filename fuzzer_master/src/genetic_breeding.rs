@@ -1,7 +1,8 @@
 use crate::database::{CodeEvent, Database};
 use crate::device_connection::DeviceConnection;
 use crate::fuzzer_node_bridge::FuzzerNodeInterface;
-use crate::{wait_for_device, CommandExitResult};
+use crate::manual_execution::disassemble_code;
+use crate::{wait_for_device, CommandExitResult, WaitForDeviceResult};
 use fuzzer_data::genetic_pool::{GeneticPool, GeneticPoolSettings, GeneticSampleRating};
 use fuzzer_data::{ExecutionResult, Ota, OtaC2DTransport, OtaD2CTransport, ReportExecutionProblem};
 use hypervisor::state::VmExitReason;
@@ -10,7 +11,6 @@ use log::{error, info, trace, warn};
 use rand::{random, SeedableRng};
 use std::collections::BTreeMap;
 use std::time::Duration;
-use crate::manual_execution::disassemble_code;
 
 #[derive(Debug, Default, PartialEq)]
 enum FSM {
@@ -25,7 +25,6 @@ pub struct BreedingState {
 
     genetic_pool: GeneticPool,
     random_source: Option<rand_isaac::Isaac64Rng>,
-    ground_truth_coverage: BTreeMap<u16, u16>,
 
     last_reported_exclusion: Option<(Option<u16>, u16)>, // address, times
 
@@ -114,20 +113,6 @@ pub async fn main(
         // prepare for fuzzing
         // collect ground truth coverage
 
-        let (mut result, events) = match net_execute_sample(net, interface, database, &[]).await {
-            ExecuteSampleResult::Timeout => return CommandExitResult::RetryOrReconnect,
-            ExecuteSampleResult::Rerun => return CommandExitResult::Operational,
-            ExecuteSampleResult::Success(a, b) => (a, b),
-        };
-
-        state.ground_truth_coverage.clear();
-        for (address, coverage) in &result.coverage {
-            state.ground_truth_coverage.insert(*address, *coverage);
-        }
-        result.coverage.clear();
-
-        database.push_results(vec![], result, events, 0, 0);
-
         state.genetic_pool = GeneticPool::new_random_population(
             GeneticPoolSettings::default(),
             state.random_source.as_mut().unwrap(),
@@ -164,7 +149,6 @@ pub async fn main(
                         ExecuteSampleResult::Success(a, b) => (a, b),
                     };
 
-                subtract_iter_btree(&mut result.coverage, &state.ground_truth_coverage);
                 sample.rating = Some(result.fitness.clone());
                 database.push_results(
                     sample.code().to_vec(),
@@ -198,37 +182,34 @@ pub async fn main(
     CommandExitResult::Operational
 }
 
-pub fn subtract_iter_btree<'a, 'b>(
-    original: &'a mut BTreeMap<u16, u16>,
-    subtract_this: &'b BTreeMap<u16, u16>,
-) {
-    original.retain(|k, v| {
-        if let Some(subtract_v) = subtract_this.get(k) {
-            if *v < *subtract_v {
-                error!(
-                    "Reducing coverage count for more than ground truth: {k} : {v} < {subtract_v}"
-                );
-            }
-            *v = v.saturating_sub(*subtract_v);
-        }
-        *v != 0
-    });
-}
-
 pub enum ExecuteSampleResult {
     Timeout,
     Rerun,
     Success(ExecutionResult, Vec<ReportExecutionProblem>),
 }
 
-pub async fn net_blacklist(net: &mut DeviceConnection,
-                           database: &mut Database) -> bool {
+pub async fn net_blacklist(net: &mut DeviceConnection, database: &mut Database) -> bool {
     for blacklist in &database
         .data
         .blacklisted_addresses
         .iter()
         .chain(database.data.vm_entry_blacklist.iter())
-        .chain(database.data.results.iter().map(|r|r.events.iter()).flatten().filter_map(|e|if let CodeEvent::CoverageProblem {address, ..} = e {Some(address)} else {None}).unique())
+        .chain(
+            database
+                .data
+                .results
+                .iter()
+                .map(|r| r.events.iter())
+                .flatten()
+                .filter_map(|e| {
+                    if let CodeEvent::CoverageProblem { address, .. } = e {
+                        Some(address)
+                    } else {
+                        None
+                    }
+                })
+                .unique(),
+        )
         .chunks(200)
     {
         if let Err(err) = net
@@ -307,6 +288,10 @@ pub async fn net_execute_sample(
         return ExecuteSampleResult::Rerun;
     }
 
+    if result.coverage.len() == 0 {
+        warn!("Empty coverage.");
+    }
+
     ExecuteSampleResult::Success(result, events)
 }
 
@@ -345,6 +330,23 @@ pub async fn net_receive_excluded_addresses(net: &mut DeviceConnection) -> Optio
     }
 }
 
+pub async fn net_reboot_device(net: &mut DeviceConnection, interface: &FuzzerNodeInterface) -> Option<CommandExitResult> {
+    let x = net.send(OtaC2DTransport::Reboot).await;
+    if let Err(_) = x {
+        Some(CommandExitResult::RetryOrReconnect)
+    } else {
+        tokio::time::sleep(Duration::from_secs(60)).await;
+        trace!("Skipping bios");
+        let _ = interface.skip_bios().await;
+        tokio::time::sleep(Duration::from_secs(40)).await;
+        let x = wait_for_device(net).await;
+        match x {
+            WaitForDeviceResult::DeviceFound => None,
+            _ => Some(CommandExitResult::RetryOrReconnect),
+        }
+    }
+}
+
 pub async fn net_receive_execution_result(
     net: &mut DeviceConnection,
     timeout: Duration,
@@ -365,6 +367,7 @@ pub async fn net_receive_execution_result(
                     }
                     OtaD2CTransport::Coverage { coverage } => {
                         for cov in coverage {
+                            //println!("COV: {:x?}", cov);
                             coverage_result.insert(cov.0, cov.1);
                         }
                     }

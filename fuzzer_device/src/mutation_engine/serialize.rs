@@ -2,13 +2,12 @@ use crate::Trace;
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 use core::fmt::Display;
+use fuzzer_data::decoder::{InstructionDecoder, InstructionWithBytes};
 use iced_x86::{
     BlockEncoder, BlockEncoderOptions, Code, FlowControl, IcedError, Instruction, InstructionBlock,
 };
 use log::warn;
 use rand_core::RngCore;
-use fuzzer_data::decoder::{InstructionDecoder, InstructionWithBytes};
-
 
 const FENCE_INSTRUCTIONS: &[&[u8]] = &[
     // lfence
@@ -522,8 +521,8 @@ mod test {
     use iced_x86::code_asm::CodeAssembler;
     use rand_core::SeedableRng;
     use rand_isaac::isaac64;
-    use uefi::println;
     use std::println;
+    use uefi::println;
 
     #[test]
     fn test_serialize() {

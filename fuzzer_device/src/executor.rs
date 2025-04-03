@@ -7,6 +7,7 @@ use fake_coverage_collection as coverage_collection;
 mod hypervisor;
 
 use crate::cmos::NMIGuard;
+use crate::controller_connection::ControllerConnection;
 #[cfg(feature = "__debug_print_dissassembly")]
 use crate::disassemble_code;
 use crate::executor::coverage_collection::CoverageCollector;
@@ -16,8 +17,10 @@ use crate::{cmos, PersistentApplicationData, PersistentApplicationState, StateTr
 use ::hypervisor::error::HypervisorError;
 use ::hypervisor::state::{VmExitReason, VmState};
 use alloc::collections::{btree_map, BTreeMap, BTreeSet};
+use alloc::format;
 use alloc::rc::Rc;
 use alloc::vec::Vec;
+use core::arch::asm;
 use core::cell::RefCell;
 use core::fmt::Debug;
 use coverage::harness::coverage_harness::{CoverageExecutionResult, ExecutionResultEntry};
@@ -25,12 +28,13 @@ use coverage::harness::iteration_harness::IterationHarness;
 use coverage::interface_definition::CoverageCount;
 use data_types::addresses::{Address, UCInstructionAddress};
 use fuzzer_data::ReportExecutionProblem;
-use log::trace;
 use log::{error, warn};
+use log::{trace, Level};
 use rand_core::RngCore;
-#[cfg(feature = "__debug_print_progress")]
+#[cfg(feature = "__debug_print_progress_print")]
 use uefi::print;
 use uefi::println;
+use custom_processing_unit::{enable_hooks, lmfence, FunctionResult};
 
 struct CoverageCollectorData {
     pub collector: CoverageCollector,
@@ -44,6 +48,7 @@ pub struct SampleExecutor {
 }
 
 fn disable_all_hooks() {
+    lmfence();
     #[cfg(not(feature = "__debug_bochs_pretend"))]
     custom_processing_unit::disable_all_hooks();
 }
@@ -63,6 +68,7 @@ impl SampleExecutor {
         execution_result: &mut ExecutionResult,
         cmos: &mut cmos::CMOS<PersistentApplicationData>,
         random: &mut R,
+        mut net: Option<&mut ControllerConnection>,
     ) -> ExecutionSampleResult {
         // try to disable Non-Maskable Interrupts
         let nmi_guard = NMIGuard::disable_nmi(true);
@@ -135,7 +141,7 @@ impl SampleExecutor {
                         todo!("Implement multi-address coverage collection");
                     }
 
-                    #[cfg(feature = "__debug_print_progress")]
+                    #[cfg(feature = "__debug_print_progress_print")]
                     print!("{}\r", addresses[0]);
 
                     let mut iteration: usize = 0;
@@ -197,7 +203,6 @@ impl SampleExecutor {
             // execute the planned coverage collection
             for iteration in execution_plan {
                 // save the vm current state
-
                 match iteration {
                     Err(error) => {
                         execution_result
@@ -208,6 +213,14 @@ impl SampleExecutor {
                         result: (hooked_addresses, current_vm_exit, current_vm_state),
                         hooks: coverage_information,
                     }) => {
+                        if let Some(ref mut net) = net {
+                            #[cfg(feature = "__debug_print_progress_net")]
+                            let _ = net.log_unreliable(
+                                Level::Warn,
+                                format!("Address: {:04x?}: {:x?}", hooked_addresses, coverage_information),
+                            );
+                        }
+
                         // first check if the result of the execution is the same for the current iteration
                         let exit = if &execution_result.exit != &current_vm_exit {
                             Some(current_vm_exit)
@@ -232,7 +245,7 @@ impl SampleExecutor {
 
                         // extract the coverage information
                         for ucode_location in coverage_information {
-                            if let ExecutionResultEntry::Covered { address, count } = ucode_location
+                            if let ExecutionResultEntry::Covered { address, count, last_rip } = ucode_location
                             {
                                 let entry =
                                     execution_result.coverage.entry(ucode_location.address());

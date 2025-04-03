@@ -1,8 +1,6 @@
 #[allow(clippy::missing_safety_doc)] // todo: remove this and write safety docs
 pub mod raw {
-    use crate::interface_definition::{
-        ComInterfaceDescription, CoverageEntry, InstructionTableEntry, JumpTableEntry,
-    };
+    use crate::interface_definition::{ComInterfaceDescription, CoverageEntry, InstructionTableEntry, JumpTableEntry, LastRIPEntry};
     use core::ptr::NonNull;
     use data_types::addresses::{Address, UCInstructionAddress};
 
@@ -132,15 +130,26 @@ pub mod raw {
                 self.write_instruction_table(index, value.into());
             }
         }
+
+        unsafe fn lastrip_table(&self) -> NonNull<LastRIPEntry> {
+            self.base
+                .add(self.description.offset_last_rip_table)
+                .cast()
+        }
+
+        pub fn read_last_rip(&self, index: usize) -> LastRIPEntry {
+            if index >= self.description.max_number_of_hooks {
+                return LastRIPEntry::default();
+            }
+
+            unsafe { self.lastrip_table().add(index).read_volatile() }
+        }
     }
 }
 
 #[cfg(feature = "uefi")]
 pub mod safe {
-    use crate::interface_definition::{
-        ComInterfaceDescription, CoverageEntry, InstructionTableEntry, JumpTableEntry,
-        COVERAGE_RESULT_TABLE_BYTE_SIZE, INSTRUCTION_TABLE_BYTE_SIZE, JUMP_TABLE_BYTE_SIZE,
-    };
+    use crate::interface_definition::{ComInterfaceDescription, CoverageEntry, InstructionTableEntry, JumpTableEntry, LastRIPEntry, COVERAGE_RESULT_TABLE_BYTE_SIZE, INSTRUCTION_TABLE_BYTE_SIZE, JUMP_TABLE_BYTE_SIZE, LAST_RIP_TABLE_BYTE_SIZE};
     use crate::page_allocation::PageAllocation;
     use data_types::addresses::UCInstructionAddress;
     use log::error;
@@ -175,6 +184,11 @@ pub mod safe {
                     " - Instruction table [{:04x} - {:04x}]",
                     description.offset_instruction_table,
                     description.offset_instruction_table + INSTRUCTION_TABLE_BYTE_SIZE - 1
+                );
+                error!(
+                    " - lastRIP table [{:04x} - {:04x}]",
+                    description.offset_last_rip_table,
+                    description.offset_last_rip_table + LAST_RIP_TABLE_BYTE_SIZE - 1
                 );
                 return Err(uefi::Status::INVALID_PARAMETER.into());
             }
@@ -237,6 +251,11 @@ pub mod safe {
         #[track_caller]
         pub fn read_instruction_table(&self, index: usize) -> InstructionTableEntry {
             self.base.read_instruction_table(index)
+        }
+
+        #[track_caller]
+        pub fn read_last_rip(&self, index: usize) -> LastRIPEntry {
+            self.base.read_last_rip(index)
         }
 
         #[track_caller]

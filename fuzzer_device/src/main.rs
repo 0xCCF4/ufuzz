@@ -15,6 +15,7 @@ use core::fmt::Display;
 use core::ops::DerefMut;
 use coverage::interface_definition::CoverageCount;
 use data_types::addresses::{Address, UCInstructionAddress};
+use fuzzer_data::decoder::InstructionDecoder;
 use fuzzer_data::genetic_pool::{GeneticPool, GeneticPoolSettings, GeneticSampleRating};
 use fuzzer_data::{genetic_pool, OtaC2D, OtaC2DTransport, OtaD2CTransport, ReportExecutionProblem};
 use fuzzer_device::cmos::CMOS;
@@ -22,12 +23,11 @@ use fuzzer_device::controller_connection::{ConnectionSettings, ControllerConnect
 use fuzzer_device::executor::{
     ExecutionEvent, ExecutionResult, ExecutionSampleResult, SampleExecutor,
 };
-use fuzzer_data::decoder::InstructionDecoder;
 use fuzzer_device::{
     disassemble_code, PersistentApplicationData, PersistentApplicationState, StateTrace,
 };
 use itertools::Itertools;
-use log::{debug, error, info, trace, warn};
+use log::{debug, error, info, trace, warn, Level};
 use num_traits::{ConstZero, SaturatingSub};
 use rand_core::{RngCore, SeedableRng};
 use uefi::proto::loaded_image::LoadedImage;
@@ -223,12 +223,14 @@ unsafe fn main() -> Status {
                 }
                 OtaC2DTransport::ExecuteSample { code } => {
                     println!("Executing sample");
+                    let _ = udp.log_unreliable(Level::Trace, "Executing sample");
 
                     let ExecutionSampleResult { serialized_sample } = executor.execute_sample(
                         &code,
                         &mut execution_result,
                         &mut cmos,
                         &mut random,
+                        Some(&mut udp),
                     );
 
                     let events = execution_result
@@ -404,19 +406,14 @@ fn genetic_pool_fuzzing(
         for sample in genetic_pool.all_samples_mut() {
             global_stats.iteration_count += 1;
 
-            // Alive message
-            // todo make sending this message less often
-            if let Some(net) = &mut network {
-                /*if let Err(err) = net.send(OtaD2CTransport::Alive {
-                    iteration: global_stats.iteration_count,
-                }) {
-                    warn!("Failed to send alive message: {:?}", err);
-                }*/
-            }
-
             // Execute
-            let ExecutionSampleResult { serialized_sample } =
-                executor.execute_sample(sample.code(), &mut execution_result, cmos, &mut random);
+            let ExecutionSampleResult { serialized_sample } = executor.execute_sample(
+                sample.code(),
+                &mut execution_result,
+                cmos,
+                &mut random,
+                None,
+            );
 
             // Handle events
             for event in &execution_result.events {
@@ -571,7 +568,7 @@ fn genetic_pool_fuzzing(
             ));
 
             let mut new_coverage = Vec::with_capacity(0);
-            subtract_iter_btree(&mut execution_result.coverage, &ground_truth_coverage);
+            //subtract_iter_btree(&mut execution_result.coverage, &ground_truth_coverage);
             for (address, count) in execution_result.coverage.iter() {
                 if *count > 0 && !coverage_sofar.contains(address) {
                     new_coverage.push(address);
@@ -616,7 +613,7 @@ fn ground_truth_coverage<R: RngCore>(
     random: &mut R,
 ) -> BTreeMap<UCInstructionAddress, CoverageCount> {
     info!("Collecting ground truth coverage");
-    let _ = executor.execute_sample(&[], execution_result, cmos, random);
+    let _ = executor.execute_sample(&[], execution_result, cmos, random, None);
     let ground_truth_coverage = execution_result.coverage.clone();
     if execution_result.events.len() > 0 {
         error!("Initial sample execution had events");

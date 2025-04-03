@@ -4,9 +4,7 @@ pub mod serialize;
 use crate::heuristic::Sample;
 use crate::mutation_engine::random_mutation::RandomMutation;
 use alloc::boxed::Box;
-use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
-use iced_x86::{Decoder, DecoderOptions};
 use rand_core::RngCore;
 
 pub const NUMBER_OF_MUTATION_OPERATIONS: usize = {
