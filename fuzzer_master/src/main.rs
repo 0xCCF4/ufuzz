@@ -240,7 +240,7 @@ async fn main() {
                 if !reboot_state {
                     reboot_state = true;
                     continue_count = 0;
-                    if let Some(state) = net_reboot_device(&mut udp,  &interface).await {
+                    if let Some(state) = net_reboot_device(&mut udp, &interface).await {
                         state
                     } else {
                         CommandExitResult::Operational

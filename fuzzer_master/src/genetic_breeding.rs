@@ -330,7 +330,10 @@ pub async fn net_receive_excluded_addresses(net: &mut DeviceConnection) -> Optio
     }
 }
 
-pub async fn net_reboot_device(net: &mut DeviceConnection, interface: &FuzzerNodeInterface) -> Option<CommandExitResult> {
+pub async fn net_reboot_device(
+    net: &mut DeviceConnection,
+    interface: &FuzzerNodeInterface,
+) -> Option<CommandExitResult> {
     let x = net.send(OtaC2DTransport::Reboot).await;
     if let Err(_) = x {
         Some(CommandExitResult::RetryOrReconnect)

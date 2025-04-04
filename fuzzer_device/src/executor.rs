@@ -26,6 +26,7 @@ use core::fmt::Debug;
 use coverage::harness::coverage_harness::{CoverageExecutionResult, ExecutionResultEntry};
 use coverage::harness::iteration_harness::IterationHarness;
 use coverage::interface_definition::CoverageCount;
+use custom_processing_unit::{enable_hooks, lmfence, FunctionResult};
 use data_types::addresses::{Address, UCInstructionAddress};
 use fuzzer_data::ReportExecutionProblem;
 use log::{error, warn};
@@ -34,7 +35,6 @@ use rand_core::RngCore;
 #[cfg(feature = "__debug_print_progress_print")]
 use uefi::print;
 use uefi::println;
-use custom_processing_unit::{enable_hooks, lmfence, FunctionResult};
 
 struct CoverageCollectorData {
     pub collector: CoverageCollector,
@@ -217,7 +217,10 @@ impl SampleExecutor {
                             #[cfg(feature = "__debug_print_progress_net")]
                             let _ = net.log_unreliable(
                                 Level::Warn,
-                                format!("Address: {:04x?}: {:x?}", hooked_addresses, coverage_information),
+                                format!(
+                                    "Address: {:04x?}: {:x?}",
+                                    hooked_addresses, coverage_information
+                                ),
                             );
                         }
 
@@ -245,7 +248,11 @@ impl SampleExecutor {
 
                         // extract the coverage information
                         for ucode_location in coverage_information {
-                            if let ExecutionResultEntry::Covered { address, count, last_rip } = ucode_location
+                            if let ExecutionResultEntry::Covered {
+                                address,
+                                count,
+                                last_rip,
+                            } = ucode_location
                             {
                                 let entry =
                                     execution_result.coverage.entry(ucode_location.address());

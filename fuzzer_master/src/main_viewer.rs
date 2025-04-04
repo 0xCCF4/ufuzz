@@ -7,8 +7,8 @@ use hypervisor::state::StateDifference;
 use itertools::Itertools;
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::BufWriter;
-use std::path::PathBuf;
 use std::io::Write;
+use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -233,22 +233,29 @@ pub fn main() {
     }
 
     if let Some(file) = args.plot_path {
-        let file_cov = std::fs::File::create(file.with_extension("cov.csv")).expect("Could not open file");
+        let file_cov =
+            std::fs::File::create(file.with_extension("cov.csv")).expect("Could not open file");
         let mut writer_cov = BufWriter::new(file_cov);
 
-        let file_time = std::fs::File::create(file.with_extension("time.csv")).expect("Could not open file");
+        let file_time =
+            std::fs::File::create(file.with_extension("time.csv")).expect("Could not open file");
         let mut writer_time = BufWriter::new(file_time);
 
         let mut unique_coverage: BTreeSet<u16> = BTreeSet::new();
-        for (i,program) in db.data.results.iter().enumerate() {
-            for entry in program.coverage.keys().filter(|p| !unique_coverage.contains(p)) {
+        for (i, program) in db.data.results.iter().enumerate() {
+            for entry in program
+                .coverage
+                .keys()
+                .filter(|p| !unique_coverage.contains(p))
+            {
                 writeln!(&mut writer_time, "{entry}, {i}").expect("Could not write to file");
             }
 
             let prev = unique_coverage.len();
             unique_coverage.extend(program.coverage.keys());
             if prev != unique_coverage.len() {
-                writeln!(&mut writer_cov, "{i}, {}", unique_coverage.len()).expect("Could not write to coverage writer");
+                writeln!(&mut writer_cov, "{i}, {}", unique_coverage.len())
+                    .expect("Could not write to coverage writer");
             }
         }
     }

@@ -1,11 +1,11 @@
 use crate::interface_definition;
+use crate::interface_definition::LastRIPEntry;
 use crate::interface_definition::{
     ComInterfaceDescription, CoverageEntry, InstructionTableEntry, JumpTableEntry,
 };
 use core::mem::size_of;
 use std::path::Path;
 use ucode_compiler_bridge::{CompilerOptions, AUTOGEN};
-use crate::interface_definition::LastRIPEntry;
 
 pub fn build_ucode_scripts() -> ucode_compiler_bridge::Result<()> {
     if !Path::new("src/patches").exists() {

@@ -1,0 +1,13 @@
+[package]
+name = "performance_timing"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde = { version = "1.0.219", features = ["derive", "alloc"], default-features = false }
+
+[target.'cfg(target_arch = "x86_64")'.dependencies]
+x86 = "0.52"
+
+[target.'cfg(target_arch = "x86")'.dependencies]
+x86 = "0.52"

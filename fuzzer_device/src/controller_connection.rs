@@ -513,7 +513,7 @@ impl ControllerConnection {
         let _ = self.network.as_mut().unwrap().poll();
         let mut file_name = location.file();
         if let Some(find) = file_name.rfind("/") {
-            file_name = &file_name[find+1..];
+            file_name = &file_name[find + 1..];
         }
         self.send(OtaD2CUnreliable::LogMessage {
             level,
@@ -531,7 +531,7 @@ impl ControllerConnection {
         let _ = self.network.as_mut().unwrap().poll();
         let mut file_name = location.file();
         if let Some(find) = file_name.rfind("/") {
-            file_name = &file_name[find+1..];
+            file_name = &file_name[find + 1..];
         }
         self.send(OtaD2CTransport::LogMessage {
             level,

@@ -275,7 +275,10 @@ pub fn modify_triad_for_hooking(
             Instruction::NOP,
             Instruction::UJMP(address.next_address()),
         ],
-        sequence_word: sequence_word.apply_view(address.triad_offset(), 1).apply().apply_shift(1),
+        sequence_word: sequence_word
+            .apply_view(address.triad_offset(), 1)
+            .apply()
+            .apply_shift(1),
     };
 
     if let Some(control) = result_triad.sequence_word.control() {
@@ -387,16 +390,13 @@ mod test {
     fn print_address() {
         let rom = ucode_dump::dump::ROM_cpu_000506CA;
         let offset = 0x208c;
-        for n in offset..offset+4 {
+        for n in offset..offset + 4 {
             let address = UCInstructionAddress::from_const(n);
             print!("{}  ", address);
             let x = modify_triad_for_hooking(address, &rom, &ModificationEngineSettings::default())
                 .unwrap();
-            print!(
-                "{}",
-                x
-            );
-            print!("  ");;
+            print!("{}", x);
+            print!("  ");
             for i in x.instructions {
                 print!("{:x?} ", i.assemble_no_crc());
             }

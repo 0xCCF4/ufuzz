@@ -224,7 +224,7 @@ impl Hypervisor {
             ),
             vm.build_translation(
                 COVERAGE_PAGE_INDEX << BASE_PAGE_SHIFT,
-                0x1000 as *const Page, // todo!
+                0x1000 as *const Page,              // todo!
                 NestedPagingStructureEntryType::Rw, // todo!
             ),
             vm.build_translation(

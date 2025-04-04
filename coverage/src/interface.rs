@@ -1,6 +1,8 @@
 #[allow(clippy::missing_safety_doc)] // todo: remove this and write safety docs
 pub mod raw {
-    use crate::interface_definition::{ComInterfaceDescription, CoverageEntry, InstructionTableEntry, JumpTableEntry, LastRIPEntry};
+    use crate::interface_definition::{
+        ComInterfaceDescription, CoverageEntry, InstructionTableEntry, JumpTableEntry, LastRIPEntry,
+    };
     use core::ptr::NonNull;
     use data_types::addresses::{Address, UCInstructionAddress};
 
@@ -132,9 +134,7 @@ pub mod raw {
         }
 
         unsafe fn lastrip_table(&self) -> NonNull<LastRIPEntry> {
-            self.base
-                .add(self.description.offset_last_rip_table)
-                .cast()
+            self.base.add(self.description.offset_last_rip_table).cast()
         }
 
         pub fn read_last_rip(&self, index: usize) -> LastRIPEntry {
@@ -149,7 +149,11 @@ pub mod raw {
 
 #[cfg(feature = "uefi")]
 pub mod safe {
-    use crate::interface_definition::{ComInterfaceDescription, CoverageEntry, InstructionTableEntry, JumpTableEntry, LastRIPEntry, COVERAGE_RESULT_TABLE_BYTE_SIZE, INSTRUCTION_TABLE_BYTE_SIZE, JUMP_TABLE_BYTE_SIZE, LAST_RIP_TABLE_BYTE_SIZE};
+    use crate::interface_definition::{
+        ComInterfaceDescription, CoverageEntry, InstructionTableEntry, JumpTableEntry,
+        LastRIPEntry, COVERAGE_RESULT_TABLE_BYTE_SIZE, INSTRUCTION_TABLE_BYTE_SIZE,
+        JUMP_TABLE_BYTE_SIZE, LAST_RIP_TABLE_BYTE_SIZE,
+    };
     use crate::page_allocation::PageAllocation;
     use data_types::addresses::UCInstructionAddress;
     use log::error;
