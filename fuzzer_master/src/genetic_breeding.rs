@@ -8,6 +8,7 @@ use fuzzer_data::{ExecutionResult, Ota, OtaC2DTransport, OtaD2CTransport, Report
 use hypervisor::state::VmExitReason;
 use itertools::Itertools;
 use log::{error, info, trace, warn};
+use performance_timing::measurements::{MeasureValuesNormalized, MeasurementData};
 use rand::{random, SeedableRng};
 use std::collections::BTreeMap;
 use std::time::Duration;
@@ -142,7 +143,7 @@ pub async fn main(
                     }
                 }
 
-                let (mut result, events) =
+                let (result, events) =
                     match net_execute_sample(net, interface, database, sample.code()).await {
                         ExecuteSampleResult::Timeout => return CommandExitResult::ForceReconnect,
                         ExecuteSampleResult::Rerun => return CommandExitResult::Operational,
@@ -397,6 +398,36 @@ pub async fn net_receive_execution_result(
             }
         } else {
             return None;
+        }
+    }
+}
+
+pub async fn net_receive_performance_timing(
+    net: &mut DeviceConnection,
+    timeout: Duration,
+) -> BTreeMap<String, MeasureValuesNormalized> {
+    let mut data = BTreeMap::default();
+
+    loop {
+        let packet = net.receive(Some(timeout)).await;
+
+        if let Some(packet) = packet {
+            if let Ota::Transport { content, .. } = packet {
+                match content {
+                    OtaD2CTransport::PerformanceTiming { measurements } => {
+                        for (k, v) in measurements {
+                            if data.insert(k.to_string(), v).is_some() {
+                                error!("Performance timing key collision: {k:?}");
+                            }
+                        }
+                    }
+                    _ => {
+                        warn!("Unexpected packet: {:?}", content);
+                    }
+                }
+            }
+        } else {
+            return data;
         }
     }
 }

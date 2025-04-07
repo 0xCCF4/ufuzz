@@ -22,6 +22,7 @@ iced-x86 = { version = "1.21.0", default-features = false, features = ["decoder"
 coverage = { path = "../coverage", features = ["nostd"] }
 ucode_dump = { path = "../ucode_dump" }
 data_types = { path = "../data_types" }
+performance_timing = { path = "../performance_timing" }
 
 [[bin]]
 name = "fuzzer_master"

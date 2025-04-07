@@ -1,6 +1,7 @@
 use core::mem::align_of;
 use core::mem::size_of;
 
+#[allow(dead_code)] // base is read in different file
 pub struct ComInterfaceDescription {
     pub base: u16,
     pub max_number_of_hooks: usize,
@@ -88,25 +89,36 @@ pub const INSTRUCTION_TABLE_BYTE_SIZE: usize =
 pub type LastRIPEntry = [u64; 2];
 pub const LAST_RIP_TABLE_BYTE_SIZE: usize = size_of::<LastRIPEntry>() * MAX_NUMBER_OF_HOOKS;
 
+#[allow(dead_code)]
 const START_OF_COVERAGE_TABLE: usize = 0;
+#[allow(dead_code)]
 const END_OF_COVERAGE_TABLE: usize = COVERAGE_RESULT_TABLE_BYTE_SIZE;
 
+#[allow(dead_code)]
 const GENUINE_START_OF_JUMP_TABLE: usize = END_OF_COVERAGE_TABLE;
+#[allow(dead_code)]
 const START_OF_JUMP_TABLE: usize = align(align_of::<JumpTableEntry>(), GENUINE_START_OF_JUMP_TABLE);
+#[allow(dead_code)]
 const END_OF_JUMP_TABLE: usize = START_OF_JUMP_TABLE + JUMP_TABLE_BYTE_SIZE;
 
+#[allow(dead_code)]
 const GENUINE_START_OF_INSTRUCTION_TABLE: usize = END_OF_JUMP_TABLE;
+#[allow(dead_code)]
 const START_OF_INSTRUCTION_TABLE: usize = align(
     align_of::<InstructionTableEntry>(),
     GENUINE_START_OF_INSTRUCTION_TABLE,
 );
+#[allow(dead_code)]
 const END_OF_INSTRUCTION_TABLE: usize = START_OF_INSTRUCTION_TABLE + INSTRUCTION_TABLE_BYTE_SIZE;
 
+#[allow(dead_code)]
 const GENUINE_START_OF_LAST_RIP_TABLE: usize = END_OF_INSTRUCTION_TABLE;
+#[allow(dead_code)]
 const START_OF_LAST_RIP_TABLE: usize =
     align(align_of::<LastRIPEntry>(), GENUINE_START_OF_LAST_RIP_TABLE);
 //const END_OF_LAST_RIP_TABLE:usize = START_OF_LAST_RIP_TABLE+LAST_RIP_TABLE_BYTE_SIZE;
 
+#[allow(dead_code)]
 pub const COM_INTERFACE_DESCRIPTION: ComInterfaceDescription = ComInterfaceDescription {
     base: 0x1000,
     max_number_of_hooks: MAX_NUMBER_OF_HOOKS,

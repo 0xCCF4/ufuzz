@@ -20,17 +20,17 @@ use alloc::collections::{btree_map, BTreeMap, BTreeSet};
 use alloc::format;
 use alloc::rc::Rc;
 use alloc::vec::Vec;
-use core::arch::asm;
 use core::cell::RefCell;
 use core::fmt::Debug;
 use coverage::harness::coverage_harness::{CoverageExecutionResult, ExecutionResultEntry};
 use coverage::harness::iteration_harness::IterationHarness;
 use coverage::interface_definition::CoverageCount;
-use custom_processing_unit::{enable_hooks, lmfence, FunctionResult};
+use custom_processing_unit::lmfence;
 use data_types::addresses::{Address, UCInstructionAddress};
 use fuzzer_data::ReportExecutionProblem;
 use log::{error, warn};
 use log::{trace, Level};
+use performance_timing::track_time;
 use rand_core::RngCore;
 #[cfg(feature = "__debug_print_progress_print")]
 use uefi::print;
@@ -62,6 +62,7 @@ impl SampleExecutor {
         self.coverage.is_some()
     }
 
+    #[cfg_attr(feature = "__debug_performance_trace", track_time)]
     pub fn execute_sample<R: RngCore>(
         &mut self,
         sample: &[u8],
@@ -251,7 +252,7 @@ impl SampleExecutor {
                             if let ExecutionResultEntry::Covered {
                                 address,
                                 count,
-                                last_rip,
+                                last_rip: _,
                             } = ucode_location
                             {
                                 let entry =
@@ -272,7 +273,7 @@ impl SampleExecutor {
                 }
             }
 
-            #[cfg(feature = "__debug_print_progress")]
+            #[cfg(feature = "__debug_print_progress_print")]
             print!("     \r");
         }
 

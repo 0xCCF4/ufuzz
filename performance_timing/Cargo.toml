@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 serde = { version = "1.0.219", features = ["derive", "alloc"], default-features = false }
+performance_timing_macros = { path = "../performance_timing_macros" }
 
 [target.'cfg(target_arch = "x86_64")'.dependencies]
 x86 = "0.52"

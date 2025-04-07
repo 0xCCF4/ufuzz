@@ -1,3 +1,5 @@
+#![allow(unexpected_cfgs)] // todo: hide warning - file bug]
+
 use error_chain::error_chain;
 use regex::{Captures, Replacer};
 use std::ffi::OsStr;

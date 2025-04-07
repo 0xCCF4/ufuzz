@@ -3,12 +3,15 @@ pub mod modification_engine;
 
 #[cfg(feature = "ucode")]
 use crate::coverage_collector;
+#[cfg(feature = "ucode")]
 use crate::harness::coverage_harness::modification_engine::{
     ModificationEngineSettings, NotHookableReason,
 };
 #[cfg(feature = "ucode")]
 use crate::interface::safe::ComInterface;
-use crate::interface_definition::{CoverageCount, InstructionTableEntry};
+use crate::interface_definition::CoverageCount;
+#[cfg(feature = "ucode")]
+use crate::interface_definition::InstructionTableEntry;
 #[cfg(feature = "nostd")]
 use alloc::vec::Vec;
 use core::fmt::Debug;
@@ -18,7 +21,9 @@ use custom_processing_unit::{
     CustomProcessingUnit, FunctionResult, HookGuard, PatchError,
 };
 use data_types::addresses::UCInstructionAddress;
+#[cfg(feature = "ucode")]
 use ucode_compiler_dynamic::sequence_word::DisassembleError;
+#[cfg(feature = "ucode")]
 use ucode_compiler_dynamic::Triad;
 // const COVERAGE_ENTRIES: usize = UCInstructionAddress::MAX.to_const();
 

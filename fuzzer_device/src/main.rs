@@ -1,5 +1,7 @@
 #![allow(incomplete_features)]
 #![feature(generic_const_exprs)]
+#![feature(stmt_expr_attributes)]
+#![feature(proc_macro_hygiene)]
 #![no_main]
 #![no_std]
 
@@ -11,7 +13,6 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use alloc::{format, vec};
 use core::cell::RefCell;
-use core::fmt::Display;
 use core::ops::DerefMut;
 use coverage::interface_definition::CoverageCount;
 use data_types::addresses::{Address, UCInstructionAddress};
@@ -23,18 +24,23 @@ use fuzzer_device::controller_connection::{ConnectionSettings, ControllerConnect
 use fuzzer_device::executor::{
     ExecutionEvent, ExecutionResult, ExecutionSampleResult, SampleExecutor,
 };
+use fuzzer_device::perf_monitor::PerfMonitor;
 use fuzzer_device::{
     disassemble_code, PersistentApplicationData, PersistentApplicationState, StateTrace,
 };
 use itertools::Itertools;
 use log::{debug, error, info, trace, warn, Level};
-use num_traits::{ConstZero, SaturatingSub};
+use performance_timing::measurements::MeasureValuesNormalized;
+use performance_timing::{track_time, TimeMeasurement};
 use rand_core::{RngCore, SeedableRng};
 use uefi::proto::loaded_image::LoadedImage;
 use uefi::proto::media::file::{File, FileAttribute, FileMode};
 use uefi::{entry, println, CString16, Error, Status};
 use uefi_raw::table::runtime::ResetType;
 use x86::cpuid::cpuid;
+
+#[cfg(feature = "device_brix")]
+const P0_FREQ: f64 = 1.09e9;
 
 #[entry]
 unsafe fn main() -> Status {
@@ -46,10 +52,22 @@ unsafe fn main() -> Status {
         "Program version: {:08x}",
         PersistentApplicationData::this_app_version()
     );
+    if let Err(err) = performance_timing::initialize(P0_FREQ) {
+        error!("Failed to initialize performance timing: {:?}", err);
+        return Status::ABORTED;
+    }
 
     prepare_gdb();
 
     uefi::boot::stall(1000000);
+
+    let mut perf_monitor = match PerfMonitor::new("perf.json") {
+        Ok(x) => x,
+        Err(e) => {
+            error!("Failed to create perf monitor: {:?}", e);
+            return Status::ABORTED;
+        }
+    };
 
     let disable_nmi = true;
     let mut cmos = CMOS::<PersistentApplicationData>::read_from_ram(disable_nmi);
@@ -149,7 +167,13 @@ unsafe fn main() -> Status {
         let mut decoder = InstructionDecoder::new();
 
         trace!("Waiting for command...");
+        #[cfg_attr(feature = "__debug_performance_trace", track_time("main_loop"))]
         loop {
+            #[cfg(feature = "__debug_performance_trace")]
+            if let Err(err) = perf_monitor.try_save_file() {
+                error!("Failed to save perf monitor values: {:?}", err);
+            }
+
             let packet = match udp.receive(None) {
                 Ok(None) => continue,
                 Ok(Some(packet)) => packet,
@@ -183,7 +207,12 @@ unsafe fn main() -> Status {
                         error!("Failed to send capabilities: {:?}", err);
                     }
                 }
-                OtaC2DTransport::Blacklist { address } => {
+                OtaC2DTransport::Blacklist { address } =>
+                #[cfg_attr(
+                    feature = "__debug_performance_trace",
+                    track_time("main_loop::blacklist-set")
+                )]
+                {
                     let mut excluded_addresses_mut = excluded_addresses.borrow_mut();
 
                     for addr in address {
@@ -207,7 +236,12 @@ unsafe fn main() -> Status {
                     break;
                 }
                 OtaC2DTransport::AreYouThere => {}
-                OtaC2DTransport::GiveMeYourBlacklistedAddresses => {
+                OtaC2DTransport::GiveMeYourBlacklistedAddresses =>
+                #[cfg_attr(
+                    feature = "__debug_performance_trace",
+                    track_time("main_loop::blacklist-get")
+                )]
+                {
                     let borrow = excluded_addresses.borrow();
                     for blacklisted in borrow.iter().cloned().collect::<Vec<u16>>().chunks(200) {
                         let blacklisted = OtaD2CTransport::BlacklistedAddresses {
@@ -218,10 +252,28 @@ unsafe fn main() -> Status {
                         }
                     }
                 }
+                OtaC2DTransport::ReportPerformanceTiming => {
+                    let measurements = perf_monitor.measurement_data.accumulate();
+                    for chunk in &measurements.into_iter().chunks(10) {
+                        let measurements = OtaD2CTransport::PerformanceTiming {
+                            measurements: chunk
+                                .map(|(k, v)| (k, MeasureValuesNormalized::from(v)))
+                                .collect::<BTreeMap<String, MeasureValuesNormalized>>(),
+                        };
+                        if let Err(err) = udp.send(measurements) {
+                            error!("Failed to send performance timing: {:?}", err);
+                        }
+                    }
+                }
                 OtaC2DTransport::SetRandomSeed { seed } => {
                     random = random_source(seed);
                 }
-                OtaC2DTransport::ExecuteSample { code } => {
+                OtaC2DTransport::ExecuteSample { code } =>
+                #[cfg_attr(
+                    feature = "__debug_performance_trace",
+                    track_time("main_loop::execute_sample")
+                )]
+                {
                     println!("Executing sample");
                     let _ = udp.log_unreliable(Level::Trace, "Executing sample");
 
@@ -324,6 +376,8 @@ unsafe fn main() -> Status {
                         }
                     }
 
+                    let _guard = TimeMeasurement::begin("main_loop::send_results");
+
                     for cov in execution_result
                         .coverage
                         .iter()
@@ -351,6 +405,8 @@ unsafe fn main() -> Status {
                     }) {
                         error!("Failed to send execution result: {:?}", err);
                     }
+
+                    drop(_guard);
                 }
             }
         }
@@ -663,28 +719,6 @@ pub fn rate_sample_from_execution(
         program_utilization: program_utilization as u8,
         loop_count,
     }
-}
-
-fn subtract_iter_btree<
-    'a,
-    'b,
-    K: Ord + Display,
-    V: SaturatingSub + Copy + Display + ConstZero + Ord,
->(
-    original: &'a mut BTreeMap<K, V>,
-    subtract_this: &'b BTreeMap<K, V>,
-) {
-    original.retain(|k, v| {
-        if let Some(subtract_v) = subtract_this.get(k) {
-            if *v < *subtract_v {
-                error!(
-                    "Reducing coverage count for more than ground truth: {k} : {v} < {subtract_v}"
-                );
-            }
-            *v = v.saturating_sub(subtract_v);
-        }
-        !v.is_zero()
-    });
 }
 
 #[cfg(feature = "rand_isaac")]

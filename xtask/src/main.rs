@@ -277,6 +277,17 @@ fn build_app(project: &str, release: bool, device: bool) -> Result<PathBuf, DynE
     } else if project == "hypervisor" {
         status.args(["-p", project, "--example", "test_hypervisor"]);
         "examples/test_hypervisor"
+    } else if project == "test_time" {
+        status.args([
+            "-p",
+            "fuzzer_device",
+            "--example",
+            "test_time",
+            "--features",
+            "device_bochs,mutation_all",
+            "--no-default-features",
+        ]);
+        "examples/test_time"
     } else if project == "cmos_test" {
         status.args([
             "-p",

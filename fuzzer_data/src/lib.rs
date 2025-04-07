@@ -7,6 +7,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt::Debug;
 use hypervisor::state::{VmExitReason, VmState};
+use performance_timing::measurements::MeasureValuesNormalized;
 use serde::{Deserialize, Serialize};
 
 extern crate alloc;
@@ -53,7 +54,7 @@ pub enum OtaD2CUnreliable {
     LogMessage { level: log::Level, message: String },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum OtaD2CTransport {
     LastRunBlacklisted {
         address: Option<u16>,
@@ -85,6 +86,9 @@ pub enum OtaD2CTransport {
         level: log::Level,
         message: String,
     },
+    PerformanceTiming {
+        measurements: BTreeMap<String, MeasureValuesNormalized>,
+    },
 }
 
 pub type Code = Vec<u8>;
@@ -102,6 +106,7 @@ pub enum OtaC2DTransport {
     Blacklist { address: Vec<u16> },
     DidYouExcludeAnAddressLastRun,
     GiveMeYourBlacklistedAddresses,
+    ReportPerformanceTiming,
 
     SetRandomSeed { seed: u64 },
     ExecuteSample { code: Code },

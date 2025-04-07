@@ -1,46 +1,21 @@
 use crate::measurements::mm_initialize;
 use crate::{instance, Availability, Instant, INITIALIZED, INSTANCE};
-use core::error::Error;
 use core::fmt::{Display, Formatter};
 use core::sync::atomic::Ordering;
-use x86::cpuid::cpuid;
-use x86::fence::{lfence, sfence};
-use x86::time::rdtsc;
-
-enum Vendor {
-    Intel,
-    AMD,
-    Unknown,
-}
-
-fn processor_vendor() -> Vendor {
-    match x86::cpuid::CpuId::new()
-        .get_vendor_info()
-        .as_ref()
-        .map(|x| x.as_str())
-    {
-        Some("GenuineIntel") => Vendor::Intel,
-        Some("AuthenticAMD") => Vendor::AMD,
-        _ => Vendor::Unknown,
-    }
-}
+use std::error::Error;
 
 // only single thread safe
-pub struct TimeKeeper {
-    p0_frequency: f64,
-}
+pub struct TimeKeeper {}
 
 #[derive(Copy, Clone, PartialEq, Hash, Debug, Eq)]
 pub enum CreationError {
     NotAvailable,
-    TSCFrequency,
 }
 
 impl Display for CreationError {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         match self {
             CreationError::NotAvailable => write!(f, "TimeKeeper is not available on this CPU"),
-            CreationError::TSCFrequency => write!(f, "Unable to get TSC frequency"),
         }
     }
 }
@@ -49,16 +24,7 @@ impl Error for CreationError {}
 
 impl TimeKeeper {
     pub fn availability() -> Availability {
-        match processor_vendor() {
-            Vendor::Intel | Vendor::AMD => {
-                if (cpuid!(0x80000007).edx & (1 << 8)) > 0 {
-                    Availability::Full
-                } else {
-                    Availability::Partial
-                }
-            }
-            Vendor::Unknown => Availability::None,
-        }
+        Availability::Full
     }
     pub fn new(p0_frequency: f64) -> Result<Self, CreationError> {
         let availability = Self::availability();
@@ -67,22 +33,15 @@ impl TimeKeeper {
             return Err(CreationError::NotAvailable);
         }
 
-        Ok(Self {
-            p0_frequency: p0_frequency,
-        })
+        Ok(Self {})
     }
 
     pub fn now(&self) -> Instant {
-        lfence();
-        sfence();
-        let time = unsafe { rdtsc() };
-        lfence();
-
-        Instant::new(time)
+        Instant(0)
     }
 
     pub fn duration_to_seconds<T: Into<f64>>(&self, duration: T) -> f64 {
-        duration.into() / self.p0_frequency as f64
+        0.0
     }
 }
 
@@ -113,10 +72,10 @@ mod test {
         let then = tk.now();
         println!("Duration: {}", tk.duration_to_seconds(then - now));
 
-        initialize(2_699_000_000f64).expect("init");
+        initialize(2_699_000_000f64);
 
         for i in 0..100 {
-            let m = TimeMeasurement::begin("hello");
+            let m = TimeMeasurement::begin_exclusive("hello");
             for i in 0..100 {
                 let m = TimeMeasurement::begin("test");
                 std::thread::sleep(std::time::Duration::from_millis(1));

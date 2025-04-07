@@ -2,12 +2,15 @@
 #![allow(incomplete_features)]
 #![feature(generic_const_exprs)]
 #![cfg_attr(feature = "no_std", no_std)]
+#![feature(stmt_expr_attributes)]
+#![feature(proc_macro_hygiene)]
 
 pub mod cmos;
 pub mod controller_connection;
 pub mod executor;
 pub mod heuristic;
 pub mod mutation_engine;
+pub mod perf_monitor;
 
 extern crate alloc;
 

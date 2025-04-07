@@ -32,9 +32,10 @@ __debug_print_mutation_info = [] # print mutation info
 __debug_pretend_no_coverage = [] # pretend no coverage collection possible
 __debug_print_udp = [] # print debug information from udp interface
 __debug_print_events = [] # print coverage events
+__debug_performance_trace = [] # trace function durations
 
-__device_brix = ["device_brix", "rand_isaac", "mutation_all", "__debug_print_mutation_info", "__debug_print_dissassembly", "__debug_print_progress_print", "__debug_print_progress_net"]
-__device_bochs = ["device_bochs", "rand_isaac", "mutation_all", "__debug_print_external_interrupt_notification", "__debug_print_mutation_info"]
+__device_brix = ["device_brix", "rand_isaac", "mutation_all", "__debug_print_mutation_info", "__debug_print_dissassembly", "__debug_print_progress_print", "__debug_print_progress_net", "__debug_performance_trace"]
+__device_bochs = ["device_bochs", "rand_isaac", "mutation_all", "__debug_print_external_interrupt_notification", "__debug_print_mutation_info", "__debug_performance_trace"]
 
 [dependencies]
 hypervisor = { path = "../hypervisor" }
@@ -54,7 +55,9 @@ uefi_udp4 = { path = "../uefi_udp4", optional = true }
 uefi-raw = {version = "0.10.0", optional = true}
 fuzzer_data = { path = "../fuzzer_data" }
 serde = {version = "1.0.218", default-features = false, features = ["alloc"]}
+serde_json = {version = "1.0.140", features = ["alloc", "float_roundtrip"], default-features = false}
 itertools = { version = "0.14.0", default-features = false, features = ["use_alloc"] }
+performance_timing = { path = "../performance_timing" }
 
 [build-dependencies]
 chrono = "0.4.39"

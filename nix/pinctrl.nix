@@ -28,7 +28,7 @@ pkgs.stdenv.mkDerivation rec {
     owner = "raspberrypi";
     repo = "utils";
     rev = version;
-    sha256 = "sha256-ItknnAWicXK1pfAVbSgSBj1SAx7oxnhsAZsRyaqfCDM=";
+    sha256 = "sha256-qYXj4yhPMoW/+St1bcJcpa4YsOAmKBYDsAZ77O8MeSA=";
   };
 
   nativeBuildInputs = [

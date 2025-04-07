@@ -9,6 +9,7 @@ use fuzzer_data::{
     MAX_FRAGMENT_SIZE, MAX_PAYLOAD_SIZE,
 };
 use log::{error, info, trace, warn};
+use performance_timing::track_time;
 use uefi::boot::ScopedProtocol;
 use uefi_raw::Ipv4Address;
 use uefi_udp4::uefi::proto::network::udp4::proto::{
@@ -83,6 +84,7 @@ pub struct ControllerConnection {
     sequence_number_tx: u64,
 }
 
+#[cfg_attr(feature = "__debug_performance_trace", track_time)]
 impl ControllerConnection {
     pub fn connect(settings: &ConnectionSettings) -> Result<Self, ConnectionError> {
         let binding_handle = match uefi::boot::find_handles::<UDP4ServiceBindingProtocol>() {
@@ -235,7 +237,7 @@ impl ControllerConnection {
         &mut self,
         data: Packet,
     ) -> Result<(), ConnectionError> {
-        let mut packet = if data.reliable_transport() {
+        let packet = if data.reliable_transport() {
             self.sequence_number_tx += 1;
 
             data.to_packet(self.sequence_number_tx, self.remote_session)

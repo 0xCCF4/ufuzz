@@ -1,14 +1,20 @@
-#![cfg_attr(not(test), no_std)]
+#![cfg_attr(all(not(test), not(target_arch = "aarch64")), no_std)]
 
-mod measurements;
+pub mod measurements;
 
 extern crate alloc;
+
+pub use performance_timing_macros::*;
 
 mod arch {
     #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
     mod x86;
     #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
     pub use x86::*;
+    #[cfg(any(target_arch = "aarch64"))]
+    mod aarch64;
+    #[cfg(any(target_arch = "aarch64"))]
+    pub use aarch64::*;
 }
 
 use crate::measurements::{mm_instance, ExclusiveMeasurementGuard};
@@ -28,7 +34,7 @@ pub enum Availability {
 }
 
 #[repr(transparent)]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Default)]
 pub struct Instant(TimeStamp);
 
 impl Instant {
@@ -76,6 +82,7 @@ impl From<Duration> for f64 {
 static INITIALIZED: AtomicBool = AtomicBool::new(false);
 static mut INSTANCE: Option<TimeKeeper> = None;
 
+#[allow(static_mut_refs)]
 pub fn instance() -> &'static TimeKeeper {
     if !INITIALIZED.load(Ordering::Relaxed) {
         panic!("Not initialized yet!");
@@ -95,32 +102,36 @@ impl TimeMeasurement {
         Self {
             name,
             start: instance().now(),
-            exclusive: None,
-        }
-    }
-
-    pub fn begin_exclusive(name: &'static str) -> Self {
-        Self {
-            name,
-            start: instance().now(),
             exclusive: Some(mm_instance().borrow_mut().register_exclusive_measurement()),
         }
     }
 
-    pub fn stop(mut self) -> Duration {
+    pub fn stop_exclusive(mut self) -> Duration {
+        self.__drop().1
+    }
+
+    pub fn stop_total(mut self) -> Duration {
+        self.__drop().0
+    }
+
+    pub fn stop(mut self) -> (Duration, Duration) {
         self.__drop()
     }
 
-    fn __drop(&mut self) -> Duration {
+    fn __drop(&mut self) -> (Duration, Duration) {
         let now = instance().now();
-        let mut duration = now - self.start;
+        let total_duration = now - self.start;
+        let mut exclusive_duration = total_duration;
         if let Some(exclusive) = self.exclusive.take().map(ExclusiveMeasurementGuard::stop) {
-            duration.0 = duration.0.saturating_sub(exclusive.0);
+            exclusive_duration.0 = exclusive_duration.0.saturating_sub(exclusive.0);
         }
-        mm_instance()
-            .borrow_mut()
-            .register_data_point(self.name, duration);
-        duration
+        mm_instance().borrow_mut().register_data_point(
+            self.name,
+            total_duration,
+            exclusive_duration,
+        );
+
+        (total_duration, exclusive_duration)
     }
 }
 

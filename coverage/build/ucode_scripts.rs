@@ -7,6 +7,7 @@ use core::mem::size_of;
 use std::path::Path;
 use ucode_compiler_bridge::{CompilerOptions, AUTOGEN};
 
+#[allow(dead_code)]
 pub fn build_ucode_scripts() -> ucode_compiler_bridge::Result<()> {
     if !Path::new("src/patches").exists() {
         std::fs::create_dir("src/patches").expect("dir creation failed")
@@ -79,6 +80,7 @@ fn delete_intermediate_files<A: AsRef<Path>>(path: A) {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Copy, Clone)]
 struct Stage2Pass {
     hook_entry_address: usize,

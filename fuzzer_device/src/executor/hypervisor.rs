@@ -12,6 +12,7 @@ use hypervisor::Page;
 use iced_x86::code_asm;
 use iced_x86::code_asm::CodeAssembler;
 use log::error;
+use performance_timing::track_time;
 use x86::bits64::paging::{PAddr, PDPTEntry, PDPTFlags, PML4Entry, PML4Flags, BASE_PAGE_SHIFT};
 use x86::bits64::rflags::RFlags;
 use x86::controlregs::{Cr0, Cr4};
@@ -42,6 +43,7 @@ pub struct Hypervisor {
     pub initial_state: VmState,
 }
 
+#[cfg_attr(feature = "__debug_performance_trace", track_time)]
 impl Hypervisor {
     pub fn new() -> Result<Self, HypervisorError> {
         // MEMORY LAYOUT IN PAGES
@@ -279,6 +281,7 @@ impl Hypervisor {
         })
     }
 
+    #[cfg_attr(feature = "__debug_performance_trace", track_time)]
     pub fn load_code_blob(&mut self, code_blob: &[u8]) {
         self.memory_code_page.fill(0x90) /* nop */;
 
@@ -469,6 +472,7 @@ impl Hypervisor {
     }
 }
 
+#[cfg_attr(feature = "__debug_performance_trace", track_time)]
 impl Drop for Hypervisor {
     fn drop(&mut self) {
         self.vm.vt.disable();

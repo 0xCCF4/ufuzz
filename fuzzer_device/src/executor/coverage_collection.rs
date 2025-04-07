@@ -16,6 +16,7 @@ use coverage::interface::safe::ComInterface;
 use coverage::interface_definition;
 use custom_processing_unit::CustomProcessingUnit;
 use data_types::addresses::{Address, UCInstructionAddress};
+use performance_timing::track_time;
 use ucode_dump::RomDump;
 
 // safety: Self referential struct, drop in reverse order
@@ -34,6 +35,7 @@ pub struct CoverageCollector {
     excluded_addresses: Rc<RefCell<BTreeSet<u16>>>,
 }
 
+#[cfg_attr(feature = "__debug_performance_trace", track_time)]
 impl CoverageCollector {
     pub fn initialize(
         excluded_addresses: Rc<RefCell<BTreeSet<u16>>>,
@@ -133,6 +135,7 @@ impl CoverageCollector {
     }
 }
 
+#[cfg_attr(feature = "__debug_performance_trace", track_time)]
 impl Drop for CoverageCollector {
     fn drop(&mut self) {
         // drop in reverse order

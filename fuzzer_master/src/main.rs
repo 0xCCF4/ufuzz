@@ -3,11 +3,15 @@ use fuzzer_data::{Ota, OtaC2DTransport, OtaD2C, OtaD2CTransport};
 use fuzzer_master::database::Database;
 use fuzzer_master::device_connection::DeviceConnection;
 use fuzzer_master::fuzzer_node_bridge::FuzzerNodeInterface;
-use fuzzer_master::genetic_breeding::{net_reboot_device, BreedingState};
+use fuzzer_master::genetic_breeding::{
+    net_reboot_device, net_receive_performance_timing, BreedingState,
+};
 use fuzzer_master::{
     genetic_breeding, manual_execution, wait_for_device, CommandExitResult, WaitForDeviceResult,
 };
 use log::{error, info, trace, warn};
+use performance_timing::measurements::format_duration;
+use performance_timing::Duration;
 use std::io;
 use std::io::Write;
 use std::path::PathBuf;
@@ -36,6 +40,7 @@ enum Cmd {
     Init,
     Reboot,
     Cap,
+    Performance,
     Manual {
         #[arg(short, long)]
         input: PathBuf,
@@ -208,6 +213,42 @@ async fn main() {
                     CommandExitResult::ExitProgram
                 } else {
                     CommandExitResult::RetryOrReconnect
+                }
+            }
+            Cmd::Performance => {
+                let x = udp.send(OtaC2DTransport::AreYouThere).await;
+                if let Err(_) = x {
+                    CommandExitResult::RetryOrReconnect
+                } else {
+                    let _ = udp
+                        .send(OtaC2DTransport::ReportPerformanceTiming)
+                        .await
+                        .map_err(|e| {
+                            error!("Failed to send ReportPerformanceTiming: {:?}", e);
+                        });
+
+                    let data =
+                        net_receive_performance_timing(&mut udp, Duration::from_secs(5)).await;
+
+                    println!(
+                        "{:<20} | {:<10} | {:<10} | {:<10} | {:<10} | {:<10} | {:<10}",
+                        "Name", "Ex. AVG", "Ex. VAR", "Total AVG", "Total VAR", "n", "Total time"
+                    )?;
+                    for (k, v) in data.iter() {
+                        let (avg, avg_unit) = format_duration(v.exclusive_cumulative_average);
+                        let (var, var_unit) = format_duration(v.variance());
+                        let (total_avg, total_avg_unit) =
+                            format_duration(v.total_cumulative_average);
+                        let (total_var, total_var_unit) =
+                            format_duration(v.total_cumulative_sum_of_squares);
+                        let (total, total_unit) = format_duration(v.total_time);
+                        println!(
+                            "{:<20} | {:<7.3} {} | {:<7.3} {} | {:<7.3} {} | {:<7.3} {} | {:<10.1e} | {:<10.3} {}",
+                            k, avg, avg_unit, var, var_unit, total_avg, total_avg_unit, total_var, total_var_unit, v.number_of_measurements as f64, total, total_unit
+                        )?;
+                    }
+
+                    CommandExitResult::ExitProgram
                 }
             }
             Cmd::Manual {

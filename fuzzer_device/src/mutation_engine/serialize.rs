@@ -7,6 +7,7 @@ use iced_x86::{
     BlockEncoder, BlockEncoderOptions, Code, FlowControl, IcedError, Instruction, InstructionBlock,
 };
 use log::warn;
+use performance_timing::track_time;
 use rand_core::RngCore;
 
 const FENCE_INSTRUCTIONS: &[&[u8]] = &[
@@ -53,6 +54,7 @@ impl From<IcedError> for SerializeError {
 }
 
 impl Serializer {
+    #[cfg_attr(feature = "__debug_performance_trace", track_time("serialize"))]
     pub fn serialize_code<R: RngCore>(
         &mut self,
         random: &mut R,

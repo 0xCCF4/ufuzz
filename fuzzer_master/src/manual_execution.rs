@@ -3,9 +3,7 @@ use crate::device_connection::DeviceConnection;
 use crate::fuzzer_node_bridge::FuzzerNodeInterface;
 use crate::genetic_breeding::{net_blacklist, ExecuteSampleResult};
 use crate::CommandExitResult;
-use fuzzer_data::OtaC2DTransport;
 use iced_x86::{Decoder, DecoderOptions, Formatter, Instruction, NasmFormatter};
-use itertools::Itertools;
 use log::error;
 use std::io;
 use std::io::Write;
@@ -65,7 +63,7 @@ pub async fn main<A: AsRef<Path>, B: AsRef<Path>>(
         return CommandExitResult::RetryOrReconnect;
     }
 
-    let (mut result, events) = match crate::genetic_breeding::net_execute_sample(
+    let (result, events) = match crate::genetic_breeding::net_execute_sample(
         udp,
         interface,
         db,
