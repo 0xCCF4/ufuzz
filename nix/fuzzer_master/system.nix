@@ -15,6 +15,8 @@
       };
       networking.defaultGateway = "10.83.3.1";
 
+      services.journald.extraConfig = "SystemMaxUse=64G";
+
       systemd.services.fuzzer_master = {
         description = "Fuzzer Master Service";
         after = [ "network.target" ];

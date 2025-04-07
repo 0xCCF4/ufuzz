@@ -196,6 +196,8 @@ impl Database {
             return;
         }
 
+        self.mark_dirty();
+
         self.data.blacklisted_addresses.push(BlacklistEntry {
             address,
             iteration,
