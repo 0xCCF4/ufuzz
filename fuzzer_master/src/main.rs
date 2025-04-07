@@ -11,7 +11,6 @@ use fuzzer_master::{
 };
 use log::{error, info, trace, warn};
 use performance_timing::measurements::format_duration;
-use performance_timing::Duration;
 use std::io;
 use std::io::Write;
 use std::path::PathBuf;
@@ -116,6 +115,7 @@ async fn main() {
     guarantee_initial_state(&interface, &mut udp).await;
 
     // get blacklisted
+    /* TODO
     if database.data.blacklisted_addresses.len() == 0 {
         let _ = udp
             .send(OtaC2DTransport::GiveMeYourBlacklistedAddresses)
@@ -149,6 +149,7 @@ async fn main() {
             error!("Failed to save the database: {:?}", e);
         });
     }
+    */
 
     let mut state = BreedingState::default();
 
@@ -233,7 +234,7 @@ async fn main() {
                     println!(
                         "{:<20} | {:<10} | {:<10} | {:<10} | {:<10} | {:<10} | {:<10}",
                         "Name", "Ex. AVG", "Ex. VAR", "Total AVG", "Total VAR", "n", "Total time"
-                    )?;
+                    );
                     for (k, v) in data.iter() {
                         let (avg, avg_unit) = format_duration(v.exclusive_cumulative_average);
                         let (var, var_unit) = format_duration(v.variance());
@@ -245,7 +246,7 @@ async fn main() {
                         println!(
                             "{:<20} | {:<7.3} {} | {:<7.3} {} | {:<7.3} {} | {:<7.3} {} | {:<10.1e} | {:<10.3} {}",
                             k, avg, avg_unit, var, var_unit, total_avg, total_avg_unit, total_var, total_var_unit, v.number_of_measurements as f64, total, total_unit
-                        )?;
+                        );
                     }
 
                     CommandExitResult::ExitProgram

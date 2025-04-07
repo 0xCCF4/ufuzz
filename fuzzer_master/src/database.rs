@@ -4,12 +4,12 @@ use hypervisor::state::{VmExitReason, VmState};
 use lazy_static::lazy_static;
 use log::error;
 use regex::Regex;
-use serde::ser::SerializeSeq;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use itertools::{Itertools};
 use tokio::io;
 
 lazy_static! {
@@ -73,13 +73,23 @@ pub struct CodeResult {
     pub found_at: BTreeSet<FoundAt>,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+pub enum ExcludeType {
+    Normal,
+    VMentry,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct BlacklistEntry {
+    pub address: u16,
+    pub iteration: u32,
+    pub code: Code,
+    pub exclude_type: ExcludeType,
+}
+
 #[derive(Debug, Default, Serialize, Deserialize, Clone)]
 pub struct DatabaseData {
-    #[serde(serialize_with = "serialize_hex", deserialize_with = "deserialize_hex")]
-    pub blacklisted_addresses: BTreeSet<u16>,
-
-    #[serde(serialize_with = "serialize_hex", deserialize_with = "deserialize_hex")]
-    pub vm_entry_blacklist: BTreeSet<u16>,
+    pub blacklisted_addresses: Vec<BlacklistEntry>,
 
     pub results: Vec<CodeResult>,
 }
@@ -177,6 +187,27 @@ impl Database {
         self.dirty = true;
     }
 
+    pub fn exclude_address(&mut self, address: u16, code: Code, exclude_type: ExcludeType) {
+        let highest_exclusion_iteration = self.data.blacklisted_addresses.iter().map(|v|v.iteration).max().unwrap_or_default();
+        let iteration = highest_exclusion_iteration.saturating_add(1);
+
+        if self.blacklisted().contains(&address) {
+            error!("Address: {address:04x} is already excluded");
+            return;
+        }
+
+        self.data.blacklisted_addresses.push(BlacklistEntry {
+            address,
+            iteration,
+            code,
+            exclude_type
+        });
+    }
+
+    pub fn blacklisted<'a>(&'a self) -> Box<dyn Iterator<Item=u16> + 'a> {
+        Box::new(self.data.blacklisted_addresses.iter().map(|v| v.address).unique())
+    }
+
     pub fn push_results(
         &mut self,
         code: Code,
@@ -252,39 +283,4 @@ impl Database {
             }
         }
     }
-}
-
-fn serialize_hex<S>(v: &BTreeSet<u16>, serializer: S) -> Result<S::Ok, S::Error>
-where
-    S: serde::Serializer,
-{
-    if serializer.is_human_readable() {
-        let mut seq = serializer.serialize_seq(Some(v.len()))?;
-        for value in v {
-            seq.serialize_element(&format!("{value:04X}"))?;
-        }
-        seq.end()
-    } else {
-        v.serialize(serializer)
-    }
-}
-
-fn deserialize_hex<'de, D>(deserializer: D) -> Result<BTreeSet<u16>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let v: BTreeSet<String> = BTreeSet::deserialize(deserializer)?;
-
-    let numbers = v.iter().map(|x| {
-        let x = x.trim();
-        let x = x.trim_start_matches("0x");
-        u16::from_str_radix(x, 16).map_err(serde::de::Error::custom)
-    });
-    let mut result = BTreeSet::new();
-
-    for number in numbers {
-        result.insert(number?);
-    }
-
-    Ok(result)
 }

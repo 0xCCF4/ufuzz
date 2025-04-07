@@ -1,14 +1,14 @@
-use crate::database::{CodeEvent, Database};
+use crate::database::{Database, ExcludeType};
 use crate::device_connection::DeviceConnection;
 use crate::fuzzer_node_bridge::FuzzerNodeInterface;
 use crate::manual_execution::disassemble_code;
 use crate::{wait_for_device, CommandExitResult, WaitForDeviceResult};
 use fuzzer_data::genetic_pool::{GeneticPool, GeneticPoolSettings, GeneticSampleRating};
-use fuzzer_data::{ExecutionResult, Ota, OtaC2DTransport, OtaD2CTransport, ReportExecutionProblem};
+use fuzzer_data::{Code, ExecutionResult, Ota, OtaC2DTransport, OtaD2CTransport, ReportExecutionProblem};
 use hypervisor::state::VmExitReason;
 use itertools::Itertools;
 use log::{error, info, trace, warn};
-use performance_timing::measurements::{MeasureValuesNormalized, MeasurementData};
+use performance_timing::measurements::MeasureValuesNormalized;
 use rand::{random, SeedableRng};
 use std::collections::BTreeMap;
 use std::time::Duration;
@@ -31,6 +31,8 @@ pub struct BreedingState {
 
     evolution: u64,
     seed: u64,
+
+    last_code_executed: Option<Code>,
 }
 
 pub const SAMPLE_TIMEOUT: u64 = 60;
@@ -53,6 +55,7 @@ pub async fn main(
             state.random_source = Some(rand_isaac::Isaac64Rng::seed_from_u64(seed));
             state.seed = seed;
             state.evolution = 1;
+            state.last_code_executed = None;
         }
         FSM::Running => {
             // device was restarted
@@ -84,7 +87,9 @@ pub async fn main(
         let address = net_receive_excluded_addresses(net).await;
         if let Some(address) = address {
             info!("Device excluded address last run: {}", address);
-            database.data.blacklisted_addresses.insert(address);
+            if let Some(last_code) = &state.last_code_executed {
+                database.exclude_address(address, last_code.clone(), ExcludeType::Normal);
+            }
 
             if let Err(err) = net
                 .send(OtaC2DTransport::Blacklist {
@@ -143,6 +148,14 @@ pub async fn main(
                     }
                 }
 
+                if state.last_code_executed.is_none() {
+                    state.last_code_executed = Some(Vec::new())
+                }
+                if let Some(last_code) = state.last_code_executed.as_mut() {
+                    last_code.clear();
+                    last_code.extend(sample.code());
+                }
+
                 let (result, events) =
                     match net_execute_sample(net, interface, database, sample.code()).await {
                         ExecuteSampleResult::Timeout => return CommandExitResult::ForceReconnect,
@@ -190,12 +203,8 @@ pub enum ExecuteSampleResult {
 }
 
 pub async fn net_blacklist(net: &mut DeviceConnection, database: &mut Database) -> bool {
-    for blacklist in &database
-        .data
-        .blacklisted_addresses
-        .iter()
-        .chain(database.data.vm_entry_blacklist.iter())
-        .chain(
+    for blacklist in &database.blacklisted()
+        /*.chain(
             database
                 .data
                 .results
@@ -210,12 +219,12 @@ pub async fn net_blacklist(net: &mut DeviceConnection, database: &mut Database) 
                     }
                 })
                 .unique(),
-        )
+        )*/
         .chunks(200)
     {
         if let Err(err) = net
             .send(OtaC2DTransport::Blacklist {
-                address: blacklist.cloned().collect_vec(),
+                address: blacklist.collect_vec(),
             })
             .await
         {
@@ -275,8 +284,8 @@ pub async fn net_execute_sample(
 
     if let Some(first) = cov_mismatch {
         info!("VM entry failure during coverage collection: {:#x}", first);
-        db.data.vm_entry_blacklist.insert(first);
-        db.data.vm_entry_blacklist.insert(first - 2);
+        db.exclude_address(first, sample.to_vec(), ExcludeType::VMentry);
+        db.exclude_address(first-2, sample.to_vec(), ExcludeType::VMentry);
         db.mark_dirty();
 
         trace!("Rebooting device...");

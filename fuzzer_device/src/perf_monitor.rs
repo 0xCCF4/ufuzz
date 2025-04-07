@@ -64,7 +64,10 @@ impl PerfMonitor {
         })
     }
 
-    #[cfg_attr(feature = "__debug_performance_trace", track_time("perf::update_values"))]
+    #[cfg_attr(
+        feature = "__debug_performance_trace",
+        track_time("perf::update_values")
+    )]
     pub fn update_values_from_monitor(&mut self) {
         let measurements = performance_timing::measurements::mm_instance()
             .borrow()

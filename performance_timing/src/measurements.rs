@@ -75,6 +75,18 @@ impl MeasureValues {
     }
 }
 
+impl MeasureValuesNormalized {
+    pub fn variance(&self) -> f64 {
+        if self.number_of_measurements == 0 {
+            return 0.0;
+        }
+        self.exclusive_cumulative_sum_of_squares / (self.number_of_measurements as f64)
+    }
+    pub fn total_time(&self, frequency: f64) -> f64 {
+        self.total_time as f64 / frequency
+    }
+}
+
 pub type MeasurementData = BTreeMap<String, MeasureValues>;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

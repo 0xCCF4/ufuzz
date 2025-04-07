@@ -142,8 +142,7 @@ pub fn main() {
             db.data
                 .blacklisted_addresses
                 .iter()
-                .chain(db.data.vm_entry_blacklist.iter())
-                .all(|b| a.address() != *b as usize)
+                .all(|b| a.address() != b.address as usize)
         },
     );
     let mut coverage = BTreeSet::new();
@@ -154,7 +153,7 @@ pub fn main() {
     }
     let mut coverage_normalized = BTreeSet::new();
     for cov in coverage.iter() {
-        if !db.data.blacklisted_addresses.contains(cov) && !db.data.vm_entry_blacklist.contains(cov)
+        if !db.blacklisted().contains(cov)
         {
             coverage_normalized.insert(*cov);
         }
