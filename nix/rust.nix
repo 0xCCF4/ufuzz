@@ -1,9 +1,9 @@
 project_name:
 { pkgs, crate2nix, nixpkgs, system }:
 let
-  cargoNix = crate2nix.tools.${system}.appliedCargoNix {
-    name = "fuzzer";
-    src = ./..;
+  cargoNix = import ../Cargo.nix {
+    inherit pkgs;
+    inherit nixpkgs;
   };
 
 in

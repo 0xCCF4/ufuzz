@@ -31,7 +31,7 @@ in
       nix.gc = {
         automatic = true;
         dates = "daily";
-        options = "--delete-older-than 1w";
+        options = "--delete-older-than 1d";
       };
 
       boot.tmp = {
