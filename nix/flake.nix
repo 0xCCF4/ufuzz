@@ -52,9 +52,16 @@
 
       # Export fuzzer master and node executable
       packages = forAllSystems (system:
+        let
+          pkgs = import nixpkgs {
+            inherit system;
+          };
+          deploy = deploy-rs.packages.${system}.deploy-rs;
+        in
         {
           fuzzer_node = pkgsFor.${system}.callPackage ./fuzzer_node/package.nix { inherit nixpkgs system crate2nix; };
           fuzzer_master = pkgsFor.${system}.callPackage ./fuzzer_master/package.nix { inherit nixpkgs system crate2nix; };
+          default = deploy;
         });
 
       # provide deloy-rs executable in dev shells
@@ -78,7 +85,7 @@
       checks = builtins.mapAttrs (system: deployLib: deployLib.deployChecks self.deploy) deploy-rs.lib;
 
       # System deploy setup
-      # use "nix develop" + "deploy" to deploy systems
+      # use "nix run" to deploy systems
       deploy.nodes.master = {
         hostname = "10.0.0.11";
         profiles.system = {

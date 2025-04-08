@@ -4,7 +4,9 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::cell::RefCell;
 use core::fmt::Display;
+use core::ops::AddAssign;
 use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use num_traits::{AsPrimitive, SaturatingAdd};
 use serde::{Deserialize, Serialize};
 
 static MM_INITIALIZED: AtomicBool = AtomicBool::new(false);
@@ -31,39 +33,31 @@ pub fn mm_initialize() -> &'static RefCell<MeasurementManager> {
 }
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
-pub struct MeasureValues {
+pub struct MeasureValues<T> {
     pub exclusive_cumulative_average: f64,
     pub exclusive_cumulative_sum_of_squares: f64,
+    pub exclusive_time: T,
     pub total_cumulative_average: f64,
     pub total_cumulative_sum_of_squares: f64,
-    pub total_time: u64,
+    pub total_time: T,
     pub number_of_measurements: u64,
 }
 
-#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
-pub struct MeasureValuesNormalized {
-    pub exclusive_cumulative_average: f64,
-    pub exclusive_cumulative_sum_of_squares: f64,
-    pub total_cumulative_average: f64,
-    pub total_cumulative_sum_of_squares: f64,
-    pub total_time: f64,
-    pub number_of_measurements: u64,
-}
-
-impl From<MeasureValues> for MeasureValuesNormalized {
-    fn from(value: MeasureValues) -> Self {
+impl From<&MeasureValues<u64>> for MeasureValues<f64> {
+    fn from(value: &MeasureValues<u64>) -> Self {
         Self {
             exclusive_cumulative_average: value.exclusive_cumulative_average,
             exclusive_cumulative_sum_of_squares: value.exclusive_cumulative_sum_of_squares,
             total_cumulative_average: value.total_cumulative_average,
             total_cumulative_sum_of_squares: value.total_cumulative_sum_of_squares,
             total_time: instance().duration_to_seconds(value.total_time as f64),
+            exclusive_time: instance().duration_to_seconds(value.exclusive_time as f64),
             number_of_measurements: value.number_of_measurements,
         }
     }
 }
 
-impl MeasureValues {
+impl<T: AsPrimitive<f64> + Copy> MeasureValues<T> {
     pub fn variance(&self) -> f64 {
         if self.number_of_measurements == 0 {
             return 0.0;
@@ -71,36 +65,24 @@ impl MeasureValues {
         self.exclusive_cumulative_sum_of_squares / (self.number_of_measurements as f64)
     }
     pub fn total_time(&self, frequency: f64) -> f64 {
-        self.total_time as f64 / frequency
+        self.total_time.as_() / frequency
     }
 }
 
-impl MeasureValuesNormalized {
-    pub fn variance(&self) -> f64 {
-        if self.number_of_measurements == 0 {
-            return 0.0;
-        }
-        self.exclusive_cumulative_sum_of_squares / (self.number_of_measurements as f64)
-    }
-    pub fn total_time(&self, frequency: f64) -> f64 {
-        self.total_time as f64 / frequency
-    }
-}
-
-pub type MeasurementData = BTreeMap<String, MeasureValues>;
+pub type MeasurementData<T> = BTreeMap<String, MeasureValues<T>>;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct MeasurementCollection {
-    pub data: Vec<MeasurementData>,
+pub struct MeasurementCollection<T> {
+    pub data: Vec<MeasurementData<T>>,
 }
 
-impl MeasurementCollection {
-    pub fn accumulate(&mut self) -> BTreeMap<String, MeasureValues> {
+impl<T: AddAssign + Copy + Default + SaturatingAdd> MeasurementCollection<T> {
+    pub fn accumulate(&mut self) -> BTreeMap<String, MeasureValues<T>> {
         let mut result = BTreeMap::new();
 
         for entry in self.data.iter() {
             for (k, v) in entry.iter() {
-                let data: &mut MeasureValues = result.entry(k.clone()).or_default();
+                let data: &mut MeasureValues<T> = result.entry(k.clone()).or_default();
 
                 if data.number_of_measurements == 0 {
                     data.clone_from(v);
@@ -113,7 +95,10 @@ impl MeasurementCollection {
                         + v.exclusive_cumulative_sum_of_squares * (new_n / n);
                     let total_avg = data.total_cumulative_average * (old_n / n)
                         + v.total_cumulative_average * (new_n / n);
-                    data.total_time += v.total_time;
+
+                    data.total_time = data.total_time.saturating_add(&v.total_time);
+                    data.exclusive_time = data.exclusive_time.saturating_add(&v.exclusive_time);
+
                     data.exclusive_cumulative_sum_of_squares = data
                         .exclusive_cumulative_sum_of_squares
                         + data.exclusive_cumulative_average
@@ -137,7 +122,7 @@ impl MeasurementCollection {
 
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct MeasurementManager {
-    pub data: BTreeMap<&'static str, MeasureValues>,
+    pub data: BTreeMap<&'static str, MeasureValues<u64>>,
     #[serde(skip)]
     pub exclusive_time_keeping: BTreeMap<u64, Duration>,
 }
@@ -164,6 +149,7 @@ impl MeasurementManager {
             data.exclusive_cumulative_sum_of_squares = 0.0;
             data.number_of_measurements = 1;
             data.total_time = total_duration.0;
+            data.exclusive_time = exclusive_duration.0;
             data.total_cumulative_sum_of_squares = 0.0;
             data.total_cumulative_average = x_tot;
         } else if data.number_of_measurements == u64::MAX {
@@ -187,6 +173,7 @@ impl MeasurementManager {
             data.total_cumulative_sum_of_squares += delta_tot * delta_tot2;
 
             data.total_time = data.total_time.saturating_add(total_duration.0);
+            data.exclusive_time = data.exclusive_time.saturating_add(exclusive_duration.0);
         }
 
         self.exclusive_time_keeping
@@ -240,13 +227,13 @@ impl Display for MeasurementManager {
 
 pub fn format_duration(duration: f64) -> (f64, &'static str) {
     if duration >= 60.0 * 60.0 * 24.0 * 7.0 {
-        (duration / (60.0 * 60.0 * 24.0 * 7.0), "w")
+        (duration / (60.0 * 60.0 * 24.0 * 7.0), " w")
     } else if duration >= 60.0 * 60.0 * 24.0 {
-        (duration / (60.0 * 60.0 * 24.0), "d")
+        (duration / (60.0 * 60.0 * 24.0), " d")
     } else if duration >= 60.0 * 60.0 {
-        (duration / (60.0 * 60.0), "h")
+        (duration / (60.0 * 60.0), " h")
     } else if duration >= 60.0 {
-        (duration / 60.0, "m")
+        (duration / 60.0, " m")
     } else if duration >= 1.0 {
         (duration, " s")
     } else if duration >= 1e-3 {

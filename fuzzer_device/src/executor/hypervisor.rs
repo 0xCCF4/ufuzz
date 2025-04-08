@@ -12,6 +12,7 @@ use hypervisor::Page;
 use iced_x86::code_asm;
 use iced_x86::code_asm::CodeAssembler;
 use log::error;
+#[cfg(feature = "__debug_performance_trace")]
 use performance_timing::track_time;
 use x86::bits64::paging::{PAddr, PDPTEntry, PDPTFlags, PML4Entry, PML4Flags, BASE_PAGE_SHIFT};
 use x86::bits64::rflags::RFlags;

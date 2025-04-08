@@ -2524,7 +2524,7 @@ rec {
         ];
         features = {
           "__device_bochs" = [ "device_bochs" "rand_isaac" "mutation_all" "__debug_print_external_interrupt_notification" "__debug_print_mutation_info" "__debug_performance_trace" ];
-          "__device_brix" = [ "device_brix" "rand_isaac" "mutation_all" "__debug_print_mutation_info" "__debug_print_dissassembly" "__debug_print_progress_print" "__debug_print_progress_net" "__debug_performance_trace" ];
+          "__device_brix" = [ "device_brix" "rand_isaac" "mutation_all" "__debug_print_mutation_info" "__debug_print_dissassembly" "__debug_print_progress_print" ];
           "default" = [ "device_brix" "mutation_all" "rand_isaac" ];
           "device_bochs" = [ "platform_bochs" "bios_bochs" "uefi" ];
           "device_brix" = [ "platform_intel" "bios_ami" "uefi" ];
@@ -2545,13 +2545,13 @@ rec {
             requiredFeatures = [ ];
           }
           {
-            name = "fuzz_viewer";
-            path = "src/main_viewer.rs";
+            name = "fuzz_master";
+            path = "src/main.rs";
             requiredFeatures = [ ];
           }
           {
-            name = "fuzzer_master";
-            path = "src/main.rs";
+            name = "fuzz_viewer";
+            path = "src/main_viewer.rs";
             requiredFeatures = [ ];
           }
         ];
@@ -5411,6 +5411,11 @@ rec {
         src = lib.cleanSourceWith { filter = sourceFilter;  src = ./performance_timing; };
         dependencies = [
           {
+            name = "num-traits";
+            packageId = "num-traits";
+            usesDefaultFeatures = false;
+          }
+          {
             name = "performance_timing_macros";
             packageId = "performance_timing_macros";
           }
@@ -5454,7 +5459,9 @@ rec {
             features = [ "full" ];
           }
         ];
-
+        features = {
+        };
+        resolvedDefaultFeatures = [ "__debug" ];
       };
       "pin-project-lite" = rec {
         crateName = "pin-project-lite";

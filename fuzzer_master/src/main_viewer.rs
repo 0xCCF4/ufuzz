@@ -129,6 +129,7 @@ pub fn main() {
                         println!(" - {}: {:#x?} -> {:#x?}", name, a, b);
                     }
                 }
+                println!();
             }
         }
     }
@@ -153,8 +154,7 @@ pub fn main() {
     }
     let mut coverage_normalized = BTreeSet::new();
     for cov in coverage.iter() {
-        if !db.blacklisted().contains(cov)
-        {
+        if !db.blacklisted().contains(cov) {
             coverage_normalized.insert(*cov);
         }
     }

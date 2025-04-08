@@ -34,7 +34,7 @@ pub enum Availability {
 }
 
 #[repr(transparent)]
-#[derive(Copy, Clone, Default)]
+#[derive(Copy, Clone, Default, Debug)]
 pub struct Instant(TimeStamp);
 
 impl Instant {

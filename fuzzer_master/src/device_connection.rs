@@ -153,15 +153,13 @@ impl DeviceConnection {
                         if let Ota::Transport {
                             session: packet_session,
                             id,
-                            ..
-                        }
-                        | Ota::ChunkedTransport {
-                            session: packet_session,
-                            id,
+                            content,
                             ..
                         } = &data
                         {
-                            if session != *packet_session {
+                            if let OtaD2CTransport::ResetSession = content {
+                                trace!("Reset network session");
+                            } else if session != *packet_session {
                                 warn!("Received packet from wrong session: {}", packet_session);
                                 println!("Packet: {:?}", data);
                                 continue;

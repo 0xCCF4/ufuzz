@@ -10,3 +10,6 @@ rand = "0.9.0"
 
 [lib]
 proc-macro = true
+
+[features]
+__debug = []

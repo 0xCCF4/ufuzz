@@ -23,7 +23,7 @@
         wantedBy = [ "multi-user.target" ];
 
         serviceConfig = {
-          ExecStart = "${packages."${system}".fuzzer_master}/bin/fuzzer_master";
+          ExecStart = "${packages."${system}".fuzzer_master}/bin/fuzz_master";
           WorkingDirectory = "/home/thesis";
           Restart = "always";
           RestartSec = 5;

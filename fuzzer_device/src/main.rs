@@ -30,8 +30,10 @@ use fuzzer_device::{
 };
 use itertools::Itertools;
 use log::{debug, error, info, trace, warn, Level};
-use performance_timing::measurements::MeasureValuesNormalized;
-use performance_timing::{track_time, TimeMeasurement};
+use performance_timing::measurements::MeasureValues;
+#[cfg(feature = "__debug_performance_trace")]
+use performance_timing::track_time;
+use performance_timing::TimeMeasurement;
 use rand_core::{RngCore, SeedableRng};
 use uefi::proto::loaded_image::LoadedImage;
 use uefi::proto::media::file::{File, FileAttribute, FileMode};
@@ -41,6 +43,8 @@ use x86::cpuid::cpuid;
 
 #[cfg(feature = "device_brix")]
 const P0_FREQ: f64 = 1.09e9;
+#[cfg(feature = "device_bochs")]
+const P0_FREQ: f64 = 1.0e9;
 
 #[entry]
 unsafe fn main() -> Status {
@@ -166,11 +170,15 @@ unsafe fn main() -> Status {
         let mut state_trace_scratchpad_serialized = StateTrace::default();
         let mut decoder = InstructionDecoder::new();
 
+        if let Err(err) = udp.send(OtaD2CTransport::ResetSession) {
+            error!("Failed to send reset-session: {:?}", err);
+        }
+
         trace!("Waiting for command...");
         #[cfg_attr(feature = "__debug_performance_trace", track_time("main_loop"))]
         loop {
             #[cfg(feature = "__debug_performance_trace")]
-            if let Err(err) = perf_monitor.try_save_file() {
+            if let Err(err) = perf_monitor.try_update_save_file() {
                 error!("Failed to save perf monitor values: {:?}", err);
             }
 
@@ -257,8 +265,8 @@ unsafe fn main() -> Status {
                     for chunk in &measurements.into_iter().chunks(10) {
                         let measurements = OtaD2CTransport::PerformanceTiming {
                             measurements: chunk
-                                .map(|(k, v)| (k, MeasureValuesNormalized::from(v)))
-                                .collect::<BTreeMap<String, MeasureValuesNormalized>>(),
+                                .map(|(k, v)| (k, MeasureValues::<f64>::from(&v)))
+                                .collect::<BTreeMap<String, MeasureValues<f64>>>(),
                         };
                         if let Err(err) = udp.send(measurements) {
                             error!("Failed to send performance timing: {:?}", err);

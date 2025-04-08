@@ -17,7 +17,6 @@ use crate::{cmos, PersistentApplicationData, PersistentApplicationState, StateTr
 use ::hypervisor::error::HypervisorError;
 use ::hypervisor::state::{VmExitReason, VmState};
 use alloc::collections::{btree_map, BTreeMap, BTreeSet};
-use alloc::format;
 use alloc::rc::Rc;
 use alloc::vec::Vec;
 use core::cell::RefCell;
@@ -28,8 +27,9 @@ use coverage::interface_definition::CoverageCount;
 use custom_processing_unit::lmfence;
 use data_types::addresses::{Address, UCInstructionAddress};
 use fuzzer_data::ReportExecutionProblem;
+use log::trace;
 use log::{error, warn};
-use log::{trace, Level};
+#[cfg(feature = "__debug_performance_trace")]
 use performance_timing::track_time;
 use rand_core::RngCore;
 #[cfg(feature = "__debug_print_progress_print")]
@@ -63,6 +63,7 @@ impl SampleExecutor {
     }
 
     #[cfg_attr(feature = "__debug_performance_trace", track_time)]
+    #[allow(unused_mut, unused_variables)]
     pub fn execute_sample<R: RngCore>(
         &mut self,
         sample: &[u8],
@@ -214,8 +215,8 @@ impl SampleExecutor {
                         result: (hooked_addresses, current_vm_exit, current_vm_state),
                         hooks: coverage_information,
                     }) => {
+                        #[cfg(feature = "__debug_print_progress_net")]
                         if let Some(ref mut net) = net {
-                            #[cfg(feature = "__debug_print_progress_net")]
                             let _ = net.log_unreliable(
                                 Level::Warn,
                                 format!(

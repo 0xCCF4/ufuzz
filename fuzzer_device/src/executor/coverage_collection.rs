@@ -16,6 +16,7 @@ use coverage::interface::safe::ComInterface;
 use coverage::interface_definition;
 use custom_processing_unit::CustomProcessingUnit;
 use data_types::addresses::{Address, UCInstructionAddress};
+#[cfg(feature = "__debug_performance_trace")]
 use performance_timing::track_time;
 use ucode_dump::RomDump;
 

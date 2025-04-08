@@ -108,13 +108,11 @@ fn track_time_impl(attr: TokenStream, item: TokenStream, exclusive: bool) -> Tok
             #(#attrs)*
             #vis #sig {
                 let #timing_measurement = ::performance_timing::TimeMeasurement::#method(#annotation_name);
-                let r = {
-                    #block
-                };
+                let result = { #block };
                 #[allow(unreachable_code)]
                 {
                     drop(#timing_measurement);
-                    r
+                    result
                 }
             }
         }
@@ -134,10 +132,11 @@ fn track_time_impl(attr: TokenStream, item: TokenStream, exclusive: bool) -> Tok
                 return quote::quote! {
                     {
                         let #timing_measurement = ::performance_timing::TimeMeasurement::#method(#annotation_name);
-                        #block
+                        let result = { #block };
                         #[allow(unreachable_code)]
                         {
                             drop(#timing_measurement);
+                            result
                         }
                     }
                 }
@@ -147,10 +146,11 @@ fn track_time_impl(attr: TokenStream, item: TokenStream, exclusive: bool) -> Tok
                 return quote::quote! {
                     #(#attrs)* #label #loop_token {
                         let #timing_measurement = ::performance_timing::TimeMeasurement::#method(#annotation_name);
-                        #body
+                        let result = { #body };
                         #[allow(unreachable_code)]
                         {
                             drop(#timing_measurement);
+                            result
                         }
                     }
                 }
@@ -160,10 +160,11 @@ fn track_time_impl(attr: TokenStream, item: TokenStream, exclusive: bool) -> Tok
                 return quote::quote! {
                     #(#attrs)* #label #for_token #pat #in_token #expr {
                         let #timing_measurement = ::performance_timing::TimeMeasurement::#method(#annotation_name);
-                        #body
+                        let result = { #body };
                         #[allow(unreachable_code)]
                         {
                             drop(#timing_measurement);
+                            result
                         }
                     }
                 }
@@ -194,5 +195,8 @@ fn track_time_impl(attr: TokenStream, item: TokenStream, exclusive: bool) -> Tok
 
 #[proc_macro_attribute]
 pub fn track_time(attr: TokenStream, item: TokenStream) -> TokenStream {
-    track_time_impl(attr, item, true)
+    let t = track_time_impl(attr, item, true);
+    #[cfg(feature = "__debug")]
+    println!("{}\n-----------------", t.to_string());
+    t
 }

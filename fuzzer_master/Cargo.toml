@@ -25,7 +25,7 @@ data_types = { path = "../data_types" }
 performance_timing = { path = "../performance_timing" }
 
 [[bin]]
-name = "fuzzer_master"
+name = "fuzz_master"
 path = "src/main.rs"
 
 [[bin]]

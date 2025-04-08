@@ -7,7 +7,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt::Debug;
 use hypervisor::state::{VmExitReason, VmState};
-use performance_timing::measurements::MeasureValuesNormalized;
+use performance_timing::measurements::MeasureValues;
 use serde::{Deserialize, Serialize};
 
 extern crate alloc;
@@ -87,8 +87,9 @@ pub enum OtaD2CTransport {
         message: String,
     },
     PerformanceTiming {
-        measurements: BTreeMap<String, MeasureValuesNormalized>,
+        measurements: BTreeMap<String, MeasureValues<f64>>,
     },
+    ResetSession,
 }
 
 pub type Code = Vec<u8>;

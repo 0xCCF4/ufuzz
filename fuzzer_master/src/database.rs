@@ -1,15 +1,16 @@
 use fuzzer_data::genetic_pool::GeneticSampleRating;
 use fuzzer_data::{Code, ExecutionResult, ReportExecutionProblem};
 use hypervisor::state::{VmExitReason, VmState};
+use itertools::Itertools;
 use lazy_static::lazy_static;
 use log::error;
+use performance_timing::measurements::{MeasureValues, MeasurementCollection, MeasurementData};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use itertools::{Itertools};
 use tokio::io;
 
 lazy_static! {
@@ -94,12 +95,12 @@ pub struct DatabaseData {
     pub results: Vec<CodeResult>,
 }
 
-#[derive(Default)]
 pub struct Database {
     pub path: PathBuf,
     pub data: DatabaseData,
     pub save_mutex: Arc<tokio::sync::Mutex<()>>,
     pub dirty: bool,
+    pub performance: MeasurementCollection<u64>,
 }
 
 impl Clone for Database {
@@ -109,6 +110,7 @@ impl Clone for Database {
             data: self.data.clone(),
             save_mutex: Arc::clone(&self.save_mutex),
             dirty: self.dirty,
+            performance: self.performance.clone(),
         }
     }
 }
@@ -118,12 +120,29 @@ impl Database {
         let file = std::fs::File::open(&path)?;
         let reader = std::io::BufReader::new(file);
         let db = serde_json::from_reader(reader)?;
-        Ok(Database {
+
+        let mut result = Database {
             path: path.as_ref().to_path_buf(),
             data: db,
             save_mutex: Arc::new(tokio::sync::Mutex::new(())),
             dirty: false,
-        })
+            performance: MeasurementCollection::default(),
+        };
+        result.performance.data.push(MeasurementData::default());
+
+        Ok(result)
+    }
+
+    pub fn empty<A: AsRef<Path>>(path: A) -> Self {
+        let mut result = Self {
+            path: path.as_ref().to_path_buf(),
+            data: DatabaseData::default(),
+            save_mutex: Arc::new(tokio::sync::Mutex::new(())),
+            dirty: false,
+            performance: MeasurementCollection::default(),
+        };
+        result.performance.data.push(MeasurementData::default());
+        result
     }
 
     pub async fn save(&mut self) -> io::Result<()> {
@@ -184,11 +203,18 @@ impl Database {
     }
 
     pub fn mark_dirty(&mut self) {
+        self.update_perf_values();
         self.dirty = true;
     }
 
     pub fn exclude_address(&mut self, address: u16, code: Code, exclude_type: ExcludeType) {
-        let highest_exclusion_iteration = self.data.blacklisted_addresses.iter().map(|v|v.iteration).max().unwrap_or_default();
+        let highest_exclusion_iteration = self
+            .data
+            .blacklisted_addresses
+            .iter()
+            .map(|v| v.iteration)
+            .max()
+            .unwrap_or_default();
         let iteration = highest_exclusion_iteration.saturating_add(1);
 
         if self.blacklisted().contains(&address) {
@@ -202,12 +228,18 @@ impl Database {
             address,
             iteration,
             code,
-            exclude_type
+            exclude_type,
         });
     }
 
-    pub fn blacklisted<'a>(&'a self) -> Box<dyn Iterator<Item=u16> + 'a> {
-        Box::new(self.data.blacklisted_addresses.iter().map(|v| v.address).unique())
+    pub fn blacklisted<'a>(&'a self) -> Box<dyn Iterator<Item = u16> + 'a> {
+        Box::new(
+            self.data
+                .blacklisted_addresses
+                .iter()
+                .map(|v| v.address)
+                .unique(),
+        )
     }
 
     pub fn push_results(
@@ -284,5 +316,17 @@ impl Database {
                 }
             }
         }
+    }
+
+    fn update_perf_values(&mut self) {
+        let measurements = performance_timing::measurements::mm_instance()
+            .borrow()
+            .data
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.clone()))
+            .collect::<BTreeMap<String, MeasureValues<u64>>>();
+
+        let last = self.performance.data.last_mut().unwrap();
+        last.clone_from(&measurements);
     }
 }

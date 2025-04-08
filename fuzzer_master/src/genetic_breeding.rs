@@ -4,11 +4,13 @@ use crate::fuzzer_node_bridge::FuzzerNodeInterface;
 use crate::manual_execution::disassemble_code;
 use crate::{wait_for_device, CommandExitResult, WaitForDeviceResult};
 use fuzzer_data::genetic_pool::{GeneticPool, GeneticPoolSettings, GeneticSampleRating};
-use fuzzer_data::{Code, ExecutionResult, Ota, OtaC2DTransport, OtaD2CTransport, ReportExecutionProblem};
+use fuzzer_data::{
+    Code, ExecutionResult, Ota, OtaC2DTransport, OtaD2CTransport, ReportExecutionProblem,
+};
 use hypervisor::state::VmExitReason;
 use itertools::Itertools;
 use log::{error, info, trace, warn};
-use performance_timing::measurements::MeasureValuesNormalized;
+use performance_timing::measurements::MeasureValues;
 use rand::{random, SeedableRng};
 use std::collections::BTreeMap;
 use std::time::Duration;
@@ -203,7 +205,8 @@ pub enum ExecuteSampleResult {
 }
 
 pub async fn net_blacklist(net: &mut DeviceConnection, database: &mut Database) -> bool {
-    for blacklist in &database.blacklisted()
+    for blacklist in &database
+        .blacklisted()
         /*.chain(
             database
                 .data
@@ -285,7 +288,7 @@ pub async fn net_execute_sample(
     if let Some(first) = cov_mismatch {
         info!("VM entry failure during coverage collection: {:#x}", first);
         db.exclude_address(first, sample.to_vec(), ExcludeType::VMentry);
-        db.exclude_address(first-2, sample.to_vec(), ExcludeType::VMentry);
+        db.exclude_address(first - 2, sample.to_vec(), ExcludeType::VMentry);
         db.mark_dirty();
 
         trace!("Rebooting device...");
@@ -414,8 +417,15 @@ pub async fn net_receive_execution_result(
 pub async fn net_receive_performance_timing(
     net: &mut DeviceConnection,
     timeout: Duration,
-) -> BTreeMap<String, MeasureValuesNormalized> {
+) -> BTreeMap<String, MeasureValues<f64>> {
     let mut data = BTreeMap::default();
+
+    let _ = net
+        .send(OtaC2DTransport::ReportPerformanceTiming)
+        .await
+        .map_err(|e| {
+            error!("Failed to send ReportPerformanceTiming: {:?}", e);
+        });
 
     loop {
         let packet = net.receive(Some(timeout)).await;

@@ -1,11 +1,14 @@
 use crate::measurements::mm_initialize;
 use crate::{instance, Availability, Instant, INITIALIZED, INSTANCE};
+use core::arch::asm;
 use core::fmt::{Display, Formatter};
 use core::sync::atomic::Ordering;
 use std::error::Error;
 
 // only single thread safe
-pub struct TimeKeeper {}
+pub struct TimeKeeper {
+    p0_frequency: f64,
+}
 
 #[derive(Copy, Clone, PartialEq, Hash, Debug, Eq)]
 pub enum CreationError {
@@ -33,15 +36,19 @@ impl TimeKeeper {
             return Err(CreationError::NotAvailable);
         }
 
-        Ok(Self {})
+        Ok(Self { p0_frequency })
     }
 
     pub fn now(&self) -> Instant {
-        Instant(0)
+        let mut val: u64;
+        unsafe {
+            asm!("mrs {0}, cntvct_el0", out(reg) val);
+        }
+        Instant(val)
     }
 
     pub fn duration_to_seconds<T: Into<f64>>(&self, duration: T) -> f64 {
-        0.0
+        duration.into() / self.p0_frequency
     }
 }
 

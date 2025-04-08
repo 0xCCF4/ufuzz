@@ -7,6 +7,7 @@ use iced_x86::{
     BlockEncoder, BlockEncoderOptions, Code, FlowControl, IcedError, Instruction, InstructionBlock,
 };
 use log::warn;
+#[cfg(feature = "__debug_performance_trace")]
 use performance_timing::track_time;
 use rand_core::RngCore;
 

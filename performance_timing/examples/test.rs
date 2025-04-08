@@ -1,8 +1,8 @@
 #![feature(stmt_expr_attributes)]
 #![feature(proc_macro_hygiene)]
 
-use performance_timing::initialize;
 use performance_timing::measurements::mm_instance;
+use performance_timing::{initialize, instance};
 use performance_timing_macros::track_time;
 
 #[track_time("test")]
@@ -29,11 +29,18 @@ impl Default for Test {
 }
 
 fn main() {
-    let _ = initialize(2_699_000_000f64);
+    #[cfg(target_arch = "x86_64")]
+    let _ = initialize(2_699_000_000f64); // Our development machine
+    #[cfg(target_arch = "aarch64")]
+    let _ = initialize(54_000_000.0); // Rpi4
 
-    for _ in 0..1000 {
+    println!("Now: {:?}", instance().now());
+
+    for _ in 0..100 {
         test_time_measurement();
     }
+
+    println!("Now: {:?}", instance().now());
 
     println!("{}", mm_instance().borrow());
 }

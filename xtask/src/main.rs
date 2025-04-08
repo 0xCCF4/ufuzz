@@ -256,7 +256,8 @@ fn build_app(project: &str, release: bool, device: bool) -> Result<PathBuf, DynE
         if device {
             "x86_64-unknown-uefi"
         } else {
-            target_file.to_str().unwrap()
+            //target_file.to_str().unwrap()
+            "x86_64-unknown-uefi"
         },
     ]);
 
@@ -376,7 +377,7 @@ fn build_app(project: &str, release: bool, device: bool) -> Result<PathBuf, DynE
     let target_folder = if device {
         build_folder.join("x86_64-unknown-uefi")
     } else {
-        build_folder.join("uefi-target-with-debug")
+        build_folder.join("x86_64-unknown-uefi")
     };
 
     match status.status() {

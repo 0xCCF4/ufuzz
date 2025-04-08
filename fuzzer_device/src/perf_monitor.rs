@@ -2,7 +2,9 @@ use alloc::collections::BTreeMap;
 use alloc::string::{String, ToString};
 use log::error;
 use performance_timing::measurements::{MeasureValues, MeasurementCollection, MeasurementData};
-use performance_timing::{track_time, Instant};
+#[cfg(feature = "__debug_performance_trace")]
+use performance_timing::track_time;
+use performance_timing::Instant;
 use uefi::proto::media::file::{File, FileMode};
 use uefi::CString16;
 use uefi_raw::protocol::file_system::FileAttribute;
@@ -10,7 +12,7 @@ use uefi_raw::Status;
 
 #[derive(Default)]
 pub struct PerfMonitor {
-    pub measurement_data: MeasurementCollection,
+    pub measurement_data: MeasurementCollection<u64>,
     pub filename: CString16,
     pub last_save: Instant,
 }
@@ -50,10 +52,11 @@ impl PerfMonitor {
             }
         }
 
-        let mut data: MeasurementCollection = serde_json::from_str(data.as_str()).or_else(|e| {
-            error!("Json deserialize error: {:?}", e);
-            Err(uefi::Error::from(uefi::Status::ABORTED))
-        })?;
+        let mut data: MeasurementCollection<u64> =
+            serde_json::from_str(data.as_str()).or_else(|e| {
+                error!("Json deserialize error: {:?}", e);
+                Err(uefi::Error::from(uefi::Status::ABORTED))
+            })?;
 
         data.data.push(MeasurementData::default());
 
@@ -74,12 +77,12 @@ impl PerfMonitor {
             .data
             .iter()
             .map(|(k, v)| (k.to_string(), v.clone()))
-            .collect::<BTreeMap<String, MeasureValues>>();
+            .collect::<BTreeMap<String, MeasureValues<u64>>>();
 
         self.update_values(&measurements);
     }
 
-    pub fn update_values(&mut self, data: &MeasurementData) {
+    pub fn update_values(&mut self, data: &MeasurementData<u64>) {
         let last = self.measurement_data.data.last_mut().unwrap();
         last.clone_from(data);
     }

@@ -9,6 +9,7 @@ use fuzzer_data::{
     MAX_FRAGMENT_SIZE, MAX_PAYLOAD_SIZE,
 };
 use log::{error, info, trace, warn};
+#[cfg(feature = "__debug_performance_trace")]
 use performance_timing::track_time;
 use uefi::boot::ScopedProtocol;
 use uefi_raw::Ipv4Address;
