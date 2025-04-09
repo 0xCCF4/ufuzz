@@ -9,6 +9,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::io::BufWriter;
 use std::io::Write;
 use std::path::PathBuf;
+use log::error;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -19,6 +20,11 @@ struct Args {
 
 pub fn main() {
     env_logger::init();
+
+    if let Err(err) = performance_timing::initialize(54_000_000.0) {
+        error!("Failed to initialize performance timing: {:?}", err);
+        return;
+    }
 
     let args = Args::parse();
 

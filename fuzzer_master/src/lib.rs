@@ -20,6 +20,15 @@ pub enum CommandExitResult {
     Operational,
 }
 
+#[cfg(target_arch = "x86_64")]
+pub const P0_FREQ: f64 = 2_699_000_000.0; // Our development machine
+
+#[cfg(target_arch = "aarch64")]
+pub const P0_FREQ: f64 = 54_000_000.0; // Rpi4
+
+#[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+compiler_error!("Unsupported architecture");
+
 pub async fn wait_for_pi(interface: &FuzzerNodeInterface) {
     trace!("Waiting for the PI to reboot");
     let now = Instant::now();

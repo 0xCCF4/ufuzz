@@ -2639,7 +2639,7 @@ rec {
         ];
         features = {
         };
-        resolvedDefaultFeatures = [ "__debug_only_below_0x1000" ];
+        resolvedDefaultFeatures = [ "__debug_only_below_0x1000" "default" ];
       };
       "fuzzer_node" = rec {
         crateName = "fuzzer_node";

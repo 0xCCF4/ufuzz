@@ -6,9 +6,7 @@ use fuzzer_master::fuzzer_node_bridge::FuzzerNodeInterface;
 use fuzzer_master::genetic_breeding::{
     net_reboot_device, net_receive_performance_timing, BreedingState,
 };
-use fuzzer_master::{
-    genetic_breeding, manual_execution, wait_for_device, CommandExitResult, WaitForDeviceResult,
-};
+use fuzzer_master::{genetic_breeding, manual_execution, wait_for_device, CommandExitResult, WaitForDeviceResult, P0_FREQ};
 use log::{error, info, trace, warn};
 use performance_timing::TimeMeasurement;
 use std::io;
@@ -57,15 +55,7 @@ async fn main() {
     let args = Args::parse();
     let mut reboot_state = false;
 
-    let p0_freq = if cfg!(target_arch = "x86_64") {
-        2_699_000_000.0 // Our development machine
-    } else if cfg!(target_arch = "aarch64") {
-        54_000_000.0 // Rpi4
-    } else {
-        panic!("Unsupported architecture");
-    };
-
-    if let Err(err) = performance_timing::initialize(p0_freq) {
+    if let Err(err) = performance_timing::initialize(P0_FREQ) {
         error!("Failed to initialize performance timing: {:?}", err);
         return;
     }
@@ -166,9 +156,9 @@ async fn main() {
 
     let mut continue_count = 0;
 
-    let _timing = TimeMeasurement::begin("main_loop");
-
     loop {
+        let timing = TimeMeasurement::begin("main_loop");
+
         let _ = database.save().await.map_err(|e| {
             error!("Failed to save the database: {:?}", e);
         });
@@ -325,9 +315,9 @@ async fn main() {
 
             guarantee_initial_state(&interface, &mut udp).await;
         }
-    }
 
-    drop(_timing);
+        let _ = timing.stop();
+    }
 
     let _ = database.save().await.map_err(|e| {
         error!("Failed to save the database: {:?}", e);
