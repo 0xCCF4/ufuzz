@@ -9,11 +9,8 @@ use fuzzer_master::genetic_breeding::{
 use fuzzer_master::{
     genetic_breeding, manual_execution, wait_for_device, CommandExitResult, WaitForDeviceResult,
 };
-use itertools::Itertools;
 use log::{error, info, trace, warn};
-use performance_timing::measurements::{format_duration, MeasureValues};
 use performance_timing::TimeMeasurement;
-use std::cmp::Ordering;
 use std::io;
 use std::io::Write;
 use std::path::PathBuf;
@@ -65,7 +62,7 @@ async fn main() {
     } else if cfg!(target_arch = "aarch64") {
         54_000_000.0 // Rpi4
     } else {
-        1.0 // Default or fallback value
+        panic!("Unsupported architecture");
     };
 
     if let Err(err) = performance_timing::initialize(p0_freq) {
@@ -241,52 +238,11 @@ async fn main() {
                     let data =
                         net_receive_performance_timing(&mut udp, Duration::from_secs(5)).await;
 
-                    let acc = database.performance.accumulate();
-                    let host = acc
-                        .iter()
-                        .map(|(k, v)| (k, MeasureValues::<f64>::from(v)))
-                        .collect_vec();
-                    let host_ref = host.iter().map(|(k, v)| (*k, v));
+                    let mut acc = database.data.performance.normalize();
 
-                    println!(
-                        "{:<40} | {:<10} | {:<10} | {:<10} | {:<10} | {:<10} | {:<10} | {:<10}",
-                        "Name",
-                        "Ex. AVG",
-                        "Ex. VAR",
-                        "Total AVG",
-                        "Total VAR",
-                        "n",
-                        "Total excl.",
-                        "Total time"
-                    );
-                    for (k, v) in data
-                        .iter()
-                        .chain(host_ref)
-                        .sorted_by(|a, b| {
-                            if a.1.exclusive_time < b.1.exclusive_time {
-                                Ordering::Less
-                            } else if a.1.exclusive_time > b.1.exclusive_time {
-                                Ordering::Greater
-                            } else {
-                                Ordering::Equal
-                            }
-                        })
-                        .rev()
-                    {
-                        let (avg, avg_unit) = format_duration(v.exclusive_cumulative_average);
-                        let (var, var_unit) = format_duration(v.variance());
-                        let (total_avg, total_avg_unit) =
-                            format_duration(v.total_cumulative_average);
-                        let (total_var, total_var_unit) =
-                            format_duration(v.total_cumulative_sum_of_squares);
-                        let (total, total_unit) = format_duration(v.total_time);
-                        let (total_exclusive, total_exclusive_unit) =
-                            format_duration(v.exclusive_time);
-                        println!(
-                            "{:<40} | {:<7.3} {} | {:<7.3} {} | {:<7.3} {} | {:<7.3} {} | {:<10.1e} | {:<10.3} {} | {:<10.3} {}",
-                            k, avg, avg_unit, var, var_unit, total_avg, total_avg_unit, total_var, total_var_unit, v.number_of_measurements as f64, total_exclusive, total_exclusive_unit, total, total_unit
-                        );
-                    }
+                    acc.data.last_mut().as_mut().unwrap().extend(data.into_iter());
+
+                    println!("{}", acc);
 
                     CommandExitResult::ExitProgram
                 }
@@ -370,6 +326,8 @@ async fn main() {
             guarantee_initial_state(&interface, &mut udp).await;
         }
     }
+
+    drop(_timing);
 
     let _ = database.save().await.map_err(|e| {
         error!("Failed to save the database: {:?}", e);

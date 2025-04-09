@@ -93,6 +93,7 @@ pub struct DatabaseData {
     pub blacklisted_addresses: Vec<BlacklistEntry>,
 
     pub results: Vec<CodeResult>,
+    pub performance: MeasurementCollection<u64>,
 }
 
 pub struct Database {
@@ -100,7 +101,6 @@ pub struct Database {
     pub data: DatabaseData,
     pub save_mutex: Arc<tokio::sync::Mutex<()>>,
     pub dirty: bool,
-    pub performance: MeasurementCollection<u64>,
 }
 
 impl Clone for Database {
@@ -110,7 +110,6 @@ impl Clone for Database {
             data: self.data.clone(),
             save_mutex: Arc::clone(&self.save_mutex),
             dirty: self.dirty,
-            performance: self.performance.clone(),
         }
     }
 }
@@ -126,9 +125,12 @@ impl Database {
             data: db,
             save_mutex: Arc::new(tokio::sync::Mutex::new(())),
             dirty: false,
-            performance: MeasurementCollection::default(),
         };
-        result.performance.data.push(MeasurementData::default());
+        result
+            .data
+            .performance
+            .data
+            .push(MeasurementData::default());
 
         Ok(result)
     }
@@ -139,9 +141,12 @@ impl Database {
             data: DatabaseData::default(),
             save_mutex: Arc::new(tokio::sync::Mutex::new(())),
             dirty: false,
-            performance: MeasurementCollection::default(),
         };
-        result.performance.data.push(MeasurementData::default());
+        result
+            .data
+            .performance
+            .data
+            .push(MeasurementData::default());
         result
     }
 
@@ -326,7 +331,7 @@ impl Database {
             .map(|(k, v)| (k.to_string(), v.clone()))
             .collect::<BTreeMap<String, MeasureValues<u64>>>();
 
-        let last = self.performance.data.last_mut().unwrap();
+        let last = self.data.performance.data.last_mut().unwrap();
         last.clone_from(&measurements);
     }
 }

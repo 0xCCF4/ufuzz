@@ -143,18 +143,21 @@ pub fn main() {
             db.data
                 .blacklisted_addresses
                 .iter()
-                .all(|b| a.address() != b.address as usize)
+                .all(|b| a.address() != b.address as usize) && a.address() < 0x1000
         },
     );
     let mut coverage = BTreeSet::new();
     for result in &db.data.results {
         for cov in result.coverage.iter().filter(|x| *x.1 > 0) {
+            if *cov.0 >= 0x1000 && cfg!(feature = "__debug_only_below_0x1000") {
+                continue;
+            }
             coverage.insert(*cov.0);
         }
     }
     let mut coverage_normalized = BTreeSet::new();
     for cov in coverage.iter() {
-        if !db.blacklisted().contains(cov) {
+        if !db.blacklisted().contains(cov) && (*cov < 0x1000 || !cfg!(feature = "__debug_only_below_0x1000")) {
             coverage_normalized.insert(*cov);
         }
     }
@@ -207,6 +210,9 @@ pub fn main() {
                 .map(|x| x.coverage.iter().filter(|x| *x.1 > 0))
                 .flatten();
             for result in results {
+                if *result.0 >= 0x1000 && cfg!(feature = "__debug_only_below_0x1000") {
+                    continue;
+                }
                 if *result.1 > 0 {
                     *coverage.entry(*result.0).or_insert(0) += result.1;
                 }
@@ -230,6 +236,9 @@ pub fn main() {
         }
         println!();
     }
+
+    let acc = db.data.performance.normalize();
+    println!("{}", acc);
 
     if let Some(file) = args.plot_path {
         let file_cov =

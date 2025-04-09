@@ -2458,11 +2458,6 @@ rec {
             packageId = "log";
           }
           {
-            name = "num-traits";
-            packageId = "num-traits";
-            usesDefaultFeatures = false;
-          }
-          {
             name = "performance_timing";
             packageId = "performance_timing";
           }
@@ -2630,6 +2625,7 @@ rec {
           {
             name = "serde_json";
             packageId = "serde_json";
+            features = [ "float_roundtrip" ];
           }
           {
             name = "tokio";
@@ -2641,7 +2637,9 @@ rec {
             packageId = "ucode_dump";
           }
         ];
-
+        features = {
+        };
+        resolvedDefaultFeatures = [ "__debug_only_below_0x1000" ];
       };
       "fuzzer_node" = rec {
         crateName = "fuzzer_node";

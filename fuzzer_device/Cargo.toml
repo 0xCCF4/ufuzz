@@ -48,7 +48,6 @@ data_types = {path = "../data_types"}
 iced-x86 = { version = "1.21.0", default-features = false, features = ["decoder", "encoder", "block_encoder", "op_code_info", "instr_info", "gas", "intel", "masm", "nasm", "fast_fmt", "code_asm", "no_std"] }
 x86 = "0.52"
 custom_processing_unit = {path = "../custom_processing_unit"}
-num-traits = { version = "0.2.19", default-features = false }
 ucode_dump = { path = "../ucode_dump" }
 uefi = { version = "0.34.1", features = ["logger", "panic_handler", "alloc", "global_allocator"], optional = true }
 uefi_udp4 = { path = "../uefi_udp4", optional = true }

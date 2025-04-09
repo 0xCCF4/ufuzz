@@ -3,7 +3,7 @@ use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::cell::RefCell;
-use core::fmt::Display;
+use core::fmt::{Display, Formatter};
 use core::ops::AddAssign;
 use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use num_traits::{AsPrimitive, SaturatingAdd};
@@ -76,8 +76,38 @@ pub struct MeasurementCollection<T> {
     pub data: Vec<MeasurementData<T>>,
 }
 
-impl<T: AddAssign + Copy + Default + SaturatingAdd> MeasurementCollection<T> {
-    pub fn accumulate(&mut self) -> BTreeMap<String, MeasureValues<T>> {
+impl MeasurementCollection<u64> {
+    pub fn normalize(&self) -> MeasurementCollection<f64> {
+        let mut result = MeasurementCollection::default();
+        for entry in self.data.iter() {
+            let mut new_entry = BTreeMap::new();
+            for (k, v) in entry.iter() {
+                new_entry.insert(k.clone(), v.into());
+            }
+            result.data.push(new_entry);
+        }
+        result
+    }
+}
+
+pub trait SaturationFloatAdd {
+    fn sat_add(&self, other: &Self) -> Self;
+}
+
+impl SaturationFloatAdd for f64 {
+    fn sat_add(&self, other: &Self) -> Self {
+        self + other
+    }
+}
+
+impl SaturationFloatAdd for u64 {
+    fn sat_add(&self, other: &Self) -> Self {
+        self.saturating_add(other)
+    }
+}
+
+impl<T: AddAssign + Copy + Default + SaturationFloatAdd> MeasurementCollection<T> {
+    pub fn accumulate(&self) -> BTreeMap<String, MeasureValues<T>> {
         let mut result = BTreeMap::new();
 
         for entry in self.data.iter() {
@@ -96,8 +126,8 @@ impl<T: AddAssign + Copy + Default + SaturatingAdd> MeasurementCollection<T> {
                     let total_avg = data.total_cumulative_average * (old_n / n)
                         + v.total_cumulative_average * (new_n / n);
 
-                    data.total_time = data.total_time.saturating_add(&v.total_time);
-                    data.exclusive_time = data.exclusive_time.saturating_add(&v.exclusive_time);
+                    data.total_time = data.total_time.sat_add(&v.total_time);
+                    data.exclusive_time = data.exclusive_time.sat_add(&v.exclusive_time);
 
                     data.exclusive_cumulative_sum_of_squares = data
                         .exclusive_cumulative_sum_of_squares
@@ -117,6 +147,51 @@ impl<T: AddAssign + Copy + Default + SaturatingAdd> MeasurementCollection<T> {
         }
 
         result
+    }
+}
+
+impl Display for MeasurementCollection<f64>{
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        let mut acc =self.accumulate().into_iter().collect::<Vec<(String, MeasureValues<f64>)>>();
+        acc.sort_by(|a, b| {
+            if a.1.exclusive_time < b.1.exclusive_time {
+                core::cmp::Ordering::Less
+            } else if a.1.exclusive_time > b.1.exclusive_time {
+                core::cmp::Ordering::Greater
+            } else {
+                core::cmp::Ordering::Equal
+            }
+        });
+        writeln!(f,
+            "{:<40} | {:<10} | {:<10} | {:<10} | {:<10} | {:<10} | {:<10} | {:<10}",
+            "Name",
+            "Ex. AVG",
+            "Ex. VAR",
+            "Total AVG",
+            "Total VAR",
+            "n",
+            "Total excl.",
+            "Total time"
+        )?;
+        for (k, v) in acc
+            .iter()
+            .rev()
+        {
+            let (avg, avg_unit) = format_duration(v.exclusive_cumulative_average);
+            let (var, var_unit) = format_duration(v.variance());
+            let (total_avg, total_avg_unit) =
+                format_duration(v.total_cumulative_average);
+            let (total_var, total_var_unit) =
+                format_duration(v.total_cumulative_sum_of_squares);
+            let (total, total_unit) = format_duration(v.total_time);
+            let (total_exclusive, total_exclusive_unit) =
+                format_duration(v.exclusive_time);
+            writeln!(f,
+                "{:<40} | {:<7.3} {} | {:<7.3} {} | {:<7.3} {} | {:<7.3} {} | {:<10.1e} | {:<7.3} {} | {:<7.3} {}",
+                k, avg, avg_unit, var, var_unit, total_avg, total_avg_unit, total_var, total_var_unit, v.number_of_measurements as f64, total_exclusive, total_exclusive_unit, total, total_unit
+            )?;
+        }
+        write!(f, "")
     }
 }
 
@@ -143,15 +218,18 @@ impl MeasurementManager {
     ) {
         let x_tot = instance().duration_to_seconds(total_duration);
         let x_exclusive = instance().duration_to_seconds(exclusive_duration);
+
         let data = self.data.entry(name).or_default();
         if data.number_of_measurements == 0 {
             data.exclusive_cumulative_average = x_exclusive;
             data.exclusive_cumulative_sum_of_squares = 0.0;
-            data.number_of_measurements = 1;
-            data.total_time = total_duration.0;
             data.exclusive_time = exclusive_duration.0;
-            data.total_cumulative_sum_of_squares = 0.0;
+
+            data.number_of_measurements = 1;
+
             data.total_cumulative_average = x_tot;
+            data.total_cumulative_sum_of_squares = 0.0;
+            data.total_time = total_duration.0;
         } else if data.number_of_measurements == u64::MAX {
             return;
         } else {
@@ -162,8 +240,7 @@ impl MeasurementManager {
 
             data.number_of_measurements += 1;
 
-            data.exclusive_cumulative_average +=
-                delta_exclusive / (data.number_of_measurements as f64);
+            data.exclusive_cumulative_average += delta_exclusive / (data.number_of_measurements as f64);
             data.total_cumulative_average += delta_tot / (data.number_of_measurements as f64);
 
             let delta_exclusive2 = x_exclusive - data.exclusive_cumulative_average;

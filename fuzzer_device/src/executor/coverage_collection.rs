@@ -118,7 +118,7 @@ impl CoverageCollector {
             self.rom,
             &self.modification_engine_settings,
             self.hooks,
-            |address| !borrow.contains(&(address.address() as u16)),
+            |address| !borrow.contains(&(address.address() as u16)) && (address.address() < 0x1000 || !cfg!(feature = "__debug_only_below_0x1000")),
         );
 
         IterationHarness::new(hookable_addresses)
