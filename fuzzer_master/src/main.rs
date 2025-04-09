@@ -3,17 +3,18 @@ use fuzzer_data::{Ota, OtaC2DTransport, OtaD2C, OtaD2CTransport};
 use fuzzer_master::database::Database;
 use fuzzer_master::device_connection::DeviceConnection;
 use fuzzer_master::fuzzer_node_bridge::FuzzerNodeInterface;
-use fuzzer_master::genetic_breeding::{
-    net_reboot_device, net_receive_performance_timing, BreedingState,
+use fuzzer_master::genetic_breeding::{BreedingState,
 };
 use fuzzer_master::{genetic_breeding, manual_execution, wait_for_device, CommandExitResult, WaitForDeviceResult, P0_FREQ};
 use log::{error, info, trace, warn};
-use performance_timing::TimeMeasurement;
+use performance_timing::{track_time, TimeMeasurement};
 use std::io;
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::time::Instant;
+use fuzzer_master::net::{net_reboot_device, net_receive_performance_timing};
 
 pub mod main_compare;
 pub mod main_viewer;
@@ -153,11 +154,21 @@ async fn main() {
     */
 
     let mut state = BreedingState::default();
-
     let mut continue_count = 0;
+    let mut last_time_perf_from_device = Instant::now()-Duration::from_secs(1000000);
 
     loop {
-        let timing = TimeMeasurement::begin("main_loop");
+        let timing = TimeMeasurement::begin("host::main_loop");
+
+        if last_time_perf_from_device.elapsed() > Duration::from_secs(60*60) {
+            // each 60 min
+            trace!("Querying device performance values");
+            let perf = net_receive_performance_timing(&mut udp, Duration::from_secs(5)).await;
+            if let Some(perf) = perf {
+                last_time_perf_from_device = Instant::now();
+                database.set_device_performance(perf.into());
+            }
+        }
 
         let _ = database.save().await.map_err(|e| {
             error!("Failed to save the database: {:?}", e);
@@ -168,7 +179,7 @@ async fn main() {
             Cmd::Compare => CommandExitResult::ExitProgram,
             Cmd::Convert => CommandExitResult::ExitProgram,
             Cmd::Genetic => {
-                let _timing = TimeMeasurement::begin("fuzzing_loop");
+                let _timing = TimeMeasurement::begin("host::fuzzing_loop");
                 genetic_breeding::main(&mut udp, &interface, &mut database, &mut state).await
             }
             Cmd::Cap => {
@@ -230,7 +241,9 @@ async fn main() {
 
                     let mut acc = database.data.performance.normalize();
 
-                    acc.data.last_mut().as_mut().unwrap().extend(data.into_iter());
+                    if let Some(data) = data {
+                        acc.data.last_mut().as_mut().unwrap().extend(data.into_iter());
+                    }
 
                     println!("{}", acc);
 
@@ -324,6 +337,7 @@ async fn main() {
     });
 }
 
+#[track_time("host::guarantee_state")]
 async fn guarantee_initial_state(interface: &Arc<FuzzerNodeInterface>, udp: &mut DeviceConnection) {
     // guarantee initial state
     let mut iteration = 0;
@@ -350,6 +364,7 @@ async fn guarantee_initial_state(interface: &Arc<FuzzerNodeInterface>, udp: &mut
     }
 }
 
+#[track_time("host::guarantee_state")]
 async fn power_on(interface: &FuzzerNodeInterface) -> bool {
     // device is off
 

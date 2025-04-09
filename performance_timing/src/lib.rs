@@ -102,7 +102,7 @@ impl TimeMeasurement {
         Self {
             name,
             start: instance().now(),
-            exclusive: Some(mm_instance().borrow_mut().register_exclusive_measurement()),
+            exclusive: Some(mm_instance().borrow_mut().register_exclusive_measurement(name)),
         }
     }
 

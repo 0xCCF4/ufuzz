@@ -243,7 +243,8 @@ pub fn main() {
         println!();
     }
 
-    let acc = db.data.performance.normalize();
+    let mut acc = db.data.performance.normalize();
+    acc.data.push(db.data.device_performance.accumulate());
     println!("{}", acc);
 
     if let Some(file) = args.plot_path {

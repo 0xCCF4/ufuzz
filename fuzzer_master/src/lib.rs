@@ -12,6 +12,7 @@ pub mod fuzzer_node_bridge;
 pub mod genetic_breeding;
 
 pub mod manual_execution;
+pub mod net;
 
 pub enum CommandExitResult {
     ExitProgram,

@@ -1,6 +1,7 @@
 use crate::{instance, Duration};
 use alloc::collections::BTreeMap;
 use alloc::string::String;
+use alloc::vec;
 use alloc::vec::Vec;
 use core::cell::RefCell;
 use core::fmt::{Display, Formatter};
@@ -90,6 +91,14 @@ impl MeasurementCollection<u64> {
     }
 }
 
+impl<T> From<BTreeMap<String, MeasureValues<T>>> for MeasurementCollection<T> {
+    fn from(value: BTreeMap<String, MeasureValues<T>>) -> Self {
+        Self {
+            data: vec![value],
+        }
+    }
+}
+
 pub trait SaturationFloatAdd {
     fn sat_add(&self, other: &Self) -> Self;
 }
@@ -170,7 +179,7 @@ impl Display for MeasurementCollection<f64>{
             "Total AVG",
             "Total VAR",
             "n",
-            "Total excl.",
+            "Total excl",
             "Total time"
         )?;
         for (k, v) in acc
@@ -199,7 +208,7 @@ impl Display for MeasurementCollection<f64>{
 pub struct MeasurementManager {
     pub data: BTreeMap<&'static str, MeasureValues<u64>>,
     #[serde(skip)]
-    pub exclusive_time_keeping: BTreeMap<u64, Duration>,
+    pub exclusive_time_keeping: BTreeMap<u64, (&'static str, Duration)>,
 }
 
 impl MeasurementManager {
@@ -255,22 +264,23 @@ impl MeasurementManager {
 
         self.exclusive_time_keeping
             .iter_mut()
-            .for_each(|(_, v)| *v += exclusive_duration);
+            .filter(|(_, v)| v.0 != name)
+            .for_each(|(_, v)| v.1 += exclusive_duration);
     }
 
     pub fn reset(&mut self) {
         self.data.clear();
     }
 
-    pub fn register_exclusive_measurement(&mut self) -> ExclusiveMeasurementGuard {
+    pub fn register_exclusive_measurement(&mut self, owner: &'static str) -> ExclusiveMeasurementGuard {
         let guard = ExclusiveMeasurementGuard::begin();
-        self.exclusive_time_keeping.insert(guard.index, Duration(0));
+        self.exclusive_time_keeping.insert(guard.index, (owner, Duration(0)));
         guard
     }
 
     fn drop_exclusive_measurement(&mut self, index: u64) -> Duration {
         if let Some(duration) = self.exclusive_time_keeping.remove(&index) {
-            duration
+            duration.1
         } else {
             Duration(0)
         }

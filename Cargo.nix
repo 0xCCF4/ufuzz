@@ -2519,7 +2519,7 @@ rec {
         ];
         features = {
           "__device_bochs" = [ "device_bochs" "rand_isaac" "mutation_all" "__debug_print_external_interrupt_notification" "__debug_print_mutation_info" "__debug_performance_trace" ];
-          "__device_brix" = [ "device_brix" "rand_isaac" "mutation_all" "__debug_print_mutation_info" "__debug_print_dissassembly" "__debug_print_progress_print" ];
+          "__device_brix" = [ "device_brix" "rand_isaac" "mutation_all" "__debug_print_mutation_info" "__debug_print_dissassembly" "__debug_print_progress_print" "__debug_only_below_0x1000" ];
           "default" = [ "device_brix" "mutation_all" "rand_isaac" ];
           "device_bochs" = [ "platform_bochs" "bios_bochs" "uefi" ];
           "device_brix" = [ "platform_intel" "bios_ami" "uefi" ];
@@ -2527,7 +2527,7 @@ rec {
           "rand_isaac" = [ "dep:rand_isaac" ];
           "uefi" = [ "coverage/uefi" "no_std" "dep:uefi" "dep:uefi_udp4" "dep:uefi-raw" ];
         };
-        resolvedDefaultFeatures = [ "__debug_bochs_pretend" "__debug_performance_trace" "__debug_pretend_no_coverage" "__debug_print_dissassembly" "__debug_print_events" "__debug_print_external_interrupt_notification" "__debug_print_mutation_info" "__debug_print_progress_net" "__debug_print_progress_print" "__debug_print_udp" "__device_bochs" "__device_brix" "bios_ami" "bios_bochs" "default" "device_bochs" "device_brix" "mutation_all" "mutation_random" "no_std" "platform_bochs" "platform_intel" "rand_isaac" "uefi" ];
+        resolvedDefaultFeatures = [ "__debug_bochs_pretend" "__debug_only_below_0x1000" "__debug_performance_trace" "__debug_pretend_no_coverage" "__debug_print_dissassembly" "__debug_print_events" "__debug_print_external_interrupt_notification" "__debug_print_mutation_info" "__debug_print_progress_net" "__debug_print_progress_print" "__debug_print_udp" "__device_bochs" "__device_brix" "bios_ami" "bios_bochs" "default" "device_bochs" "device_brix" "mutation_all" "mutation_random" "no_std" "platform_bochs" "platform_intel" "rand_isaac" "uefi" ];
       };
       "fuzzer_master" = rec {
         crateName = "fuzzer_master";
@@ -2638,6 +2638,7 @@ rec {
           }
         ];
         features = {
+          "default" = [ "__debug_only_below_0x1000" ];
         };
         resolvedDefaultFeatures = [ "__debug_only_below_0x1000" "default" ];
       };

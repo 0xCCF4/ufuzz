@@ -65,7 +65,7 @@ unsafe fn main() -> Status {
 
     uefi::boot::stall(1000000);
 
-    let mut perf_monitor = match PerfMonitor::new("perf.json") {
+    let perf_monitor = match PerfMonitor::new("perf.json") {
         Ok(x) => x,
         Err(e) => {
             error!("Failed to create perf monitor: {:?}", e);

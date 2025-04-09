@@ -1,13 +1,14 @@
 use crate::database::Database;
 use crate::device_connection::DeviceConnection;
 use crate::fuzzer_node_bridge::FuzzerNodeInterface;
-use crate::genetic_breeding::{net_blacklist, ExecuteSampleResult};
 use crate::CommandExitResult;
 use iced_x86::{Decoder, DecoderOptions, Formatter, Instruction, NasmFormatter};
 use log::error;
 use std::io;
 use std::io::Write;
 use std::path::Path;
+use crate::genetic_breeding::ExecuteSampleResult;
+use crate::net::{net_blacklist, net_execute_sample};
 
 pub async fn main<A: AsRef<Path>, B: AsRef<Path>>(
     udp: &mut DeviceConnection,
@@ -63,7 +64,7 @@ pub async fn main<A: AsRef<Path>, B: AsRef<Path>>(
         return CommandExitResult::RetryOrReconnect;
     }
 
-    let (result, events) = match crate::genetic_breeding::net_execute_sample(
+    let (result, events) = match net_execute_sample(
         udp,
         interface,
         db,

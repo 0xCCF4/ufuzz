@@ -138,7 +138,7 @@ fn main_put_remote(name: &str) {
             "echo -n \"Stopping USB: \" && sudo configure_usb off"
         )
         .expect("Failed to write to ssh stdin");
-        writeln!(ssh_stdin, "if [ ! -f ~/disk.img ]; then echo 'Creating disk image' && dd if=/dev/zero of=~/disk.img bs=1M count=1024 && echo 'Formatting disk image' && mkfs.fat -F 32 ~/disk.img; fi").expect("Failed to write to ssh stdin");
+        writeln!(ssh_stdin, "if [ ! -f ~/disk.img ]; then echo 'Creating disk image' && dd if=/dev/zero of=~/disk.img bs=1M count=8192 && echo 'Formatting disk image' && mkfs.fat -F 32 ~/disk.img; fi").expect("Failed to write to ssh stdin");
         writeln!(ssh_stdin, "sudo mkdir -p /mnt ; sudo mount ~/disk.img /mnt")
             .expect("Failed to write to ssh stdin");
         writeln!(ssh_stdin, "sudo cp \"/tmp/{}\" \"/mnt/{}\"", name, name)

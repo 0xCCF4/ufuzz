@@ -94,6 +94,7 @@ pub struct DatabaseData {
 
     pub results: Vec<CodeResult>,
     pub performance: MeasurementCollection<u64>,
+    pub device_performance: MeasurementCollection<f64>,
 }
 
 pub struct Database {
@@ -245,6 +246,11 @@ impl Database {
                 .map(|v| v.address)
                 .unique(),
         )
+    }
+
+    pub fn set_device_performance(&mut self, perf: MeasurementCollection<f64>) {
+        self.data.device_performance = perf;
+        self.mark_dirty();
     }
 
     pub fn push_results(

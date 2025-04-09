@@ -15,6 +15,7 @@ use tokio::net::UdpSocket;
 use tokio::sync::mpsc::Receiver;
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
+use performance_timing::{track_time, TimeMeasurement};
 
 #[derive(Debug)]
 pub enum DeviceConnectionError {
@@ -159,6 +160,9 @@ impl DeviceConnection {
                         {
                             if let OtaD2CTransport::ResetSession = content {
                                 trace!("Reset network session");
+                                rx_sequence_number = 0;
+                                last_packet = Instant::now();
+                                continue;
                             } else if session != *packet_session {
                                 warn!("Received packet from wrong session: {}", packet_session);
                                 println!("Packet: {:?}", data);
@@ -225,6 +229,7 @@ impl DeviceConnection {
     }
 
     #[allow(unreachable_code)]
+    #[track_time("host::net::send")]
     pub async fn send<Packet: OtaPacket<OtaC2DUnreliable, OtaC2DTransport>>(
         &mut self,
         data: Packet,
@@ -359,6 +364,7 @@ impl DeviceConnection {
 
     #[allow(unreachable_code)]
     #[allow(unused_variables)]
+    #[track_time("host::net::receive::raw")]
     pub async fn receive(&mut self, timeout: Option<Duration>) -> Option<OtaD2C> {
         let initial_packet = match self.receive_native(timeout).await {
             Some(packet) => packet,
@@ -445,6 +451,7 @@ impl DeviceConnection {
         }
     }
 
+    #[track_time("host::net::receive")]
     pub async fn receive_packet<F: Fn(&OtaD2C) -> bool>(
         &mut self,
         filter: F,
@@ -481,7 +488,9 @@ impl DeviceConnection {
         Ok(result)
     }
 
+    #[track_time("host::net::flush")]
     pub async fn flush_read(&mut self, timeout: Option<Duration>) {
+        let timing = TimeMeasurement::begin("net");
         match timeout {
             None => while let Some(_) = self.receive(None).await {},
             Some(timeout) => {
@@ -497,6 +506,7 @@ impl DeviceConnection {
                 }
             }
         }
+        let _ = timing.stop();
     }
 }
 
