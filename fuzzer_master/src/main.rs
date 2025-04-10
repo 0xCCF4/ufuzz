@@ -5,7 +5,7 @@ use fuzzer_master::device_connection::DeviceConnection;
 use fuzzer_master::fuzzer_node_bridge::FuzzerNodeInterface;
 use fuzzer_master::genetic_breeding::{BreedingState,
 };
-use fuzzer_master::{genetic_breeding, manual_execution, wait_for_device, CommandExitResult, WaitForDeviceResult, P0_FREQ};
+use fuzzer_master::{genetic_breeding, instruction_mutations, manual_execution, wait_for_device, CommandExitResult, WaitForDeviceResult, P0_FREQ};
 use log::{error, info, trace, warn};
 use performance_timing::{track_time, TimeMeasurement};
 use std::io;
@@ -14,6 +14,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::Instant;
+use fuzzer_master::instruction_mutations::InstructionMutState;
 use fuzzer_master::net::{net_reboot_device, net_receive_performance_timing};
 
 pub mod main_compare;
@@ -25,16 +26,15 @@ pub const DATABASE_FILE: &str = "database.json";
 #[command(version, about, long_about = None)]
 struct Args {
     #[command(subcommand)]
-    cmd: Option<Cmd>,
+    cmd: Cmd,
 }
 
-#[derive(Subcommand, Debug, Clone, Default)]
+#[derive(Subcommand, Debug, Clone)]
 enum Cmd {
     Viewer,
     Compare,
-    Convert,
-    #[default]
     Genetic,
+    InstructionMutation,
     Init,
     Reboot,
     Cap,
@@ -85,16 +85,12 @@ async fn main() {
     );
     info!("Loaded database from {:?}", &database.path);
 
-    if let Some(Cmd::Viewer) = &args.cmd {
+    if let Cmd::Viewer = &args.cmd {
         main_viewer::main();
         return;
     }
-    if let Some(Cmd::Compare) = &args.cmd {
+    if let Cmd::Compare = &args.cmd {
         main_compare::main();
-        return;
-    }
-    if let Some(Cmd::Convert) = &args.cmd {
-        // main_convert::main();
         return;
     }
 
@@ -153,34 +149,28 @@ async fn main() {
     }
     */
 
-    let mut state = BreedingState::default();
+    let mut state_breeding = BreedingState::default();
+    let mut state_instructions = InstructionMutState::default();
     let mut continue_count = 0;
     let mut last_time_perf_from_device = Instant::now()-Duration::from_secs(1000000);
 
     loop {
         let timing = TimeMeasurement::begin("host::main_loop");
 
-        if last_time_perf_from_device.elapsed() > Duration::from_secs(60*60) {
-            // each 60 min
-            trace!("Querying device performance values");
-            let perf = net_receive_performance_timing(&mut udp, Duration::from_secs(5)).await;
-            if let Some(perf) = perf {
-                last_time_perf_from_device = Instant::now();
-                database.set_device_performance(perf.into());
-            }
-        }
-
         let _ = database.save().await.map_err(|e| {
             error!("Failed to save the database: {:?}", e);
         });
 
-        let result = match args.cmd.as_ref().unwrap_or(&Cmd::default()) {
+        let result = match &args.cmd {
             Cmd::Viewer => CommandExitResult::ExitProgram,
             Cmd::Compare => CommandExitResult::ExitProgram,
-            Cmd::Convert => CommandExitResult::ExitProgram,
             Cmd::Genetic => {
                 let _timing = TimeMeasurement::begin("host::fuzzing_loop");
-                genetic_breeding::main(&mut udp, &interface, &mut database, &mut state).await
+                genetic_breeding::main(&mut udp, &interface, &mut database, &mut state_breeding).await
+            }
+            Cmd::InstructionMutation => {
+                let _timing = TimeMeasurement::begin("host::fuzzing_loop");
+                instruction_mutations::main(&mut udp, &interface, &mut database, &mut state_instructions).await
             }
             Cmd::Cap => {
                 let _ = udp
@@ -327,6 +317,16 @@ async fn main() {
             tokio::time::sleep(Duration::from_secs(5)).await;
 
             guarantee_initial_state(&interface, &mut udp).await;
+        }
+
+        if last_time_perf_from_device.elapsed() > Duration::from_secs(60*60) {
+            // each 60 min
+            trace!("Querying device performance values");
+            let perf = net_receive_performance_timing(&mut udp, Duration::from_secs(5)).await;
+            if let Some(perf) = perf {
+                last_time_perf_from_device = Instant::now();
+                database.set_device_performance(perf.into());
+            }
         }
 
         let _ = timing.stop();

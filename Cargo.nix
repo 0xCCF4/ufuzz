@@ -2519,7 +2519,7 @@ rec {
         ];
         features = {
           "__device_bochs" = [ "device_bochs" "rand_isaac" "mutation_all" "__debug_print_external_interrupt_notification" "__debug_print_mutation_info" "__debug_performance_trace" ];
-          "__device_brix" = [ "device_brix" "rand_isaac" "mutation_all" "__debug_print_mutation_info" "__debug_print_dissassembly" "__debug_print_progress_print" "__debug_only_below_0x1000" ];
+          "__device_brix" = [ "device_brix" "rand_isaac" "mutation_all" "__debug_print_mutation_info" "__debug_print_dissassembly" "__debug_print_progress_print" "__debug_only_below_0x1000" "__debug_performance_trace" ];
           "default" = [ "device_brix" "mutation_all" "rand_isaac" ];
           "device_bochs" = [ "platform_bochs" "bios_bochs" "uefi" ];
           "device_brix" = [ "platform_intel" "bios_ami" "uefi" ];
@@ -5409,6 +5409,11 @@ rec {
         edition = "2021";
         src = lib.cleanSourceWith { filter = sourceFilter;  src = ./performance_timing; };
         dependencies = [
+          {
+            name = "libm";
+            packageId = "libm";
+            usesDefaultFeatures = false;
+          }
           {
             name = "num-traits";
             packageId = "num-traits";

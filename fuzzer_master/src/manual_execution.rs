@@ -7,8 +7,7 @@ use log::error;
 use std::io;
 use std::io::Write;
 use std::path::Path;
-use crate::genetic_breeding::ExecuteSampleResult;
-use crate::net::{net_blacklist, net_execute_sample};
+use crate::net::{net_blacklist, net_execute_sample, ExecuteSampleResult};
 
 pub async fn main<A: AsRef<Path>, B: AsRef<Path>>(
     udp: &mut DeviceConnection,

@@ -65,6 +65,9 @@ impl<T: AsPrimitive<f64> + Copy> MeasureValues<T> {
         }
         self.exclusive_cumulative_sum_of_squares / (self.number_of_measurements as f64)
     }
+    pub fn std_derivation(&self) -> f64 {
+        libm::sqrt(self.variance())
+    }
     pub fn total_time(&self, frequency: f64) -> f64 {
         self.total_time.as_() / frequency
     }
@@ -172,12 +175,12 @@ impl Display for MeasurementCollection<f64>{
             }
         });
         writeln!(f,
-            "{:<40} | {:<10} | {:<10} | {:<10} | {:<10} | {:<10} | {:<10} | {:<10}",
+            "{:<60} | {:<10} | {:<10} | {:<10} | {:<10} | {:<10} | {:<10} | {:<10}",
             "Name",
             "Ex. AVG",
-            "Ex. VAR",
+            "Ex. sdev",
             "Total AVG",
-            "Total VAR",
+            "Total sdev",
             "n",
             "Total excl",
             "Total time"
@@ -187,16 +190,16 @@ impl Display for MeasurementCollection<f64>{
             .rev()
         {
             let (avg, avg_unit) = format_duration(v.exclusive_cumulative_average);
-            let (var, var_unit) = format_duration(v.variance());
+            let (var, var_unit) = format_duration(v.std_derivation());
             let (total_avg, total_avg_unit) =
                 format_duration(v.total_cumulative_average);
             let (total_var, total_var_unit) =
-                format_duration(v.total_cumulative_sum_of_squares);
+                format_duration(v.std_derivation());
             let (total, total_unit) = format_duration(v.total_time);
             let (total_exclusive, total_exclusive_unit) =
                 format_duration(v.exclusive_time);
             writeln!(f,
-                "{:<40} | {:<7.3} {} | {:<7.3} {} | {:<7.3} {} | {:<7.3} {} | {:<10.1e} | {:<7.3} {} | {:<7.3} {}",
+                "{:<60} | {:<7.3} {} | {:<7.3} {} | {:<7.3} {} | {:<7.3} {} | {:<10.1e} | {:<7.3} {} | {:<7.3} {}",
                 k, avg, avg_unit, var, var_unit, total_avg, total_avg_unit, total_var, total_var_unit, v.number_of_measurements as f64, total_exclusive, total_exclusive_unit, total, total_unit
             )?;
         }

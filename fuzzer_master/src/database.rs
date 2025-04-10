@@ -11,6 +11,7 @@ use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::io;
 
 lazy_static! {
@@ -72,6 +73,20 @@ pub struct CodeResult {
     pub fitness: GeneticSampleRating,
     pub events: Vec<CodeEvent>,
     pub found_at: BTreeSet<FoundAt>,
+    #[serde(default)]
+    pub found_on: Vec<Timestamp>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+#[repr(transparent)]
+pub struct Timestamp(u64);
+impl Timestamp {
+    pub fn now() -> Self {
+        Timestamp (SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs())
+    }
+    pub fn instant(&self) -> SystemTime {
+        SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(self.0)
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy)]
@@ -284,6 +299,7 @@ impl Database {
         entry.code = code;
 
         entry.found_at.insert(FoundAt { seed, evolution });
+        entry.found_on.push(Timestamp::now());
 
         for event in events {
             match event {

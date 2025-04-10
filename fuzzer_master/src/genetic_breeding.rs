@@ -4,11 +4,11 @@ use crate::fuzzer_node_bridge::FuzzerNodeInterface;
 use crate::{CommandExitResult};
 use fuzzer_data::genetic_pool::{GeneticPool, GeneticPoolSettings, GeneticSampleRating};
 use fuzzer_data::{
-    Code, ExecutionResult, OtaC2DTransport, ReportExecutionProblem,
+    Code, OtaC2DTransport,
 };
 use log::{error, info};
 use rand::{random, SeedableRng};
-use crate::net::{net_blacklist, net_execute_sample, net_receive_excluded_addresses};
+use crate::net::{net_blacklist, net_execute_sample, net_receive_excluded_addresses, ExecuteSampleResult};
 
 #[derive(Debug, Default, PartialEq)]
 enum FSM {
@@ -191,11 +191,5 @@ pub async fn main(
     state.fsm = FSM::Uninitialized;
 
     CommandExitResult::Operational
-}
-
-pub enum ExecuteSampleResult {
-    Timeout,
-    Rerun,
-    Success(ExecutionResult, Vec<ReportExecutionProblem>),
 }
 

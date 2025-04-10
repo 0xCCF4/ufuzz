@@ -10,7 +10,6 @@ use uefi::CString16;
 use uefi_raw::protocol::file_system::FileAttribute;
 use uefi_raw::Status;
 
-#[derive(Default)]
 pub struct PerfMonitor {
     pub measurement_data: MeasurementCollection<u64>,
     pub filename: CString16,
@@ -27,7 +26,13 @@ impl PerfMonitor {
             Ok(file) => file,
             Err(e) => {
                 return if e.status() == Status::NOT_FOUND {
-                    Ok(Self::default())
+                    let mut result = Self {
+                        measurement_data: MeasurementCollection::default(),
+                        filename,
+                        last_save: performance_timing::instance().now(),
+                    };
+                    result.measurement_data.data.push(MeasurementData::default());
+                    Ok(result)
                 } else {
                     Err(e)
                 }

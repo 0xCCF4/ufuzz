@@ -8,7 +8,7 @@ use performance_timing::measurements::MeasureValues;
 use crate::database::{Database, ExcludeType};
 use crate::device_connection::DeviceConnection;
 use crate::fuzzer_node_bridge::FuzzerNodeInterface;
-use crate::genetic_breeding::{ExecuteSampleResult, SAMPLE_TIMEOUT};
+use crate::genetic_breeding::{SAMPLE_TIMEOUT};
 use crate::manual_execution::disassemble_code;
 use crate::{wait_for_device, CommandExitResult, WaitForDeviceResult};
 
@@ -261,4 +261,10 @@ pub async fn net_receive_performance_timing(
             return Some(data);
         }
     }
+}
+
+pub enum ExecuteSampleResult {
+    Timeout,
+    Rerun,
+    Success(ExecutionResult, Vec<ReportExecutionProblem>),
 }

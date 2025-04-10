@@ -3,13 +3,14 @@ use coverage::harness::coverage_harness::hookable_address_iterator::HookableAddr
 use coverage::harness::coverage_harness::modification_engine::ModificationEngineSettings;
 use data_types::addresses::Address;
 use fuzzer_master::database::CodeEvent;
-use hypervisor::state::StateDifference;
+use hypervisor::state::{StateDifference, VmExitReason};
 use itertools::Itertools;
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::BufWriter;
 use std::io::Write;
 use std::path::PathBuf;
 use log::error;
+use hypervisor::state::VmExitReason::TimerExpiration;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -63,6 +64,10 @@ pub fn main() {
                 code,
             } = event
             {
+                if *serialized_exit == Some(VmExitReason::TimerExpiration) || result.exit == VmExitReason::TimerExpiration{
+                    continue;
+                }
+
                 println!("Sample: {}", code_to_hex_string(result.code.as_slice()));
                 println!("Serialized: {}", code_to_hex_string(code.as_slice()));
 
@@ -83,6 +88,19 @@ pub fn main() {
 
     println!("\n\nState trace differences:");
     for result in &db.data.results {
+        for event in &result.events {
+            if let CodeEvent::SerializedMismatch {
+                serialized_exit,
+                serialized_state,
+                code,
+            } = event
+            {
+                if *serialized_exit == Some(VmExitReason::TimerExpiration) || result.exit == VmExitReason::TimerExpiration {
+                    continue;
+                }
+            }
+        }
+
         for event in &result.events {
             if let CodeEvent::StateTraceMismatch {
                 index,
