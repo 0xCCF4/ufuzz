@@ -4,7 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [features]
-default = ["__debug_only_below_0x1000"]
 __debug_only_below_0x1000 = [] # collect coverage only below address 0x1000
 
 [dependencies]

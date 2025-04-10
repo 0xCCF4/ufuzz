@@ -31,8 +31,6 @@ struct Args {
 
 #[derive(Subcommand, Debug, Clone)]
 enum Cmd {
-    Viewer,
-    Compare,
     Genetic,
     InstructionMutation,
     Init,
@@ -84,15 +82,6 @@ async fn main() {
         |x| x,
     );
     info!("Loaded database from {:?}", &database.path);
-
-    if let Cmd::Viewer = &args.cmd {
-        main_viewer::main();
-        return;
-    }
-    if let Cmd::Compare = &args.cmd {
-        main_compare::main();
-        return;
-    }
 
     let interface = Arc::new(FuzzerNodeInterface::new("http://10.83.3.198:8000"));
     let mut udp = DeviceConnection::new("10.83.3.6:4444").await.unwrap();
@@ -162,8 +151,6 @@ async fn main() {
         });
 
         let result = match &args.cmd {
-            Cmd::Viewer => CommandExitResult::ExitProgram,
-            Cmd::Compare => CommandExitResult::ExitProgram,
             Cmd::Genetic => {
                 let _timing = TimeMeasurement::begin("host::fuzzing_loop");
                 genetic_breeding::main(&mut udp, &interface, &mut database, &mut state_breeding).await

@@ -92,7 +92,7 @@ fn track_time_impl(attr: TokenStream, item: TokenStream, exclusive: bool) -> Tok
             let func_name = &func.sig.ident;
 
             if annotation_name.is_none() {
-                annotation_name = Some(format!("{crate_name}::{func_name}_{random_number:03}"));
+                annotation_name = Some(format!("{crate_name}::{func_name}"));
             }
 
             let syn::ItemFn {

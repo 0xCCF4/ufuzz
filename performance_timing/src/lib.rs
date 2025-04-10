@@ -17,7 +17,7 @@ mod arch {
     pub use aarch64::*;
 }
 
-use crate::measurements::{mm_instance, ExclusiveMeasurementGuard};
+use crate::measurements::{mm_instance, ExclusiveMeasurementGuard, MeasureStackGuard};
 pub use arch::*;
 use core::ops::{Add, AddAssign, Sub};
 use core::sync::atomic::{AtomicBool, Ordering};
@@ -95,14 +95,17 @@ pub struct TimeMeasurement {
     pub name: &'static str,
     pub start: Instant,
     pub exclusive: Option<ExclusiveMeasurementGuard>,
+    pub stack_guard: Option<MeasureStackGuard>,
 }
 
 impl TimeMeasurement {
     pub fn begin(name: &'static str) -> Self {
+        let mut guard = mm_instance().borrow_mut();
         Self {
             name,
             start: instance().now(),
-            exclusive: Some(mm_instance().borrow_mut().register_exclusive_measurement(name)),
+            exclusive: Some(guard.register_exclusive_measurement(name)),
+            stack_guard: Some(guard.begin_stack_frame(name)),
         }
     }
 
@@ -119,6 +122,7 @@ impl TimeMeasurement {
     }
 
     fn __drop(&mut self) -> (Duration, Duration) {
+        drop(self.stack_guard.take());
         let now = instance().now();
         let total_duration = now - self.start;
         let mut exclusive_duration = total_duration;

@@ -167,7 +167,7 @@ pub fn main() {
             db.data
                 .blacklisted_addresses
                 .iter()
-                .all(|b| a.address() != b.address as usize) && a.address() < 0x1000
+                .all(|b| a.address() != b.address as usize) && (a.address() < 0x1000 || !cfg!(feature = "__debug_only_below_0x1000"))
         },
     );
     let mut coverage = BTreeSet::new();

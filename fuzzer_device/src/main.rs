@@ -175,7 +175,7 @@ unsafe fn main() -> Status {
         }
 
         trace!("Waiting for command...");
-        #[cfg_attr(feature = "__debug_performance_trace", track_time("main_loop"))]
+        #[cfg_attr(feature = "__debug_performance_trace", track_time("fuzzer_device::main_loop"))]
         loop {
             #[cfg(feature = "__debug_performance_trace")]
             if let Err(err) = perf_monitor.try_update_save_file() {
@@ -218,7 +218,7 @@ unsafe fn main() -> Status {
                 OtaC2DTransport::Blacklist { address } =>
                 #[cfg_attr(
                     feature = "__debug_performance_trace",
-                    track_time("main_loop::blacklist-set")
+                    track_time("fuzzer_device::main_loop::blacklist-set")
                 )]
                 {
                     let mut excluded_addresses_mut = excluded_addresses.borrow_mut();
@@ -247,7 +247,7 @@ unsafe fn main() -> Status {
                 OtaC2DTransport::GiveMeYourBlacklistedAddresses =>
                 #[cfg_attr(
                     feature = "__debug_performance_trace",
-                    track_time("main_loop::blacklist-get")
+                    track_time("fuzzer_device::main_loop::blacklist-get")
                 )]
                 {
                     let borrow = excluded_addresses.borrow();
@@ -279,7 +279,7 @@ unsafe fn main() -> Status {
                 OtaC2DTransport::ExecuteSample { code } =>
                 #[cfg_attr(
                     feature = "__debug_performance_trace",
-                    track_time("main_loop::execute_sample")
+                    track_time("fuzzer_device::main_loop::execute_sample")
                 )]
                 {
                     println!("Executing sample");
@@ -384,7 +384,7 @@ unsafe fn main() -> Status {
                         }
                     }
 
-                    let _guard = TimeMeasurement::begin("main_loop::send_results");
+                    let _guard = TimeMeasurement::begin("fuzzer_device::main_loop::send_results");
 
                     for cov in execution_result
                         .coverage

@@ -58,10 +58,12 @@ impl PerfMonitor {
         }
 
         let mut data: MeasurementCollection<u64> =
-            serde_json::from_str(data.as_str()).or_else(|e| {
+            serde_json::from_str(data.as_str()).unwrap_or_else(|e| {
                 error!("Json deserialize error: {:?}", e);
-                Err(uefi::Error::from(uefi::Status::ABORTED))
-            })?;
+                let mut result = MeasurementCollection::default();
+                result.data.push(MeasurementData::default());
+                result
+            });
 
         data.data.push(MeasurementData::default());
 

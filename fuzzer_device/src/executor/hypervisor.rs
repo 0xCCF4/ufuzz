@@ -282,7 +282,6 @@ impl Hypervisor {
         })
     }
 
-    #[cfg_attr(feature = "__debug_performance_trace", track_time)]
     pub fn load_code_blob(&mut self, code_blob: &[u8]) {
         self.memory_code_page.fill(0x90) /* nop */;
 
