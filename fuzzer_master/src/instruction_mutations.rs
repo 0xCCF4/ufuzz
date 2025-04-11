@@ -1,11 +1,11 @@
-use crate::database::{Database};
+use crate::database::Database;
 use crate::device_connection::DeviceConnection;
 use crate::fuzzer_node_bridge::FuzzerNodeInterface;
-use crate::{CommandExitResult};
-use fuzzer_data::genetic_pool::{GeneticPool};
-use fuzzer_data::{
-    Code,
-};
+use crate::net::net_fuzzing_pretext;
+use crate::CommandExitResult;
+use fuzzer_data::Code;
+use log::{error, info};
+use rand::{random, SeedableRng};
 
 #[derive(Debug, Default, PartialEq)]
 enum FSM {
@@ -18,7 +18,6 @@ enum FSM {
 pub struct InstructionMutState {
     fsm: FSM,
 
-    genetic_pool: GeneticPool,
     random_source: Option<rand_isaac::Isaac64Rng>,
 
     last_reported_exclusion: Option<(Option<u16>, u16)>, // address, times
@@ -29,9 +28,6 @@ pub struct InstructionMutState {
     last_code_executed: Option<Code>,
 }
 
-pub const SAMPLE_TIMEOUT: u64 = 60;
-pub const MAX_EVOLUTIONS: u64 = 50;
-
 pub async fn main(
     net: &mut DeviceConnection,
     interface: &FuzzerNodeInterface,
@@ -40,8 +36,44 @@ pub async fn main(
 ) -> CommandExitResult {
     // device is either restarted or new experimentation run
 
+    match state.fsm {
+        FSM::Uninitialized => {
+            // new experimentation run
+            let seed = random();
+
+            info!("Starting new experimentation run with seed: {}", seed);
+            state.random_source = Some(rand_isaac::Isaac64Rng::seed_from_u64(seed));
+            state.seed = seed;
+            state.evolution = 1;
+            state.last_code_executed = None;
+        }
+        FSM::Running => {
+            // device was restarted
+        }
+    }
+
+    let result = net_fuzzing_pretext(
+        net,
+        database,
+        &mut state.last_code_executed,
+        &mut state.last_reported_exclusion,
+    )
+    .await;
+    if result != CommandExitResult::Operational {
+        return result;
+    }
+
+    if state.fsm == FSM::Uninitialized {
+        // initialize
+
+        state.fsm = FSM::Running;
+    }
+
+    if state.fsm == FSM::Running {}
+
+    let _ = database.save().await.map_err(|e| {
+        error!("Failed to save the database: {:?}", e);
+    });
 
     CommandExitResult::ExitProgram
 }
-
-

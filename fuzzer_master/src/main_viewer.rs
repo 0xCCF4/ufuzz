@@ -5,12 +5,11 @@ use data_types::addresses::Address;
 use fuzzer_master::database::CodeEvent;
 use hypervisor::state::{StateDifference, VmExitReason};
 use itertools::Itertools;
+use log::error;
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::BufWriter;
 use std::io::Write;
 use std::path::PathBuf;
-use log::error;
-use hypervisor::state::VmExitReason::TimerExpiration;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -64,7 +63,9 @@ pub fn main() {
                 code,
             } = event
             {
-                if *serialized_exit == Some(VmExitReason::TimerExpiration) || result.exit == VmExitReason::TimerExpiration{
+                if *serialized_exit == Some(VmExitReason::TimerExpiration)
+                    || result.exit == VmExitReason::TimerExpiration
+                {
                     continue;
                 }
 
@@ -91,11 +92,13 @@ pub fn main() {
         for event in &result.events {
             if let CodeEvent::SerializedMismatch {
                 serialized_exit,
-                serialized_state,
-                code,
+                serialized_state: _,
+                code: _,
             } = event
             {
-                if *serialized_exit == Some(VmExitReason::TimerExpiration) || result.exit == VmExitReason::TimerExpiration {
+                if *serialized_exit == Some(VmExitReason::TimerExpiration)
+                    || result.exit == VmExitReason::TimerExpiration
+                {
                     continue;
                 }
             }
@@ -167,7 +170,8 @@ pub fn main() {
             db.data
                 .blacklisted_addresses
                 .iter()
-                .all(|b| a.address() != b.address as usize) && (a.address() < 0x1000 || !cfg!(feature = "__debug_only_below_0x1000"))
+                .all(|b| a.address() != b.address as usize)
+                && (a.address() < 0x1000 || !cfg!(feature = "__debug_only_below_0x1000"))
         },
     );
     let mut coverage = BTreeSet::new();
@@ -181,7 +185,9 @@ pub fn main() {
     }
     let mut coverage_normalized = BTreeSet::new();
     for cov in coverage.iter() {
-        if !db.blacklisted().contains(cov) && (*cov < 0x1000 || !cfg!(feature = "__debug_only_below_0x1000")) {
+        if !db.blacklisted().contains(cov)
+            && (*cov < 0x1000 || !cfg!(feature = "__debug_only_below_0x1000"))
+        {
             coverage_normalized.insert(*cov);
         }
     }
@@ -220,7 +226,7 @@ pub fn main() {
             .unwrap_or(0);
 
         let mut overall_coverage = Vec::new();
-        for evolution in 0..largest_evolution {
+        for evolution in 0..largest_evolution + 1 {
             let mut coverage = BTreeMap::new();
             let results = db
                 .data
@@ -276,18 +282,21 @@ pub fn main() {
 
         let mut unique_coverage: BTreeSet<u16> = BTreeSet::new();
         for (i, program) in db.data.results.iter().enumerate() {
+            let code = &program.code;
+
             for entry in program
                 .coverage
                 .keys()
                 .filter(|p| !unique_coverage.contains(p))
             {
-                writeln!(&mut writer_time, "{entry}, {i}").expect("Could not write to file");
+                writeln!(&mut writer_time, "{entry}, {i}, {code:?}")
+                    .expect("Could not write to file");
             }
 
             let prev = unique_coverage.len();
             unique_coverage.extend(program.coverage.keys());
             if prev != unique_coverage.len() {
-                writeln!(&mut writer_cov, "{i}, {}", unique_coverage.len())
+                writeln!(&mut writer_cov, "{i}, {}, {code:?}", unique_coverage.len())
                     .expect("Could not write to coverage writer");
             }
         }

@@ -1,14 +1,13 @@
-use crate::database::{Database, ExcludeType};
+use crate::database::Database;
 use crate::device_connection::DeviceConnection;
 use crate::fuzzer_node_bridge::FuzzerNodeInterface;
-use crate::{CommandExitResult};
+use crate::net::{net_execute_sample, net_fuzzing_pretext, ExecuteSampleResult};
+use crate::CommandExitResult;
 use fuzzer_data::genetic_pool::{GeneticPool, GeneticPoolSettings, GeneticSampleRating};
-use fuzzer_data::{
-    Code, OtaC2DTransport,
-};
+use fuzzer_data::instruction_corpus::CorpusInstruction;
+use fuzzer_data::Code;
 use log::{error, info};
 use rand::{random, SeedableRng};
-use crate::net::{net_blacklist, net_execute_sample, net_receive_excluded_addresses, ExecuteSampleResult};
 
 #[derive(Debug, Default, PartialEq)]
 enum FSM {
@@ -33,13 +32,14 @@ pub struct BreedingState {
 }
 
 pub const SAMPLE_TIMEOUT: u64 = 60;
-pub const MAX_EVOLUTIONS: u64 = 50;
+pub const MAX_EVOLUTIONS: u64 = 5;
 
 pub async fn main(
     net: &mut DeviceConnection,
     interface: &FuzzerNodeInterface,
     database: &mut Database,
     state: &mut BreedingState,
+    corpus: Option<&Vec<CorpusInstruction>>,
 ) -> CommandExitResult {
     // device is either restarted or new experimentation run
 
@@ -59,67 +59,36 @@ pub async fn main(
         }
     }
 
-    if let Err(err) = net
-        .send(OtaC2DTransport::SetRandomSeed { seed: random() })
-        .await
-    {
-        error!("Failed to set random seed on device: {:?}", err);
-        return CommandExitResult::RetryOrReconnect;
-    }
-
-    if !net_blacklist(net, database).await {
-        return CommandExitResult::RetryOrReconnect;
-    }
-
-    if let Err(err) = net
-        .send(OtaC2DTransport::DidYouExcludeAnAddressLastRun)
-        .await
-    {
-        error!(
-            "Failed to ask device if it excluded an address last run: {:?}",
-            err
-        );
-        return CommandExitResult::RetryOrReconnect;
-    } else {
-        let address = net_receive_excluded_addresses(net).await;
-        if let Some(address) = address {
-            info!("Device excluded address last run: {}", address);
-            if let Some(last_code) = &state.last_code_executed {
-                database.exclude_address(address, last_code.clone(), ExcludeType::Normal);
-            }
-
-            if let Err(err) = net
-                .send(OtaC2DTransport::Blacklist {
-                    address: vec![address],
-                })
-                .await
-            {
-                error!("Failed to blacklist address: {:?}", err);
-                return CommandExitResult::RetryOrReconnect;
-            }
-        }
-
-        match state.last_reported_exclusion {
-            Some((last_address, times)) if last_address == address => {
-                state.last_reported_exclusion = Some((last_address, times + 1));
-            }
-            Some((last_address, _)) => {
-                state.last_reported_exclusion = Some((last_address, 1));
-            }
-            None => {
-                state.last_reported_exclusion = Some((address, 1));
-            }
-        }
+    let result = net_fuzzing_pretext(
+        net,
+        database,
+        &mut state.last_code_executed,
+        &mut state.last_reported_exclusion,
+    )
+    .await;
+    if result != CommandExitResult::Operational {
+        return result;
     }
 
     if state.fsm == FSM::Uninitialized {
         // prepare for fuzzing
         // collect ground truth coverage
 
-        state.genetic_pool = GeneticPool::new_random_population(
-            GeneticPoolSettings::default(),
-            state.random_source.as_mut().unwrap(),
-        );
+        match corpus {
+            None => {
+                state.genetic_pool = GeneticPool::new_random_population(
+                    GeneticPoolSettings::default(),
+                    state.random_source.as_mut().unwrap(),
+                )
+            }
+            Some(corpus) => {
+                state.genetic_pool = GeneticPool::new_random_population_from_corpus(
+                    GeneticPoolSettings::default(),
+                    state.random_source.as_mut().unwrap(),
+                    corpus,
+                );
+            }
+        }
 
         state.fsm = FSM::Running;
     }
@@ -186,10 +155,13 @@ pub async fn main(
         }
     }
 
+    let _ = database.save().await.map_err(|e| {
+        error!("Failed to save the database: {:?}", e);
+    });
+
     // preparation done
     // start fuzzing
     state.fsm = FSM::Uninitialized;
 
     CommandExitResult::Operational
 }
-

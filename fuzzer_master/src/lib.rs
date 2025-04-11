@@ -15,6 +15,7 @@ pub mod instruction_mutations;
 pub mod manual_execution;
 pub mod net;
 
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum CommandExitResult {
     ExitProgram,
     RetryOrReconnect,

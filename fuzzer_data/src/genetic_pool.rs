@@ -1,3 +1,4 @@
+use crate::instruction_corpus::CorpusInstruction;
 use alloc::vec::Vec;
 use core::cmp::Ordering;
 use rand_core::RngCore;
@@ -39,6 +40,27 @@ impl GeneticPool {
         let mut population = Vec::with_capacity(settings.population_size);
         for _ in 0..settings.population_size {
             population.push(Sample::random(settings.code_size, random));
+        }
+        Self {
+            population,
+            settings,
+        }
+    }
+    pub fn new_random_population_from_corpus<R: RngCore>(
+        settings: GeneticPoolSettings,
+        random: &mut R,
+        corpus: &Vec<CorpusInstruction>,
+    ) -> Self {
+        let mut population = Vec::with_capacity(settings.population_size);
+        for _ in 0..settings.population_size {
+            let mut code = Vec::new();
+            while code.len() < settings.code_size {
+                let instruction = corpus
+                    .get(random.next_u32() as usize % corpus.len())
+                    .expect("should always be inbound");
+                code.extend_from_slice(&instruction.bytes);
+            }
+            population.push(Sample::new(code));
         }
         Self {
             population,
@@ -104,6 +126,12 @@ pub struct Sample {
 }
 
 impl Sample {
+    pub fn new(code_blob: Vec<u8>) -> Self {
+        Self {
+            code_blob,
+            rating: None,
+        }
+    }
     pub fn random<R: RngCore>(code_size: usize, random: &mut R) -> Self {
         let mut code_blob = Vec::with_capacity(code_size);
         for _ in 0..code_size {

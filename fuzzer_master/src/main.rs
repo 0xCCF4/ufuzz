@@ -1,11 +1,17 @@
 use clap::{Parser, Subcommand};
+use fuzzer_data::instruction_corpus::InstructionCorpus;
 use fuzzer_data::{Ota, OtaC2DTransport, OtaD2C, OtaD2CTransport};
 use fuzzer_master::database::Database;
 use fuzzer_master::device_connection::DeviceConnection;
 use fuzzer_master::fuzzer_node_bridge::FuzzerNodeInterface;
-use fuzzer_master::genetic_breeding::{BreedingState,
+use fuzzer_master::genetic_breeding::BreedingState;
+use fuzzer_master::instruction_mutations::InstructionMutState;
+use fuzzer_master::net::{net_reboot_device, net_receive_performance_timing};
+use fuzzer_master::{
+    genetic_breeding, instruction_mutations, manual_execution, wait_for_device, CommandExitResult,
+    WaitForDeviceResult, P0_FREQ,
 };
-use fuzzer_master::{genetic_breeding, instruction_mutations, manual_execution, wait_for_device, CommandExitResult, WaitForDeviceResult, P0_FREQ};
+use itertools::Itertools;
 use log::{error, info, trace, warn};
 use performance_timing::{track_time, TimeMeasurement};
 use std::io;
@@ -14,8 +20,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::Instant;
-use fuzzer_master::instruction_mutations::InstructionMutState;
-use fuzzer_master::net::{net_reboot_device, net_receive_performance_timing};
 
 pub mod main_compare;
 pub mod main_viewer;
@@ -31,7 +35,9 @@ struct Args {
 
 #[derive(Subcommand, Debug, Clone)]
 enum Cmd {
-    Genetic,
+    Genetic {
+        corpus: Option<PathBuf>,
+    },
     InstructionMutation,
     Init,
     Reboot,
@@ -85,6 +91,35 @@ async fn main() {
 
     let interface = Arc::new(FuzzerNodeInterface::new("http://10.83.3.198:8000"));
     let mut udp = DeviceConnection::new("10.83.3.6:4444").await.unwrap();
+
+    let corpus_vec = if let Cmd::Genetic { corpus } = &args.cmd {
+        if let Some(corpus) = corpus {
+            let file_reader = match std::fs::File::open(&corpus) {
+                Ok(f) => f,
+                Err(e) => {
+                    error!("Failed to open the corpus file: {:?}", e);
+                    return;
+                }
+            };
+            let buf_reader = std::io::BufReader::new(file_reader);
+            let result: serde_json::Result<InstructionCorpus> = serde_json::from_reader(buf_reader);
+            match result {
+                Ok(corpus) => {
+                    info!("Loaded corpus");
+                    let data = corpus.instructions.into_iter().collect_vec();
+                    Some(data)
+                }
+                Err(e) => {
+                    error!("Failed to load the corpus: {:?}", e);
+                    None
+                }
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
 
     match interface.alive().await {
         Ok(x) => {
@@ -141,7 +176,7 @@ async fn main() {
     let mut state_breeding = BreedingState::default();
     let mut state_instructions = InstructionMutState::default();
     let mut continue_count = 0;
-    let mut last_time_perf_from_device = Instant::now()-Duration::from_secs(1000000);
+    let mut last_time_perf_from_device = Instant::now() - Duration::from_secs(1000000);
 
     loop {
         let timing = TimeMeasurement::begin("host::main_loop");
@@ -151,13 +186,30 @@ async fn main() {
         });
 
         let result = match &args.cmd {
-            Cmd::Genetic => {
+            Cmd::Genetic { corpus } => {
                 let _timing = TimeMeasurement::begin("host::fuzzing_loop");
-                genetic_breeding::main(&mut udp, &interface, &mut database, &mut state_breeding).await
+                if corpus.is_some() && corpus_vec.is_none() {
+                    error!("Corpus file is not loaded");
+                    return;
+                }
+                genetic_breeding::main(
+                    &mut udp,
+                    &interface,
+                    &mut database,
+                    &mut state_breeding,
+                    corpus.as_ref().map(|_v| corpus_vec.as_ref().unwrap()),
+                )
+                .await
             }
             Cmd::InstructionMutation => {
                 let _timing = TimeMeasurement::begin("host::fuzzing_loop");
-                instruction_mutations::main(&mut udp, &interface, &mut database, &mut state_instructions).await
+                instruction_mutations::main(
+                    &mut udp,
+                    &interface,
+                    &mut database,
+                    &mut state_instructions,
+                )
+                .await
             }
             Cmd::Cap => {
                 let _ = udp
@@ -219,7 +271,11 @@ async fn main() {
                     let mut acc = database.data.performance.normalize();
 
                     if let Some(data) = data {
-                        acc.data.last_mut().as_mut().unwrap().extend(data.into_iter());
+                        acc.data
+                            .last_mut()
+                            .as_mut()
+                            .unwrap()
+                            .extend(data.into_iter());
                     }
 
                     println!("{}", acc);
@@ -306,7 +362,7 @@ async fn main() {
             guarantee_initial_state(&interface, &mut udp).await;
         }
 
-        if last_time_perf_from_device.elapsed() > Duration::from_secs(60*60) {
+        if last_time_perf_from_device.elapsed() > Duration::from_secs(60 * 60) {
             // each 60 min
             trace!("Querying device performance values");
             let perf = net_receive_performance_timing(&mut udp, Duration::from_secs(5)).await;

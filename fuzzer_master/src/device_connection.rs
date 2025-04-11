@@ -3,6 +3,7 @@ use fuzzer_data::{
     OtaPacket, MAX_FRAGMENT_SIZE, MAX_PAYLOAD_SIZE,
 };
 use log::{debug, error, info, trace, warn, Level};
+use performance_timing::{track_time, TimeMeasurement};
 use rand::random;
 use std::collections::VecDeque;
 use std::error::Error;
@@ -15,7 +16,6 @@ use tokio::net::UdpSocket;
 use tokio::sync::mpsc::Receiver;
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
-use performance_timing::{track_time, TimeMeasurement};
 
 #[derive(Debug)]
 pub enum DeviceConnectionError {

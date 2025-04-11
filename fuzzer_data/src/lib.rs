@@ -14,6 +14,7 @@ extern crate alloc;
 
 pub mod decoder;
 pub mod genetic_pool;
+pub mod instruction_corpus;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[repr(C)]

@@ -23,7 +23,7 @@
         wantedBy = [ "multi-user.target" ];
 
         serviceConfig = {
-          ExecStart = "${packages."${system}".fuzzer_master}/bin/fuzz_master genetic";
+          ExecStart = "${packages."${system}".fuzzer_master}/bin/fuzz_master genetic /home/thesis/corpus.json";
           WorkingDirectory = "/home/thesis";
           Restart = "always";
           RestartSec = 5;

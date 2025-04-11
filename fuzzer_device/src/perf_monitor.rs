@@ -31,7 +31,10 @@ impl PerfMonitor {
                         filename,
                         last_save: performance_timing::instance().now(),
                     };
-                    result.measurement_data.data.push(MeasurementData::default());
+                    result
+                        .measurement_data
+                        .data
+                        .push(MeasurementData::default());
                     Ok(result)
                 } else {
                     Err(e)
@@ -57,8 +60,8 @@ impl PerfMonitor {
             }
         }
 
-        let mut data: MeasurementCollection<u64> =
-            serde_json::from_str(data.as_str()).unwrap_or_else(|e| {
+        let mut data: MeasurementCollection<u64> = serde_json::from_str(data.as_str())
+            .unwrap_or_else(|e| {
                 error!("Json deserialize error: {:?}", e);
                 let mut result = MeasurementCollection::default();
                 result.data.push(MeasurementData::default());
@@ -136,9 +139,11 @@ impl PerfMonitor {
             uefi::Status::ABORTED
         })?;
 
-        regular_file
-            .write(data.as_bytes())
-            .map_err(|_| uefi::Error::from(uefi::Status::WARN_WRITE_FAILURE))?;
+        for data_chunked in data.as_bytes().chunks(4096) {
+            regular_file
+                .write(data_chunked)
+                .map_err(|_| uefi::Error::from(uefi::Status::WARN_WRITE_FAILURE))?;
+        }
         regular_file.flush()?;
 
         root_dir.flush()?;

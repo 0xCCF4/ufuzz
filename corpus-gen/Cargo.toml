@@ -1,0 +1,11 @@
+[package]
+name = "corpus-gen"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+clap = { version = "4.5.35", features = ["derive"] }
+tempfile = "3.19.1"
+fuzzer_data = { path = "../fuzzer_data" }
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1.0.140"

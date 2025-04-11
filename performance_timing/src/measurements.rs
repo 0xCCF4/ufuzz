@@ -1,7 +1,7 @@
 use crate::{instance, Duration};
 use alloc::collections::{BTreeMap, VecDeque};
 use alloc::string::{String, ToString};
-use alloc::{format, vec};
+use alloc::vec;
 use alloc::vec::Vec;
 use core::cell::RefCell;
 use core::fmt::{Display, Formatter};
@@ -102,9 +102,7 @@ impl MeasurementCollection<u64> {
 
 impl<T> From<BTreeMap<String, MeasureValues<T>>> for MeasurementCollection<T> {
     fn from(value: BTreeMap<String, MeasureValues<T>>) -> Self {
-        Self {
-            data: vec![value],
-        }
+        Self { data: vec![value] }
     }
 }
 
@@ -168,14 +166,17 @@ impl<T: AddAssign + Copy + Default + SaturationFloatAdd> MeasurementCollection<T
     }
 }
 
-impl Display for MeasurementCollection<f64>{
+impl Display for MeasurementCollection<f64> {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-        let mut acc =self.accumulate().into_iter().collect::<Vec<(String, MeasureValues<f64>)>>();
+        let mut acc = self
+            .accumulate()
+            .into_iter()
+            .collect::<Vec<(String, MeasureValues<f64>)>>();
         acc.sort_by(|a, b| {
             if a.0.contains("@") && !b.0.contains("@") {
-                return core::cmp::Ordering::Less
+                return core::cmp::Ordering::Less;
             } else if !a.0.contains("@") && b.0.contains("@") {
-                return core::cmp::Ordering::Greater
+                return core::cmp::Ordering::Greater;
             }
 
             if a.1.exclusive_time < b.1.exclusive_time {
@@ -186,33 +187,28 @@ impl Display for MeasurementCollection<f64>{
                 core::cmp::Ordering::Equal
             }
         });
-        writeln!(f,
-            "{:<80} | {:<10} | {:<10} | {:<10} | {:<10} | {:<10} | {:<10} | {:<10}",
-            "Name",
+        writeln!(
+            f,
+            "{:<10} | {:<10} | {:<10} | {:<10} | {:<10} | {:<10} | {:<10} | {}",
             "Ex. AVG",
             "Ex. sdev",
             "Total AVG",
             "Total sdev",
             "n",
             "Total excl",
-            "Total time"
+            "Total time",
+            "Name",
         )?;
-        for (k, v) in acc
-            .iter()
-            .rev()
-        {
+        for (k, v) in acc.iter().rev() {
             let (avg, avg_unit) = format_duration(v.exclusive_cumulative_average);
             let (var, var_unit) = format_duration(v.std_derivation_exclusive());
-            let (total_avg, total_avg_unit) =
-                format_duration(v.total_cumulative_average);
-            let (total_var, total_var_unit) =
-                format_duration(v.std_derivation_total());
+            let (total_avg, total_avg_unit) = format_duration(v.total_cumulative_average);
+            let (total_var, total_var_unit) = format_duration(v.std_derivation_total());
             let (total, total_unit) = format_duration(v.total_time);
-            let (total_exclusive, total_exclusive_unit) =
-                format_duration(v.exclusive_time);
+            let (total_exclusive, total_exclusive_unit) = format_duration(v.exclusive_time);
             writeln!(f,
-                "{:<80} | {:<7.3} {} | {:<7.3} {} | {:<7.3} {} | {:<7.3} {} | {:<10.1e} | {:<7.3} {} | {:<7.3} {}",
-                k, avg, avg_unit, var, var_unit, total_avg, total_avg_unit, total_var, total_var_unit, v.number_of_measurements as f64, total_exclusive, total_exclusive_unit, total, total_unit
+                "{:<7.3} {} | {:<7.3} {} | {:<7.3} {} | {:<7.3} {} | {:<10.1e} | {:<7.3} {} | {:<7.3} {} | {}",
+                avg, avg_unit, var, var_unit, total_avg, total_avg_unit, total_var, total_var_unit, v.number_of_measurements as f64, total_exclusive, total_exclusive_unit, total, total_unit, k
             )?;
         }
         write!(f, "")
@@ -255,9 +251,7 @@ impl MeasurementManager {
         }
     }
 
-    pub fn begin_stack_frame(
-        &mut self,
-        name: &'static str) -> MeasureStackGuard {
+    pub fn begin_stack_frame(&mut self, name: &'static str) -> MeasureStackGuard {
         self.stack.push_back((name, false));
         let index = self.stack.len() - 1;
         MeasureStackGuard(index)
@@ -277,7 +271,8 @@ impl MeasurementManager {
         self.append_data_point(name.to_string(), total_duration, exclusive_duration);
 
         if !self.stack.is_empty() {
-            let name = self.stack
+            let name = self
+                .stack
                 .iter()
                 .map(|x| x.0)
                 .chain(vec![name])
@@ -318,7 +313,8 @@ impl MeasurementManager {
 
             data.number_of_measurements = data.number_of_measurements.saturating_add(1);
 
-            data.exclusive_cumulative_average += delta_exclusive / (data.number_of_measurements as f64);
+            data.exclusive_cumulative_average +=
+                delta_exclusive / (data.number_of_measurements as f64);
             data.total_cumulative_average += delta_tot / (data.number_of_measurements as f64);
 
             let delta_exclusive2 = x_exclusive - data.exclusive_cumulative_average;
@@ -336,9 +332,13 @@ impl MeasurementManager {
         self.data.clear();
     }
 
-    pub fn register_exclusive_measurement(&mut self, owner: &'static str) -> ExclusiveMeasurementGuard {
+    pub fn register_exclusive_measurement(
+        &mut self,
+        owner: &'static str,
+    ) -> ExclusiveMeasurementGuard {
         let guard = ExclusiveMeasurementGuard::begin();
-        self.exclusive_time_keeping.insert(guard.index, (owner, Duration(0)));
+        self.exclusive_time_keeping
+            .insert(guard.index, (owner, Duration(0)));
         guard
     }
 

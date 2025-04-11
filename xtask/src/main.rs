@@ -102,12 +102,56 @@ fn main_control_remote(args: Vec<String>) {
 }
 
 fn main_put_remote(name: &str) {
-    let app = build_app(name, false, true).expect("Failed to build the app");
-    let name = app
-        .file_name()
-        .expect("Failed to get the app file name")
-        .to_str()
-        .unwrap();
+    let (name, path) = if name == "corpus" {
+        let project_root = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
+        let project_root = project_root.parent().unwrap().to_path_buf();
+        let mut gen = Command::new("distrobox-host-exec")
+            .arg("nix")
+            .arg("build")
+            .current_dir(project_root.join("corpus-gen"))
+            .spawn()
+            .expect("Failed to spawn 'nix build' process");
+
+        let status = gen.wait().expect("Failed to wait on 'nix build' process");
+        if !status.success() {
+            eprintln!("Failed to build the corpus generator");
+            std::process::exit(-1);
+        }
+
+        let mut gen = Command::new("cargo")
+            .arg("run")
+            .arg("-p")
+            .arg("corpus-gen")
+            .arg("--")
+            .arg("result/lib")
+            .arg("corpus.json")
+            .current_dir(project_root.join("corpus-gen"))
+            .spawn()
+            .expect("Failed to spawn 'corpus gen' process");
+
+        let status = gen.wait().expect("Failed to wait on 'corpus gen' process");
+        if !status.success() {
+            eprintln!("Failed to generate the corpus");
+            std::process::exit(-1);
+        }
+
+        let corpus = project_root.join("corpus-gen").join("corpus.json");
+
+        (
+            "corpus.json".to_string(),
+            corpus.as_os_str().to_str().unwrap().to_string(),
+        )
+    } else {
+        let app = build_app(name, false, true).expect("Failed to build the app");
+        let name = app
+            .file_name()
+            .expect("Failed to get the app file name")
+            .to_str()
+            .unwrap()
+            .to_string();
+
+        (name, app.as_os_str().to_str().unwrap().to_string())
+    };
 
     println!("Pushing {} to the remote", name);
     let mut sftp = Command::new("sftp")
@@ -118,8 +162,7 @@ fn main_put_remote(name: &str) {
         .expect("Failed to start sftp");
 
     let sftp_stdin = sftp.stdin.as_mut().expect("Failed to open sftp stdin");
-    writeln!(sftp_stdin, "put {}", app.as_os_str().to_str().unwrap())
-        .expect("Failed to write to sftp stdin");
+    writeln!(sftp_stdin, "put {}", path).expect("Failed to write to sftp stdin");
     writeln!(sftp_stdin, "exit").expect("Failed to write to sftp stdin");
 
     let _status = sftp.wait().expect("Failed to wait on sftp");
@@ -143,8 +186,12 @@ fn main_put_remote(name: &str) {
             .expect("Failed to write to ssh stdin");
         writeln!(ssh_stdin, "sudo cp \"/tmp/{}\" \"/mnt/{}\"", name, name)
             .expect("Failed to write to ssh stdin");
-        writeln!(ssh_stdin, "echo \"{}\" | sudo tee /mnt/startup.nsh", name)
-            .expect("Failed to write to ssh stdin");
+
+        if name != "corpus.json" {
+            writeln!(ssh_stdin, "echo \"{}\" | sudo tee /mnt/startup.nsh", name)
+                .expect("Failed to write to ssh stdin");
+        }
+
         writeln!(ssh_stdin, "sudo umount /mnt").expect("Failed to write to ssh stdin");
         writeln!(ssh_stdin, "sudo rm \"/tmp/{}\"", name).expect("Failed to write to ssh stdin");
         writeln!(ssh_stdin, "echo Syncing && sudo sync").expect("Failed to write to ssh stdin");

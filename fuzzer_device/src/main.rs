@@ -20,7 +20,9 @@ use fuzzer_data::decoder::InstructionDecoder;
 use fuzzer_data::genetic_pool::{GeneticPool, GeneticPoolSettings, GeneticSampleRating};
 use fuzzer_data::{genetic_pool, OtaC2D, OtaC2DTransport, OtaD2CTransport, ReportExecutionProblem};
 use fuzzer_device::cmos::CMOS;
-use fuzzer_device::controller_connection::{ConnectionSettings, ControllerConnection};
+use fuzzer_device::controller_connection::{
+    ConnectionError, ConnectionSettings, ControllerConnection,
+};
 use fuzzer_device::executor::{
     ExecutionEvent, ExecutionResult, ExecutionSampleResult, SampleExecutor,
 };
@@ -175,11 +177,18 @@ unsafe fn main() -> Status {
         }
 
         trace!("Waiting for command...");
-        #[cfg_attr(feature = "__debug_performance_trace", track_time("fuzzer_device::main_loop"))]
+        #[cfg_attr(
+            feature = "__debug_performance_trace",
+            track_time("fuzzer_device::main_loop")
+        )]
         loop {
             #[cfg(feature = "__debug_performance_trace")]
             if let Err(err) = perf_monitor.try_update_save_file() {
                 error!("Failed to save perf monitor values: {:?}", err);
+                let _ = udp.log_reliable(
+                    Level::Error,
+                    format!("Failed to save perf monitor values: {:?}", err),
+                );
             }
 
             let packet = match udp.receive(None) {
@@ -187,6 +196,8 @@ unsafe fn main() -> Status {
                 Ok(Some(packet)) => packet,
                 Err(err) => {
                     error!("Failed to receive packet: {:?}", err);
+                    let _ = udp
+                        .log_reliable(Level::Error, format!("Failed to receive packet: {:?}", err));
                     continue;
                 }
             };
@@ -213,6 +224,10 @@ unsafe fn main() -> Status {
                     };
                     if let Err(err) = udp.send(capabilities) {
                         error!("Failed to send capabilities: {:?}", err);
+                        let _ = udp.log_reliable(
+                            Level::Error,
+                            format!("Failed to send capabilities: {:?}", err),
+                        );
                     }
                 }
                 OtaC2DTransport::Blacklist { address } =>
@@ -235,6 +250,10 @@ unsafe fn main() -> Status {
                     };
                     if let Err(err) = udp.send(blacklisted) {
                         error!("Failed to send blacklisted: {:?}", err);
+                        let _ = udp.log_reliable(
+                            Level::Error,
+                            format!("Failed to send blacklisted: {:?}", err),
+                        );
                     }
                 }
                 OtaC2DTransport::Reboot => {
@@ -257,19 +276,42 @@ unsafe fn main() -> Status {
                         };
                         if let Err(err) = udp.send(blacklisted) {
                             error!("Failed to send blacklisted addresses: {:?}", err);
+                            let _ = udp.log_reliable(
+                                Level::Error,
+                                format!("Failed to send blacklisted addresses: {:?}", err),
+                            );
                         }
                     }
                 }
                 OtaC2DTransport::ReportPerformanceTiming => {
                     let measurements = perf_monitor.measurement_data.accumulate();
-                    for chunk in &measurements.into_iter().chunks(10) {
+                    for chunk in &measurements.into_iter().chunks(5) {
+                        let data: BTreeMap<String, MeasureValues<f64>> = chunk
+                            .map(|(k, v)| (k, MeasureValues::<f64>::from(&v)))
+                            .collect::<BTreeMap<String, MeasureValues<f64>>>();
                         let measurements = OtaD2CTransport::PerformanceTiming {
-                            measurements: chunk
-                                .map(|(k, v)| (k, MeasureValues::<f64>::from(&v)))
-                                .collect::<BTreeMap<String, MeasureValues<f64>>>(),
+                            measurements: data.clone(),
                         };
-                        if let Err(err) = udp.send(measurements) {
-                            error!("Failed to send performance timing: {:?}", err);
+                        if let Err(err) = udp.send(measurements.clone()) {
+                            if matches!(err, ConnectionError::PacketTooLarge) {
+                                for m in data.into_iter() {
+                                    if let Err(err) = udp.send(OtaD2CTransport::PerformanceTiming {
+                                        measurements: vec![m].into_iter().collect(),
+                                    }) {
+                                        error!("Failed to send performance timing: {:?}", err);
+                                        let _ = udp.log_reliable(
+                                            Level::Error,
+                                            format!("Failed to send performance timing: {:?}", err),
+                                        );
+                                    }
+                                }
+                            } else {
+                                error!("Failed to send performance timing: {:?}", err);
+                                let _ = udp.log_reliable(
+                                    Level::Error,
+                                    format!("Failed to send performance timing: {:?}", err),
+                                );
+                            }
                         }
                     }
                 }
@@ -307,10 +349,23 @@ unsafe fn main() -> Status {
                         if let Err(err) = udp.send(OtaD2CTransport::ExecutionEvents(event.clone()))
                         {
                             error!("Failed to send event: {:?}", err);
-                            if let Err(err) =
-                                udp.send(OtaD2CTransport::ExecutionEvents(event.clone()))
-                            {
-                                error!("Failed to send event: {:?}", err);
+                            let _ = udp.log_reliable(
+                                Level::Error,
+                                format!("Failed to send event: {:?}", err),
+                            );
+
+                            if matches!(err, ConnectionError::PacketTooLarge) {
+                                for event in event {
+                                    if let Err(err) =
+                                        udp.send(OtaD2CTransport::ExecutionEvents(vec![event]))
+                                    {
+                                        error!("Failed to send event: {:?}", err);
+                                        let _ = udp.log_reliable(
+                                            Level::Error,
+                                            format!("Failed to send event: {:?}", err),
+                                        );
+                                    }
+                                }
                             }
                         }
                     }
@@ -348,7 +403,11 @@ unsafe fn main() -> Status {
                                                 vec![ReportExecutionProblem::VeryLikelyBug].into(),
                                             ))
                                         {
-                                            error!("Failed to send event: {:?}", err);
+                                            error!("Failed to send serial event: {:?}", err);
+                                            let _ = udp.log_reliable(
+                                                Level::Error,
+                                                format!("Failed to send serial event: {:?}", err),
+                                            );
                                         }
                                     }
                                 }
@@ -376,6 +435,10 @@ unsafe fn main() -> Status {
                                                 .send(OtaD2CTransport::ExecutionEvents(vec![event]))
                                             {
                                                 error!("Failed to send event: {:?}", err);
+                                                let _ = udp.log_reliable(
+                                                    Level::Error,
+                                                    format!("Failed to send event: {:?}", err),
+                                                );
                                             }
                                         }
                                     }

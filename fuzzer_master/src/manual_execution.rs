@@ -1,13 +1,13 @@
 use crate::database::Database;
 use crate::device_connection::DeviceConnection;
 use crate::fuzzer_node_bridge::FuzzerNodeInterface;
+use crate::net::{net_blacklist, net_execute_sample, ExecuteSampleResult};
 use crate::CommandExitResult;
 use iced_x86::{Decoder, DecoderOptions, Formatter, Instruction, NasmFormatter};
 use log::error;
 use std::io;
 use std::io::Write;
 use std::path::Path;
-use crate::net::{net_blacklist, net_execute_sample, ExecuteSampleResult};
 
 pub async fn main<A: AsRef<Path>, B: AsRef<Path>>(
     udp: &mut DeviceConnection,
@@ -63,14 +63,7 @@ pub async fn main<A: AsRef<Path>, B: AsRef<Path>>(
         return CommandExitResult::RetryOrReconnect;
     }
 
-    let (result, events) = match net_execute_sample(
-        udp,
-        interface,
-        db,
-        &actual_bytes,
-    )
-    .await
-    {
+    let (result, events) = match net_execute_sample(udp, interface, db, &actual_bytes).await {
         ExecuteSampleResult::Timeout => return CommandExitResult::RetryOrReconnect,
         ExecuteSampleResult::Rerun => return CommandExitResult::Operational,
         ExecuteSampleResult::Success(a, b) => (a, b),

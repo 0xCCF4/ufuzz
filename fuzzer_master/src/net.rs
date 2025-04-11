@@ -1,16 +1,19 @@
-use std::collections::BTreeMap;
-use std::time::Duration;
-use itertools::Itertools;
-use log::{error, info, trace, warn};
-use fuzzer_data::{ExecutionResult, Ota, OtaC2DTransport, OtaD2CTransport, ReportExecutionProblem};
-use hypervisor::state::VmExitReason;
-use performance_timing::measurements::MeasureValues;
 use crate::database::{Database, ExcludeType};
 use crate::device_connection::DeviceConnection;
 use crate::fuzzer_node_bridge::FuzzerNodeInterface;
-use crate::genetic_breeding::{SAMPLE_TIMEOUT};
+use crate::genetic_breeding::SAMPLE_TIMEOUT;
 use crate::manual_execution::disassemble_code;
 use crate::{wait_for_device, CommandExitResult, WaitForDeviceResult};
+use fuzzer_data::{
+    Code, ExecutionResult, Ota, OtaC2DTransport, OtaD2CTransport, ReportExecutionProblem,
+};
+use hypervisor::state::VmExitReason;
+use itertools::Itertools;
+use log::{error, info, trace, warn};
+use performance_timing::measurements::MeasureValues;
+use rand::random;
+use std::collections::BTreeMap;
+use std::time::Duration;
 
 pub async fn net_blacklist(net: &mut DeviceConnection, database: &mut Database) -> bool {
     for blacklist in &database
@@ -134,9 +137,9 @@ pub async fn net_receive_excluded_addresses(net: &mut DeviceConnection) -> Optio
 
     match result {
         Ok(Some(Ota::Transport {
-                    content: OtaD2CTransport::LastRunBlacklisted { address, .. },
-                    ..
-                })) => address,
+            content: OtaD2CTransport::LastRunBlacklisted { address, .. },
+            ..
+        })) => address,
         Ok(Some(x)) => {
             warn!("Unexpected packet: {:?}", x);
             None
@@ -267,4 +270,66 @@ pub enum ExecuteSampleResult {
     Timeout,
     Rerun,
     Success(ExecutionResult, Vec<ReportExecutionProblem>),
+}
+
+pub async fn net_fuzzing_pretext(
+    net: &mut DeviceConnection,
+    database: &mut Database,
+    last_code_executed: &mut Option<Code>,
+    last_reported_exclusion: &mut Option<(Option<u16>, u16)>,
+) -> CommandExitResult {
+    if let Err(err) = net
+        .send(OtaC2DTransport::SetRandomSeed { seed: random() })
+        .await
+    {
+        error!("Failed to set random seed on device: {:?}", err);
+        return CommandExitResult::RetryOrReconnect;
+    }
+
+    if !net_blacklist(net, database).await {
+        return CommandExitResult::RetryOrReconnect;
+    }
+
+    if let Err(err) = net
+        .send(OtaC2DTransport::DidYouExcludeAnAddressLastRun)
+        .await
+    {
+        error!(
+            "Failed to ask device if it excluded an address last run: {:?}",
+            err
+        );
+        return CommandExitResult::RetryOrReconnect;
+    } else {
+        let address = net_receive_excluded_addresses(net).await;
+        if let Some(address) = address {
+            info!("Device excluded address last run: {}", address);
+            if let Some(last_code) = last_code_executed {
+                database.exclude_address(address, last_code.clone(), ExcludeType::Normal);
+            }
+
+            if let Err(err) = net
+                .send(OtaC2DTransport::Blacklist {
+                    address: vec![address],
+                })
+                .await
+            {
+                error!("Failed to blacklist address: {:?}", err);
+                return CommandExitResult::RetryOrReconnect;
+            }
+        }
+
+        match last_reported_exclusion {
+            Some((last_address, times)) if *last_address == address => {
+                *last_reported_exclusion = Some((*last_address, *times + 1));
+            }
+            Some((last_address, _)) => {
+                *last_reported_exclusion = Some((*last_address, 1));
+            }
+            None => {
+                *last_reported_exclusion = Some((address, 1));
+            }
+        }
+
+        CommandExitResult::Operational
+    }
 }

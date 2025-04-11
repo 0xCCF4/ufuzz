@@ -5,6 +5,7 @@ use itertools::Itertools;
 use lazy_static::lazy_static;
 use log::error;
 use performance_timing::measurements::{MeasureValues, MeasurementCollection, MeasurementData};
+use performance_timing::track_time;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
@@ -82,7 +83,12 @@ pub struct CodeResult {
 pub struct Timestamp(u64);
 impl Timestamp {
     pub fn now() -> Self {
-        Timestamp (SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs())
+        Timestamp(
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
+        )
     }
     pub fn instant(&self) -> SystemTime {
         SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(self.0)
@@ -166,6 +172,7 @@ impl Database {
         result
     }
 
+    #[track_time("host::database::save")]
     pub async fn save(&mut self) -> io::Result<()> {
         if !self.dirty {
             return Ok(());
