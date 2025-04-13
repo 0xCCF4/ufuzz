@@ -9,3 +9,4 @@ tempfile = "3.19.1"
 fuzzer_data = { path = "../fuzzer_data" }
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"
+iced-x86 = { version = "1.21.0", default-features = false, features = ["decoder", "encoder", "block_encoder", "op_code_info", "instr_info", "gas", "intel", "masm", "nasm", "fast_fmt", "code_asm"] }

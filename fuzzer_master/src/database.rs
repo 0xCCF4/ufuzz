@@ -114,8 +114,22 @@ pub struct DatabaseData {
     pub blacklisted_addresses: Vec<BlacklistEntry>,
 
     pub results: Vec<CodeResult>,
+     #[serde(default)]
     pub performance: MeasurementCollection<u64>,
+    #[serde(default)]
     pub device_performance: MeasurementCollection<f64>,
+}
+
+impl DatabaseData {
+    pub fn merge(&mut self, other: DatabaseData) {
+        self.blacklisted_addresses
+            .extend(other.blacklisted_addresses);
+        self.results.extend(other.results);
+        self.performance.data.extend(other.performance.data);
+        self.device_performance
+            .data
+            .extend(other.device_performance.data);
+    }
 }
 
 pub struct Database {
@@ -170,6 +184,11 @@ impl Database {
             .data
             .push(MeasurementData::default());
         result
+    }
+
+    pub fn merge(&mut self, other: Self) {
+        self.data.merge(other.data);
+        self.mark_dirty();
     }
 
     #[track_time("host::database::save")]

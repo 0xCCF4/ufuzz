@@ -1,6 +1,7 @@
 use clap::Parser;
 use fuzzer_data::decoder::InstructionDecoder;
 use fuzzer_data::instruction_corpus::{CorpusInstruction, InstructionCorpus};
+use iced_x86::FlowControl;
 use std::collections::BTreeSet;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -120,6 +121,9 @@ fn process_binary<A: AsRef<Path>>(
             return BTreeSet::new();
         }
 
+        let mut counter_include = 0;
+        let mut counter_exclude = 0;
+
         for entry in std::fs::read_dir(&temp_dir_path).expect("Failed to read temporary directory")
         {
             let entry_path = entry.expect("Failed to read directory entry").path();
@@ -159,9 +163,24 @@ fn process_binary<A: AsRef<Path>>(
 
                     let decoded = decoder.decode(&buffer);
                     for i in 0..decoded.len() {
+                        let instruction = decoded.get(i).unwrap();
+
+                        if matches!(
+                            instruction.instruction.flow_control(),
+                            FlowControl::Call
+                                | FlowControl::IndirectCall
+                                | FlowControl::Return
+                                | FlowControl::IndirectBranch
+                                | FlowControl::ConditionalBranch
+                                | FlowControl::UnconditionalBranch
+                        ) {
+                            counter_exclude += 1;
+                            continue;
+                        }
+
                         result.insert(CorpusInstruction {
-                            bytes: decoded.get(i).unwrap().bytes.to_vec(),
-                            valid: !decoded.get(i).unwrap().instruction.is_invalid(),
+                            bytes: instruction.bytes.to_vec(),
+                            valid: !instruction.instruction.is_invalid(),
                         });
                     }
                 }
@@ -208,9 +227,23 @@ fn process_binary<A: AsRef<Path>>(
 
             let decoded = decoder.decode(&buffer);
             for i in 0..decoded.len() {
+                let instruction = decoded.get(i).unwrap();
+
+                if matches!(
+                    instruction.instruction.flow_control(),
+                    FlowControl::Call
+                        | FlowControl::IndirectCall
+                        | FlowControl::Return
+                        | FlowControl::IndirectBranch
+                        | FlowControl::ConditionalBranch
+                        | FlowControl::UnconditionalBranch
+                ) {
+                    continue;
+                }
+
                 result.insert(CorpusInstruction {
-                    bytes: decoded.get(i).unwrap().bytes.to_vec(),
-                    valid: !decoded.get(i).unwrap().instruction.is_invalid(),
+                    bytes: instruction.bytes.to_vec(),
+                    valid: !instruction.instruction.is_invalid(),
                 });
             }
         }

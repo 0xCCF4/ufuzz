@@ -38,3 +38,7 @@ path = "src/main_compare.rs"
 [[bin]]
 name = "fuzz_viewer"
 path = "src/main_viewer.rs"
+
+[[bin]]
+name = "fuzz_combine"
+path = "src/main_combine.rs"

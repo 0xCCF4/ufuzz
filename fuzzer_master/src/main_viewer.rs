@@ -212,6 +212,7 @@ pub fn main() {
         .collect::<Vec<_>>();
 
     println!("Coverage by seed:");
+    let mut unique_cov = BTreeSet::new();
     for seed in seeds {
         println!(" - {}", seed);
 
@@ -226,7 +227,8 @@ pub fn main() {
             .unwrap_or(0);
 
         let mut overall_coverage = Vec::new();
-        for evolution in 0..largest_evolution + 1 {
+        let mut unique_cov_counts = Vec::new();
+        for evolution in 1..largest_evolution + 1 {
             let mut coverage = BTreeMap::new();
             let results = db
                 .data
@@ -239,16 +241,30 @@ pub fn main() {
                 })
                 .map(|x| x.coverage.iter().filter(|x| *x.1 > 0))
                 .flatten();
+
+            let mut unique_cov_count = 0;
             for result in results {
                 if *result.0 >= 0x1000 && cfg!(feature = "__debug_only_below_0x1000") {
                     continue;
                 }
                 if *result.1 > 0 {
                     *coverage.entry(*result.0).or_insert(0) += result.1;
+                    if unique_cov.insert(result.0) {
+                        unique_cov_count += 1u32;
+                    }
                 }
             }
+            unique_cov_counts.push(unique_cov_count);
             overall_coverage.push(coverage);
         }
+        print!("   - Delta coverage: ");
+        for (index, coverage) in unique_cov_counts.iter().enumerate() {
+            print!("+{}", coverage);
+            if index != unique_cov_counts.len() - 1 {
+                print!(", ");
+            }
+        }
+        println!();
         print!("   - Unique coverage: ");
         for (index, coverage) in overall_coverage.iter().enumerate() {
             print!("{}", coverage.len());
@@ -299,6 +315,19 @@ pub fn main() {
                 writeln!(&mut writer_cov, "{i}, {}, {code:?}", unique_coverage.len())
                     .expect("Could not write to coverage writer");
             }
+        }
+
+        let file_time = std::fs::File::create(file.with_extension("unique_cov.csv"))
+            .expect("Could not open file");
+        let mut writer_time = BufWriter::new(file_time);
+
+        for c in 0..0x7c00 {
+            writeln!(
+                &mut writer_time,
+                "{c}, {}",
+                if unique_coverage.contains(&c) { 1 } else { 0 }
+            )
+            .expect("Could not write to file");
         }
     }
 }

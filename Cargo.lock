@@ -380,6 +380,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "fuzzer_data",
+ "iced-x86",
  "serde",
  "serde_json",
  "tempfile",

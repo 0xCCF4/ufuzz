@@ -32,7 +32,7 @@ pub struct BreedingState {
 }
 
 pub const SAMPLE_TIMEOUT: u64 = 60;
-pub const MAX_EVOLUTIONS: u64 = 5;
+pub const MAX_EVOLUTIONS: u64 = 8;
 
 pub async fn main(
     net: &mut DeviceConnection,

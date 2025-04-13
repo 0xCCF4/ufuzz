@@ -23,6 +23,24 @@
         wantedBy = [ "multi-user.target" ];
 
         serviceConfig = {
+          ExecStart = "${packages."${system}".fuzzer_master}/bin/fuzz_master genetic";
+          WorkingDirectory = "/home/thesis";
+          Restart = "always";
+          RestartSec = 5;
+        };
+        environment = {
+          RUST_LOG = "trace";
+        };
+      };
+
+      systemd.services.fuzzer_master_corpus = {
+        description = "Fuzzer Master Service with corpus";
+        after = [ "network.target" ];
+        wantedBy = [ "multi-user.target" ];
+
+        enable = false;
+
+        serviceConfig = {
           ExecStart = "${packages."${system}".fuzzer_master}/bin/fuzz_master genetic /home/thesis/corpus.json";
           WorkingDirectory = "/home/thesis";
           Restart = "always";
