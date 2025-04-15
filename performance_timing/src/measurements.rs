@@ -179,13 +179,7 @@ impl Display for MeasurementCollection<f64> {
                 return core::cmp::Ordering::Greater;
             }
 
-            if a.1.exclusive_time < b.1.exclusive_time {
-                core::cmp::Ordering::Less
-            } else if a.1.exclusive_time > b.1.exclusive_time {
-                core::cmp::Ordering::Greater
-            } else {
-                core::cmp::Ordering::Equal
-            }
+            a.0.cmp(&b.0)
         });
         writeln!(
             f,

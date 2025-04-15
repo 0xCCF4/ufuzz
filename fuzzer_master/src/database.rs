@@ -78,10 +78,11 @@ pub struct CodeResult {
     pub found_on: Vec<Timestamp>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, Ord, PartialOrd, PartialEq, Eq)]
 #[repr(transparent)]
 pub struct Timestamp(u64);
 impl Timestamp {
+    pub const ZERO: Timestamp = Timestamp(0);
     pub fn now() -> Self {
         Timestamp(
             SystemTime::now()
@@ -92,6 +93,9 @@ impl Timestamp {
     }
     pub fn instant(&self) -> SystemTime {
         SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(self.0)
+    }
+    pub fn seconds(&self) -> u64 {
+        self.0
     }
 }
 
@@ -114,7 +118,7 @@ pub struct DatabaseData {
     pub blacklisted_addresses: Vec<BlacklistEntry>,
 
     pub results: Vec<CodeResult>,
-     #[serde(default)]
+    #[serde(default)]
     pub performance: MeasurementCollection<u64>,
     #[serde(default)]
     pub device_performance: MeasurementCollection<f64>,

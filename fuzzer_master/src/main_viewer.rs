@@ -2,10 +2,11 @@ use clap::Parser;
 use coverage::harness::coverage_harness::hookable_address_iterator::HookableAddressIterator;
 use coverage::harness::coverage_harness::modification_engine::ModificationEngineSettings;
 use data_types::addresses::Address;
-use fuzzer_master::database::CodeEvent;
+use fuzzer_master::database::{CodeEvent, Timestamp};
 use hypervisor::state::{StateDifference, VmExitReason};
 use itertools::Itertools;
 use log::error;
+use std::collections::hash_map::Entry;
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::BufWriter;
 use std::io::Write;
@@ -296,36 +297,58 @@ pub fn main() {
             std::fs::File::create(file.with_extension("time.csv")).expect("Could not open file");
         let mut writer_time = BufWriter::new(file_time);
 
-        let mut unique_coverage: BTreeSet<u16> = BTreeSet::new();
+        let mut unique_coverage: BTreeMap<u16, u32> = BTreeMap::new(); // coverage found at
+        let found_first = db.data.results.iter().map(|x| &x.found_on).flatten().min();
         for (i, program) in db.data.results.iter().enumerate() {
             let code = &program.code;
 
             for entry in program
                 .coverage
                 .keys()
-                .filter(|p| !unique_coverage.contains(p))
+                .filter(|p| unique_coverage.get(p).is_none())
             {
                 writeln!(&mut writer_time, "{entry}, {i}, {code:?}")
                     .expect("Could not write to file");
             }
 
             let prev = unique_coverage.len();
-            unique_coverage.extend(program.coverage.keys());
+            for key in program.coverage.keys() {
+                unique_coverage.entry(*key).or_insert(i as u32);
+            }
             if prev != unique_coverage.len() {
-                writeln!(&mut writer_cov, "{i}, {}, {code:?}", unique_coverage.len())
-                    .expect("Could not write to coverage writer");
+                writeln!(
+                    &mut writer_cov,
+                    "{i}, {}, {}, {}",
+                    unique_coverage.len(),
+                    program
+                        .found_at
+                        .iter()
+                        .map(|x| x.evolution)
+                        .min()
+                        .unwrap_or(0),
+                    program
+                        .found_on
+                        .iter()
+                        .min()
+                        .unwrap_or(&Timestamp::ZERO)
+                        .seconds()
+                        .saturating_sub(found_first.map(|x| x.seconds()).unwrap_or(0))
+                )
+                .expect("Could not write to coverage writer");
             }
         }
 
+        drop(writer_cov);
         let file_time = std::fs::File::create(file.with_extension("unique_cov.csv"))
             .expect("Could not open file");
         let mut writer_time = BufWriter::new(file_time);
 
-        for c in 0..0x7c00 {
+        for c in 0..0x7c00u16 {
+            let entry = unique_coverage.get(&c);
             writeln!(
                 &mut writer_time,
                 "{c}, {}",
-                if unique_coverage.contains(&c) { 1 } else { 0 }
+                entry.map(|v| v.to_string()).unwrap_or("".to_string())
             )
             .expect("Could not write to file");
         }

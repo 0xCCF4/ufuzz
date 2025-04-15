@@ -31,6 +31,14 @@ async fn main() {
 
     let args = Args::parse();
 
+    let mut database_out = match Database::from_file(&args.output) {
+        Ok(db) => {
+            eprintln!("Output database already exists!");
+            std::process::exit(1);
+        }
+        Err(e) => Database::empty(&args.output),
+    };
+
     let databases: Vec<_> = args
         .inputs
         .iter()
@@ -58,17 +66,13 @@ async fn main() {
         return;
     }
 
-    let mut database_out = match Database::from_file(&args.output) {
-        Ok(db) => {
-            eprintln!("Output database already exists!");
-            std::process::exit(1);
-        }
-        Err(e) => Database::empty(&args.output),
-    };
+    println!("Merging...");
 
     for database in databases {
         database_out.merge(database);
     }
+
+    println!("Saving...");
 
     if let Err(err) = database_out.save().await {
         eprintln!("Failed to save the merged database: {:?}", err);

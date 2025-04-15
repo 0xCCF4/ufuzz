@@ -82,6 +82,10 @@ impl From<Duration> for f64 {
 static INITIALIZED: AtomicBool = AtomicBool::new(false);
 static mut INSTANCE: Option<TimeKeeper> = None;
 
+pub fn is_available() -> bool {
+    INITIALIZED.load(Ordering::Relaxed)
+}
+
 #[allow(static_mut_refs)]
 pub fn instance() -> &'static TimeKeeper {
     if !INITIALIZED.load(Ordering::Relaxed) {
