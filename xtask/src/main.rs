@@ -33,6 +33,7 @@ enum Cli {
         #[clap(short, long)]
         startup: bool,
         /// Release mode
+        #[clap(short, long)]
         release: bool,
     },
     /// Control a remote machine
