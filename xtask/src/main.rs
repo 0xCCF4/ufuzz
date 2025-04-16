@@ -299,7 +299,7 @@ fn build_app(project: &str, release: bool, device: bool) -> Result<PathBuf, DynE
 
     let project_directory = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
 
-    let target_file = project_directory
+    let _target_file = project_directory
         .parent()
         .unwrap()
         .join("uefi-target-with-debug.json");
@@ -442,7 +442,7 @@ fn build_app(project: &str, release: bool, device: bool) -> Result<PathBuf, DynE
         Ok(status) if !status.success() => Err("Failed to build the hypervisor")?,
         Err(_) => Err("Failed to build the hypervisor")?,
         Ok(_) => Ok(target_folder
-            .join(if release {"release"} else {"debug"})
+            .join(if release { "release" } else { "debug" })
             .join(format!("{}.efi", executable_name))),
     }
 }
