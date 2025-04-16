@@ -46,7 +46,7 @@ nix build .#images.master
 nix build .#images.node
 ```
 This builds SD card images for the fuzzer master and fuzzer instrumentor. After initial setup,
-further changes may be deployed by running:
+further changes may be deployed using (deploy-rs) by running in the `nix` directory:
 ```bash
 nix run
 ```
@@ -67,3 +67,10 @@ fuzz_viewer /home/thesis/database.json
 
 Disclaimer: The IP addresses of the devices must be changed within the codebase of uFuzz before builting the.
 images/app using the above commands.
+
+## Utilities
+The `cargo xtask` command contains utilities to test the hypervisor environment on a simulated
+CPU using the bochs emulator; allowing easier debugging.
+```bash
+cargo xtask emulate hypervisor bochs-intel
+```
