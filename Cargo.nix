@@ -157,6 +157,16 @@ rec {
       # File a bug if you depend on any for non-debug work!
       debug = internal.debugCrate { inherit packageId; };
     };
+    "speculation" = rec {
+      packageId = "speculation";
+      build = internal.buildRustCrateWithFeatures {
+        packageId = "speculation";
+      };
+
+      # Debug support which might change between releases.
+      # File a bug if you depend on any for non-debug work!
+      debug = internal.debugCrate { inherit packageId; };
+    };
     "ucode_compiler_bridge" = rec {
       packageId = "ucode_compiler_bridge";
       build = internal.buildRustCrateWithFeatures {
@@ -1302,6 +1312,11 @@ rec {
             packageId = "log";
           }
           {
+            name = "performance_timing";
+            packageId = "performance_timing";
+            optional = true;
+          }
+          {
             name = "ucode_compiler_dynamic";
             packageId = "ucode_compiler_dynamic";
           }
@@ -1355,10 +1370,11 @@ rec {
           }
         ];
         features = {
+          "timing_measurement" = [ "dep:performance_timing" ];
           "ucode" = [ "dep:custom_processing_unit" ];
           "uefi" = [ "dep:uefi" "nostd" "ucode" ];
         };
-        resolvedDefaultFeatures = [ "nostd" "ucode" "uefi" ];
+        resolvedDefaultFeatures = [ "nostd" "timing_measurement" "ucode" "uefi" ];
       };
       "cpufeatures" = rec {
         crateName = "cpufeatures";
@@ -2572,6 +2588,7 @@ rec {
           }
         ];
         features = {
+          "__debug_performance_trace" = [ "coverage/timing_measurement" ];
           "__device_bochs" = [ "device_bochs" "rand_isaac" "mutation_all" "__debug_print_external_interrupt_notification" "__debug_print_mutation_info" "__debug_performance_trace" ];
           "__device_brix" = [ "device_brix" "rand_isaac" "mutation_all" "__debug_print_mutation_info" "__debug_print_dissassembly" "__debug_print_progress_print" "__debug_performance_trace" ];
           "default" = [ "device_brix" "mutation_all" "rand_isaac" ];
@@ -8127,6 +8144,52 @@ rec {
         features = {
         };
         resolvedDefaultFeatures = [ "all" ];
+      };
+      "speculation" = rec {
+        crateName = "speculation";
+        version = "0.1.0";
+        edition = "2024";
+        crateBin = [
+          {
+            name = "speculation";
+            path = "src/main.rs";
+            requiredFeatures = [ ];
+          }
+        ];
+        src = lib.cleanSourceWith { filter = sourceFilter;  src = ./speculation; };
+        dependencies = [
+          {
+            name = "custom_processing_unit";
+            packageId = "custom_processing_unit";
+            features = [ "nostd" ];
+          }
+          {
+            name = "data_types";
+            packageId = "data_types";
+            features = [ "nostd" ];
+          }
+          {
+            name = "log";
+            packageId = "log";
+            usesDefaultFeatures = false;
+          }
+          {
+            name = "ucode_dump";
+            packageId = "ucode_dump";
+          }
+          {
+            name = "uefi";
+            packageId = "uefi";
+            features = [ "logger" "panic_handler" "alloc" "global_allocator" ];
+          }
+        ];
+        buildDependencies = [
+          {
+            name = "ucode_compiler_bridge";
+            packageId = "ucode_compiler_bridge";
+          }
+        ];
+
       };
       "spin" = rec {
         crateName = "spin";

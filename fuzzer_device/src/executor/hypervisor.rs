@@ -460,8 +460,7 @@ impl Hypervisor {
 
         assembler.wbinvd().unwrap();
         assembler.mfence().unwrap();
-        assembler.wbinvd().unwrap();
-        assembler.mfence().unwrap();
+        assembler.lfence().unwrap();
 
         assembler.mov(code_asm::rax, code_entry).unwrap();
         assembler.jmp(code_asm::rax).unwrap();

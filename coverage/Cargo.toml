@@ -12,10 +12,12 @@ ucode_compiler_dynamic = { path = "../ucode_compiler_dynamic" }
 itertools = { version = "0.14.0", default-features = false, features = ["use_alloc"] }
 ucode_dump = { path = "../ucode_dump" }
 bitflags = "2.6.0"
+performance_timing = {path="../performance_timing", optional = true}
 
 [features]
 nostd = [] # when using as a library: no_std
 uefi = ["dep:uefi", "nostd", "ucode"] # when using uefi features
+timing_measurement = ["dep:performance_timing"]
 ucode = ["dep:custom_processing_unit"]
 
 [build-dependencies]

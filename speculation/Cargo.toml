@@ -1,0 +1,21 @@
+[package]
+name = "speculation"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+#coverage = { path = "../coverage", default-features = false, features = ["nostd", "uefi"] }
+log = { version = "0.4.25", default-features = false }
+#rand_core = "0.9.0"
+#rand_isaac = {version = "0.4.0"}
+data_types = {path = "../data_types",features = ["nostd"]}
+#iced-x86 = { version = "1.21.0", default-features = false, features = ["decoder", "encoder", "block_encoder", "op_code_info", "instr_info", "gas", "intel", "masm", "nasm", "fast_fmt", "code_asm", "no_std"] }
+custom_processing_unit = {path = "../custom_processing_unit", features = ["nostd"]}
+ucode_dump = { path = "../ucode_dump" }
+uefi = { version = "0.34.1", features = ["logger", "panic_handler", "alloc", "global_allocator"]}
+#serde = {version = "1.0.218", default-features = false, features = ["alloc"]}
+#serde_json = {version = "1.0.140", features = ["alloc", "float_roundtrip"], default-features = false}
+#itertools = { version = "0.14.0", default-features = false, features = ["use_alloc"] }
+
+[build-dependencies]
+ucode_compiler_bridge = { path = "../ucode_compiler_bridge" }

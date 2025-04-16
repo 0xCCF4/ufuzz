@@ -21,6 +21,8 @@ use custom_processing_unit::{
     CustomProcessingUnit, FunctionResult, HookGuard, PatchError,
 };
 use data_types::addresses::UCInstructionAddress;
+#[cfg(feature = "timing_measurement")]
+use performance_timing::TimeMeasurement;
 #[cfg(feature = "ucode")]
 use ucode_compiler_dynamic::sequence_word::DisassembleError;
 #[cfg(feature = "ucode")]
@@ -65,6 +67,13 @@ impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
 
     #[inline(always)]
     fn pre_execution(&mut self, hooks: &[UCInstructionAddress]) -> Result<(), CoverageError> {
+        #[cfg(feature = "timing_measurement")]
+        let timing = if performance_timing::is_available() {
+            Some(TimeMeasurement::begin("coverage::collection::prepare"))
+        } else {
+            None
+        };
+
         if hooks.len() > self.interface.description().max_number_of_hooks {
             return Err(CoverageError::TooManyHooks);
         }
@@ -117,11 +126,20 @@ impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
             return Err(CoverageError::SetupFailed(result));
         }
 
+        #[cfg(feature = "timing_measurement")]
+        drop(timing);
         Ok(())
     }
 
     #[inline(always)]
     fn post_execution(&mut self, hooks: &[UCInstructionAddress]) -> Vec<ExecutionResultEntry> {
+        #[cfg(feature = "timing_measurement")]
+        let timing = if performance_timing::is_available() {
+            Some(TimeMeasurement::begin("coverage::collection::post"))
+        } else {
+            None
+        };
+
         let mut result = Vec::with_capacity(hooks.len());
         for (index, address) in hooks.iter().enumerate() {
             let address = address.align_even();
@@ -145,6 +163,10 @@ impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
                 });
             }
         }
+
+        #[cfg(feature = "timing_measurement")]
+        drop(timing);
+
         result
     }
 
@@ -184,6 +206,13 @@ impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
         hooks: &[UCInstructionAddress],
         func: F,
     ) -> Result<CoverageExecutionResult<FuncResult>, CoverageError> {
+        #[cfg(feature = "timing_measurement")]
+        let timing_measurement = if performance_timing::is_available() {
+            Some(TimeMeasurement::begin("coverage::collection::execute"))
+        } else {
+            None
+        };
+
         self.pre_execution(hooks)?;
         enable_hooks();
 
@@ -193,6 +222,9 @@ impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
 
         disable_all_hooks();
         let timing = self.post_execution(hooks);
+
+        #[cfg(feature = "timing_measurement")]
+        drop(timing_measurement);
 
         Ok(CoverageExecutionResult {
             result,

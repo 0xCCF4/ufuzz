@@ -27,6 +27,9 @@ enum Cli {
     PutRemote {
         /// name of the target
         name: String,
+        /// override UEFI startup
+        #[clap(short, long)]
+        startup: bool,
     },
     ControlRemote {
         args: Vec<String>,
@@ -70,7 +73,7 @@ fn main() {
     match cli {
         Cli::Emulate(cli) => main_run(cli),
         Cli::UpdateNode => main_update_node(),
-        Cli::PutRemote { name } => main_put_remote(&name),
+        Cli::PutRemote { name, startup } => main_put_remote(&name, startup),
         Cli::ControlRemote { args } => main_control_remote(args),
     }
 }
@@ -101,7 +104,7 @@ fn main_control_remote(args: Vec<String>) {
     }
 }
 
-fn main_put_remote(name: &str) {
+fn main_put_remote(name: &str, startup: bool) {
     let (name, path) = if name == "corpus" {
         let project_root = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
         let project_root = project_root.parent().unwrap().to_path_buf();
@@ -187,7 +190,7 @@ fn main_put_remote(name: &str) {
         writeln!(ssh_stdin, "sudo cp \"/tmp/{}\" \"/mnt/{}\"", name, name)
             .expect("Failed to write to ssh stdin");
 
-        if name != "corpus.json" {
+        if name != "corpus.json" && startup {
             writeln!(ssh_stdin, "echo \"{}\" | sudo tee /mnt/startup.nsh", name)
                 .expect("Failed to write to ssh stdin");
         }
@@ -401,6 +404,9 @@ fn build_app(project: &str, release: bool, device: bool) -> Result<PathBuf, DynE
             "uefi",
         ]);
         "examples/test_exp_hook_even"
+    } else if project == "speculation" {
+        status.args(["-p", "speculation"]);
+        "speculation"
     } else {
         status.args(["-p", project]);
         project

@@ -1,5 +1,11 @@
 // The `launch_vm` function is the main entry point for launching or resuming a VM using VMX operations.
 
+.macro CLEAR_STATE
+    wbinvd
+    mfence
+    lfence
+.endm
+
 // Macro to save all general-purpose registers onto the stack.
 // This is essential for preserving the execution context before performing operations
 // that might alter the register state, ensuring a safe restoration later.
@@ -185,6 +191,7 @@ run_vm_vmx:
     mov     r14, [r15 + {registers_r14}]
     mov     r15, [r15 + {registers_r15}]
 
+    CLEAR_STATE
     vmresume
     jmp     .VmEntryFailure
 
@@ -200,6 +207,7 @@ run_vm_vmx:
     mov     r14, [r15 + {registers_r14}]
     mov     r15, [r15 + {registers_r15}]
 
+    CLEAR_STATE
     vmlaunch
 
 .VmEntryFailure:

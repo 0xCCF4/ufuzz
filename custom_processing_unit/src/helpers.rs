@@ -20,15 +20,27 @@ use std::string::ToString;
 
 #[derive(Copy, Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum StagingBufferAddress {
-    RegTmp0 = 0xb800,
-    RegTmp1 = 0xb840,
-    RegTmp2 = 0xb880,
+    RegTmp0,
+    RegTmp1,
+    RegTmp2,
+    Raw(u16),
     // todo: check further values
+}
+
+impl StagingBufferAddress {
+    pub fn to_address(self) -> usize {
+        match self {
+            StagingBufferAddress::RegTmp0 => 0xb800,
+            StagingBufferAddress::RegTmp1 => 0xb840,
+            StagingBufferAddress::RegTmp2 => 0xb880,
+            StagingBufferAddress::Raw(addr) => addr as usize,
+        }
+    }
 }
 
 impl Address for StagingBufferAddress {
     fn address(&self) -> usize {
-        *self as usize
+        self.to_address()
     }
 }
 
@@ -286,12 +298,17 @@ pub fn stgbuf_write_raw(address: usize, value: usize) {
 
 #[inline(always)]
 pub fn stgbuf_write(address: StagingBufferAddress, value: usize) {
-    stgbuf_write_raw(address as usize, value)
+    stgbuf_write_raw(address.to_address(), value)
 }
 
-//#[inline(always)]
-pub fn stgbuf_read(address: usize) -> usize {
+#[inline(always)]
+pub fn stgbuf_read_raw(address: usize) -> usize {
     core::hint::black_box(udebug_read(0x80, address))
+}
+
+#[inline(always)]
+pub fn stgbuf_read(address: StagingBufferAddress) -> usize {
+    stgbuf_read_raw(address.to_address())
 }
 
 fn ldat_array_write(
