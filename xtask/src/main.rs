@@ -23,17 +23,24 @@ type DynError = Box<dyn std::error::Error>;
 #[derive(Parser)]
 #[command(author, about, long_about = None)]
 enum Cli {
+    /// Emulate a UEFI application using BOCHS CPU emulator
     Emulate(EmulateCli),
+    /// Push an UEFI app onto the remote machine
     PutRemote {
         /// name of the target
         name: String,
         /// override UEFI startup
         #[clap(short, long)]
         startup: bool,
+        /// Release mode
+        release: bool,
     },
+    /// Control a remote machine
     ControlRemote {
+        /// Arguments to pass to the remote machine
         args: Vec<String>,
     },
+    /// Update the node's software, systemd service, etc
     UpdateNode,
 }
 
@@ -58,8 +65,6 @@ struct EmulateCli {
     command: Commands,
 }
 
-pub const TARGET_HOST: &str = "10.0.0.10";
-
 #[derive(Subcommand)]
 enum Commands {
     /// Start a Bochs VM with an Intel processor
@@ -73,14 +78,15 @@ fn main() {
     match cli {
         Cli::Emulate(cli) => main_run(cli),
         Cli::UpdateNode => main_update_node(),
-        Cli::PutRemote { name, startup } => main_put_remote(&name, startup),
+        Cli::PutRemote { name, startup, release } => main_put_remote(&name, startup, release),
         Cli::ControlRemote { args } => main_control_remote(args),
     }
 }
 
 fn main_control_remote(args: Vec<String>) {
+    let host_node = env::var("HOST_NODE").unwrap_or("10.0.0.10".to_string());
     let mut ssh = Command::new("ssh")
-        .arg("thesis@192.168.0.6")
+        .arg(format!("thesis@{host_node}").as_str())
         .stdin(Stdio::piped())
         .spawn()
         .expect("Failed to start ssh");
@@ -104,7 +110,7 @@ fn main_control_remote(args: Vec<String>) {
     }
 }
 
-fn main_put_remote(name: &str, startup: bool) {
+fn main_put_remote(name: &str, startup: bool, release: bool) {
     let (name, path) = if name == "corpus" {
         let project_root = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
         let project_root = project_root.parent().unwrap().to_path_buf();
@@ -145,7 +151,7 @@ fn main_put_remote(name: &str, startup: bool) {
             corpus.as_os_str().to_str().unwrap().to_string(),
         )
     } else {
-        let app = build_app(name, false, true).expect("Failed to build the app");
+        let app = build_app(name, release, true).expect("Failed to build the app");
         let name = app
             .file_name()
             .expect("Failed to get the app file name")
@@ -156,9 +162,11 @@ fn main_put_remote(name: &str, startup: bool) {
         (name, app.as_os_str().to_str().unwrap().to_string())
     };
 
+    let host_node = env::var("HOST_NODE").unwrap_or("10.0.0.10".to_string());
+
     println!("Pushing {} to the remote", name);
     let mut sftp = Command::new("sftp")
-        .arg(&format!("thesis@{}:/tmp", TARGET_HOST))
+        .arg(&format!("thesis@{}:/tmp", host_node.as_str()))
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .spawn()
@@ -171,7 +179,7 @@ fn main_put_remote(name: &str, startup: bool) {
     let _status = sftp.wait().expect("Failed to wait on sftp");
 
     let mut ssh = Command::new("ssh")
-        .arg(&format!("thesis@{}", TARGET_HOST))
+        .arg(&format!("thesis@{}", host_node.as_str()))
         .stdin(Stdio::piped())
         .spawn()
         .expect("Failed to start ssh");
@@ -221,13 +229,7 @@ fn main_update_node() {
 
     status
         .args([
-            "nixos-rebuild",
-            "switch",
-            "--use-remote-sudo",
-            "--flake",
-            ".#node",
-            "--target-host",
-            "thesis@192.168.0.6",
+            "nix", "run",
         ])
         .current_dir(project_root.parent().unwrap().join("nix"));
 
