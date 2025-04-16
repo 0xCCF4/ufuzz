@@ -1,1 +1,5 @@
 api.key
+export.bib
+database_papers.json
+excluded_papers.json
+ok_papers.json
