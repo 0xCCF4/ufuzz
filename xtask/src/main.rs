@@ -79,7 +79,11 @@ fn main() {
     match cli {
         Cli::Emulate(cli) => main_run(cli),
         Cli::UpdateNode => main_update_node(),
-        Cli::PutRemote { name, startup, release } => main_put_remote(&name, startup, release),
+        Cli::PutRemote {
+            name,
+            startup,
+            release,
+        } => main_put_remote(&name, startup, release),
         Cli::ControlRemote { args } => main_control_remote(args),
     }
 }
@@ -229,9 +233,7 @@ fn main_update_node() {
     let mut status = Command::new("distrobox-host-exec");
 
     status
-        .args([
-            "nix", "run",
-        ])
+        .args(["nix", "run"])
         .current_dir(project_root.parent().unwrap().join("nix"));
 
     let status = status.status().expect("Failed to update the node");
@@ -440,7 +442,7 @@ fn build_app(project: &str, release: bool, device: bool) -> Result<PathBuf, DynE
         Ok(status) if !status.success() => Err("Failed to build the hypervisor")?,
         Err(_) => Err("Failed to build the hypervisor")?,
         Ok(_) => Ok(target_folder
-            .join("debug")
+            .join(if release {"release"} else {"debug"})
             .join(format!("{}.efi", executable_name))),
     }
 }

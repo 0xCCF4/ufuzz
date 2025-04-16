@@ -8,8 +8,8 @@ see the [paper](xxx).
 
 ## Structure
 uFuzz consists of three different systems:
-1. The fuzzer device: This is the target device that runs the fuzzer.
-2. A fuzzer instrumentor: This is a device that emulates USB devices and controls the power supply of the fuzzer device. (Raspberry Pi 4)
+1. The fuzzer device: This is the target device that runs the fuzzer. We used the [Gigabyte Brix (GB-BPCE-3350C-BWUP)](https://www.gigabyte.com/de/Mini-PcBarebone/GB-BPCE-3350C-rev-10) with an Intel Apollo Lake (Celeron) N3350 processor (`CPUID[1].EAX=0x506ca`) ; vulnerable to the Red-unlock vulnerability.
+2. A fuzzer instrumentor: This is a device that emulates an USB storage (for serving the UEFI app) and USB keyboard for skipping the BIOS screen automatically and controls the power supply of the fuzzer device. (Raspberry Pi 4)
 3. The fuzzer master: The main fuzzing loop runs here, tasks are scheduled on the fuzzer device for execution. (Raspberry Pi 4)
 
 ## Project structure

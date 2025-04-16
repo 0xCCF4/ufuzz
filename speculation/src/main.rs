@@ -1,6 +1,7 @@
 #![no_main]
 #![no_std]
 #![allow(named_asm_labels)]
+#![allow(unsafe_attr_outside_unsafe)]
 
 use core::arch;
 use core::arch::asm;
@@ -43,23 +44,119 @@ unsafe fn main() -> Status {
         return Status::ABORTED;
     }
 
+    let n = 2000; // Replace this with dynamic calculation if needed
+    let func = spec2;
+
     let mut sum_true = 0;
-    for i in 0..200 {
-        let result = spec(true);
+    for i in 0..n {
+        let result = func(true);
         sum_true += result;
     }
-    println!("\nAverage (true): {:0.2}", sum_true as f64 / 200.0);
+    print!("\nAverage attack:    {:<6.2} ", sum_true as f64 / n as f64);
+    for _ in 0..10 {
+        print!("{:<3} ", func(true));
+    }
+    println!();
 
     let mut sum_false = 0;
-    for i in 0..200 {
-        let result = spec(false);
+    for i in 0..n {
+        let result = func(false);
         sum_false += result;
     }
-    println!("\nAverage (false): {:0.2}", sum_false as f64 / 200.0);
+    print!("\nAverage base-line: {:<6.2} ", sum_false as f64 / n as f64);
+    for _ in 0..10 {
+        print!("{:<3} ", func(false));
+    }
+    println!();
 
     disable_hooks.restore();
 
     Status::SUCCESS
+}
+
+#[inline(never)]
+pub unsafe fn spec2(attack: bool) -> u64 {
+    let difference: u64;
+
+    let mut q = [0u32; 256];
+    q[0] = 0x22;
+
+    asm!("wbinvd");
+
+    for i in (0..q.len()).step_by(64) {
+        asm!("clflush [{}]", in(reg) &q[i]);
+    }
+
+    asm!("sfence", "lfence", "sfence", "lfence");
+
+    // https://blog.can.ac/2021/03/22/speculating-x86-64-isa-with-one-weird-trick/
+    flush_decode_stream_buffer();
+
+    asm!(
+        "xor rdx,rdx",
+        "cmp {attack}, 0",
+        "jz 2f",
+
+        // payload here
+
+        "call 4f",
+
+        // Speculative window
+
+        "lea rdx, [{q_ptr}]",
+        "mov rdx, [rdx]",
+
+        // Speculative window end
+
+        "ud2",
+
+        "4:",
+        "lea rax, [rip+2f]",
+        "xchg [rsp], rax",
+        "ret",
+
+        // payload end
+
+        "2:",
+
+        "xor rax, rax",
+
+        "mfence",
+        "lfence",
+        "rdtsc",
+        "lfence",
+
+        "shl rdx, 32",
+        "or rax, rdx",
+        "mov {before}, rax",
+        "xor rax, rax",
+
+        "lea rdx, [{q_ptr}]",
+        "mov rdx, [rdx]",
+
+        "mfence",
+        "lfence",
+        "rdtsc",
+        "lfence",
+
+        "shl rdx, 32",
+        "or rax, rdx",
+        "mov {after}, rax",
+        "xor rax, rax",
+
+        "sub {after}, {before}",
+        "mov {difference}, {after}",
+
+        attack = in(reg) if attack {1} else {0},
+        q_ptr = in(reg) (&q as *const u32 as usize),
+        out("rdx") _,
+        out("rax") _,
+        before = out(reg) _,
+        after = out(reg) _,
+        difference = out(reg) difference,
+    );
+
+    difference
 }
 
 #[inline(never)]
@@ -137,6 +234,43 @@ pub unsafe fn spec(prepare: bool) -> u64 {
     asm!("sfence", "lfence");
 
     time_after.saturating_sub(time_before)
+}
+
+#[inline(always)]
+pub fn flush_decode_stream_buffer() {
+    unsafe {
+        asm!(
+        // Align `ip` to a 64-byte boundary
+        "lea {ip}, [rip]",
+        "and {ip}, ~63",
+
+        // Copy 512 bytes from `ip` to `ip`
+        "mov {index}, 512",
+        "mov {ptr}, {ip}",
+        "2:",
+        "mov {tmp:l}, byte ptr [{ptr}]",
+        "mov byte ptr [{ptr}], {tmp:l}",
+        "inc {ptr}",
+        "dec {index}",
+        "jnz 2b",
+
+        // Execute sfence
+        "sfence",
+
+        // Flush cache lines
+        "mov {index}, 0",
+        "3:",
+        "clflush byte ptr [{ip} + {index}]",
+        "add {index}, 64",
+        "cmp {index}, 512",
+        "jne 3b",
+
+        ip = out(reg) _,
+        index = out(reg) _,
+        tmp = out(reg) _,
+            ptr = out(reg) _,
+        );
+    }
 }
 
 pub fn speculation1() {
