@@ -63,7 +63,7 @@ unsafe fn main() -> Status {
         return Status::ABORTED;
     }
 
-    /*if let Err(err) = hook(
+    if let Err(err) = hook(
         apply_hook_patch_func(),
         MSRAMHookIndex::ZERO,
         0x428,
@@ -72,12 +72,14 @@ unsafe fn main() -> Status {
     ) {
         println!("Failed to apply hook: {:?}", err);
         return Status::ABORTED;
-    }*/
+    }
 
 
     {
         let enable_hooks = HookGuard::enable_all();
-        test_speculation("Instruction", spec_window);
+        //test_speculation("Instruction", spec_window);
+
+        spec_ucode();
 
         enable_hooks.restore();
     }
@@ -134,6 +136,48 @@ pub unsafe fn test_speculation(title: &str, func: unsafe fn(bool, bool) -> u64) 
         print!("{:<3} ", results_false[i]);
     }
     println!();
+}
+
+pub unsafe fn spec_ucode() {
+    let result: u64;
+
+    let mut pmc_ms_entry = PerformanceCounter::new(0);
+    pmc_ms_entry.event().apply_perf_event_specifier(MS_DECODED_MS_ENTRY);
+    pmc_ms_entry.event().set_user_mode(true);
+    pmc_ms_entry.event().set_os_mode(true);
+    pmc_ms_entry.reset();
+
+    let mut pmc_uops_issued = PerformanceCounter::new(1);
+    pmc_uops_issued.event().apply_perf_event_specifier(UOPS_ISSUED_ANY);
+    pmc_uops_issued.event().set_user_mode(true);
+    pmc_uops_issued.event().set_os_mode(true);
+    pmc_uops_issued.reset();
+
+    let mut pmc_instructions_retired = PerformanceCounter::new(2);
+    pmc_instructions_retired.event().apply_perf_event_specifier(INSTRUCTIONS_RETIRED);
+    pmc_instructions_retired.event().set_user_mode(true);
+    pmc_instructions_retired.event().set_os_mode(true);
+    pmc_instructions_retired.reset();
+
+    let mut pmc_uops_retired = PerformanceCounter::new(3);
+    pmc_uops_retired.event().apply_perf_event_specifier(UOPS_RETIRED_ANY);
+    pmc_uops_retired.event().set_user_mode(true);
+    pmc_uops_retired.event().set_os_mode(true);
+    pmc_uops_retired.reset();
+
+    pmc_instructions_retired.enable();
+    pmc_uops_retired.enable();
+    pmc_uops_issued.enable();
+    pmc_ms_entry.enable();
+
+    asm!("rdrand rax", out("rax") result);
+
+    pmc_ms_entry.disable();
+    pmc_uops_issued.disable();
+    pmc_uops_retired.disable();
+    pmc_instructions_retired.disable();
+
+    println!("MSROM: {} uISSUE: {} uRETIRE: {} iRETIRE: {} Result {:04x}",pmc_ms_entry.read(), pmc_uops_issued.read(), pmc_uops_retired.read(), pmc_instructions_retired.read(), result);
 }
 
 #[inline(never)]

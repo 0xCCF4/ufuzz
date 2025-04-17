@@ -1,8 +1,21 @@
 .org 7c00
 
 <entry>
+rax := ZEROEXT_DSZ64(0xabab)
+tmp0 := ZEROEXT_DSZ64(0x1000)
+tmp1 := LDPPHYS_DSZ32_ASZ16_SC1(tmp0)
+tmp0 := SUB_DSZ64(tmp0, tmp1) # change tmp1 -> 0x1010 to remove dependency
 
-unk_256() !m1 SEQW UEND0
+UJMPCC_DIRECT_NOTTAKEN_CONDNZ(tmp0, <taken>)
+rax := ZEROEXT_DSZ64(0xabab) # S-EQW SYNCFULL # or remove comment and '-'
+NOPB
+unk_256() !m1 SEQW LFNCEWAIT, UEND0
+
+NOPB
+
+<taken>
+rax := ZEROEXT_DSZ64(tmp1)
+unk_256() !m1 SEQW LFNCEWAIT, UEND0
 
 NOP
 NOP
