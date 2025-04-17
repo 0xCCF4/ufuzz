@@ -63,7 +63,7 @@ unsafe fn main() -> Status {
         return Status::ABORTED;
     }
 
-    if let Err(err) = hook(
+    /*if let Err(err) = hook(
         apply_hook_patch_func(),
         MSRAMHookIndex::ZERO,
         0x428,
@@ -72,7 +72,7 @@ unsafe fn main() -> Status {
     ) {
         println!("Failed to apply hook: {:?}", err);
         return Status::ABORTED;
-    }
+    }*/
 
 
     {
@@ -192,13 +192,12 @@ pub unsafe fn spec_window(attack: bool, pmc: bool) -> u64 {
 
         // Speculative window
 
-        //"rdrand rdx",
         "lea rdx, [{q_ptr}]",
         "mov rdx, [rdx]",
 
-        // Speculative window end
-
         "ud2",
+
+        // Speculative window end
 
         "4:",
         "lea rax, [rip+2f]",

@@ -8,7 +8,7 @@ see the [paper](xxx).
 
 ## Structure
 uFuzz consists of three different systems:
-1. The fuzzer device: This is the target device that runs the fuzzer. We used the [Gigabyte Brix (GB-BPCE-3350C-BWUP)](https://www.gigabyte.com/de/Mini-PcBarebone/GB-BPCE-3350C-rev-10) with an Intel Apollo Lake (Celeron) N3350 processor (`CPUID[1].EAX=0x506ca`) ; vulnerable to the Red-unlock vulnerability.
+1. The fuzzer device: This is the target device that runs the fuzzer. We used the [Gigabyte Brix (GB-BPCE-3350C-BWUP)](https://www.gigabyte.com/de/Mini-PcBarebone/GB-BPCE-3350C-rev-10) with an Intel Apollo Lake (Celeron, Goldmont) N3350 processor (`CPUID[1].EAX=0x506ca`) ; vulnerable to the Red-unlock vulnerability.
 2. A fuzzer instrumentor: This is a device that emulates an USB storage (for serving the UEFI app) and USB keyboard for skipping the BIOS screen automatically and controls the power supply of the fuzzer device. (Raspberry Pi 4)
 3. The fuzzer master: The main fuzzing loop runs here, tasks are scheduled on the fuzzer device for execution. (Raspberry Pi 4)
 
@@ -45,7 +45,8 @@ Download [CustomProcessingUnit](https://github.com/pietroborrello/CustomProcessi
 Then apply the following patch for `uasm.py`: [uasm.py.patch](ucode_compiler_bridge/uasm.py.patch).
 
 To deploy the fuzzer instrumentor and fuzzer master, you will need `nix` installed.
-Go into the `nix` directory, change the public ssh keys, IPs etc., and run the following command:
+Go into the [`nix`}(nix/) directory, change the public ssh keys, IPs etc., then, change IP within the [`fuzzer_master`](fuzzer_master/) project,
+and run the following command:
 ```bash
 nix build .#images.master
 nix build .#images.node
@@ -56,13 +57,15 @@ further changes may be deployed using (deploy-rs) by running in the `nix` direct
 nix run
 ```
 
-To built and deploy the fuzzer device UEFI app, the fuzzer instrumentor must be running, then
+To built and deploy the fuzzer device UEFI app, first, change the IP settings, then; fuzzer instrumentor must be running, then
 compile and deploy the app using:
 ```bash
 HOST_NODE="put IP of the instrumentor here" cargo xtask put-remote --startup fuzzer_device
 ```
 
 Then boot the fuzzer master.
+
+---
 
 The fuzzing results will be stored to `/home/thesis/database.json` (fuzzer master) by default
 and can be viewed by running (fuzzer master):

@@ -9,15 +9,18 @@ use std::process::{Command, Stdio};
 
 #[derive(Parser)]
 #[command(author, version, about)]
+/// Generate a corpus file for initial fuzzing seeds from compiled libraries.
 struct Args {
-    /// Path to library folder
+    /// Path to library folder containing .so and .a files
     folder: String,
-    /// Output file
+    /// Output file, will be created.
     output: PathBuf,
 }
 
 fn main() {
     let args = Args::parse();
+
+    // Sanity checks
 
     let folder_path = Path::new(&args.folder);
     if !folder_path.exists() || !folder_path.is_dir() {
@@ -38,6 +41,8 @@ fn main() {
             std::process::exit(1);
         }
     }
+
+    // Collect all library files from target directory
 
     let library_files: Vec<_> = std::fs::read_dir(folder_path)
         .unwrap()
@@ -71,6 +76,8 @@ fn main() {
 
     let mut decoder = InstructionDecoder::new();
 
+    // Extract assembly from library files
+
     for path in library_files {
         println!("Processing file: {:?}", path);
         result.extend(process_binary(&path, &mut decoder));
@@ -90,9 +97,12 @@ fn main() {
         corpus.instructions.iter().filter(|i| !i.valid).count()
     );
 
+    // Write corpus to output file
+
     serde_json::to_writer(std::fs::File::create(&args.output).unwrap(), &corpus).unwrap();
 }
 
+/// Extract assembly from a binary file
 fn process_binary<A: AsRef<Path>>(
     path: A,
     decoder: &mut InstructionDecoder,
@@ -102,6 +112,7 @@ fn process_binary<A: AsRef<Path>>(
 
     let mut result = BTreeSet::new();
 
+    // todo: unify if-else
     if path.as_ref().extension().unwrap() == "a" {
         let mut ar_cmd = Command::new("ar");
         ar_cmd
@@ -136,6 +147,7 @@ fn process_binary<A: AsRef<Path>>(
 
                 // println!("   {entry_path:?} -> {target_file:?}");
 
+                // extract assembly from object file
                 let mut cmd = Command::new("objcopy");
                 cmd.arg("-O")
                     .arg("binary")
@@ -165,6 +177,7 @@ fn process_binary<A: AsRef<Path>>(
                     for i in 0..decoded.len() {
                         let instruction = decoded.get(i).unwrap();
 
+                        // Skip control flow instructions
                         if matches!(
                             instruction.instruction.flow_control(),
                             FlowControl::Call
@@ -200,6 +213,7 @@ fn process_binary<A: AsRef<Path>>(
 
         // println!("   {entry_path:?} -> {target_file:?}");
 
+        // extract assembly from object file
         let mut cmd = Command::new("objcopy");
         cmd.arg("-O")
             .arg("binary")
@@ -229,6 +243,7 @@ fn process_binary<A: AsRef<Path>>(
             for i in 0..decoded.len() {
                 let instruction = decoded.get(i).unwrap();
 
+                // Skip control flow instructions
                 if matches!(
                     instruction.instruction.flow_control(),
                     FlowControl::Call
