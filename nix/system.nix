@@ -6,7 +6,15 @@ let
   SSID = "mxlan";
   interface = "wlan0";
   trusted_nix_keys = [ "laptop:zhWq+p6//VSVJiSKFitrqdJfzrJ1ajvPsXPz+M2n2Ao=" ];
-  ssh_keys = [ "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILouqEVZdQe9lSB5QC0XIU15poExO4BAQDlMLLNkDwFn thesis" ];
+  ssh_keys = [
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILouqEVZdQe9lSB5QC0XIU15poExO4BAQDlMLLNkDwFn thesis"
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMq/HVkrYPFG+zjYDluufADU37TlQGAowFeWI4f8vrG5"
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGmAJWLk4ovGhb32f5u2R7Q08zONOo6GcgoQ0bSoIS8p"
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINdkuuDi9oylTQPjNi0S4xKRno0KguR5JK2CTolvaL2q"
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIP//WksskSNCSkYovQaZwKom6kRH2CdzVSO3zSrt5MHN"
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEOEZ4fZluR+mdtCB/1HfwxVc346iH/B1HwkppuXoCMi"
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOSEwHr9Z0zHA/TaQgoOOXWbMnK+BDtk7jmVCGPhab2p"
+  ];
   wg_pubkey = "FYOAl5u+cZ0sb8jwgSF9OeeBE0pkN/4l3W53BX7DuQ0=";
   wg_endpoint = "5.252.225.58:51820";
 in

@@ -39,8 +39,13 @@ Component       | Description
 [`xtask`](xtask/) | Contains build automation for this project.
 
 ## Getting started
+Download [CustomProcessingUnit](https://github.com/pietroborrello/CustomProcessingUnit) and 1. place it into the parent directory of this folder or 2. set the env var `UASM` to the
+`uasm.py` file from CustomProcessingUnit. The uFuzz project uses the `uasm.py` script to compile microcode updates.
+
+Then apply the following patch for `uasm.py`: [uasm.py.patch](ucode_compiler_bridge/uasm.py.patch).
+
 To deploy the fuzzer instrumentor and fuzzer master, you will need `nix` installed.
-Go into the `nix` directory, change the public ssh keys, and run the following command:
+Go into the `nix` directory, change the public ssh keys, IPs etc., and run the following command:
 ```bash
 nix build .#images.master
 nix build .#images.node
@@ -54,7 +59,7 @@ nix run
 To built and deploy the fuzzer device UEFI app, the fuzzer instrumentor must be running, then
 compile and deploy the app using:
 ```bash
-cargo xtask put-remote --startup fuzzer_device
+HOST_NODE="put IP of the instrumentor here" cargo xtask put-remote --startup fuzzer_device
 ```
 
 Then boot the fuzzer master.

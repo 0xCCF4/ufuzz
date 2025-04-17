@@ -13,13 +13,30 @@ use custom_processing_unit::{
 };
 use data_types::addresses::MSRAMHookIndex;
 use log::info;
-use speculation::patches;
+use speculation::{patches, read_pmc, write_pmc, PerfEventSelect, PerformanceCounter, BRANCH_MISSES_RETIRED, INSTRUCTIONS_RETIRED, MS_DECODED_MS_ENTRY, UOPS_ISSUED_ANY, UOPS_RETIRED_ANY};
 use uefi::{Status, entry, print, println};
+use x86::cpuid::CpuId;
+use x86::msr::{IA32_PERFEVTSEL0, IA32_PERFEVTSEL1};
 
 #[entry]
 unsafe fn main() -> Status {
     uefi::helpers::init().unwrap();
-    println!("Hello world!");
+    print!("Hello world! ");
+
+    let pmc_info = match CpuId::new().get_performance_monitoring_info() {
+        Some(info) => info,
+        None => {
+            println!("Failed to get performance monitoring info");
+            return Status::ABORTED;
+        }
+    };
+    print!("PMC version: {} ", pmc_info.version_id());
+    println!("PMC count:   {}", pmc_info.number_of_counters());
+
+    if pmc_info.number_of_counters() < 2 {
+        println!("Not enough performance monitoring counters");
+        return Status::ABORTED;
+    }
 
     let mut cpu = match CustomProcessingUnit::new() {
         Ok(cpu) => cpu,
@@ -57,13 +74,10 @@ unsafe fn main() -> Status {
         return Status::ABORTED;
     }
 
+
     {
         let enable_hooks = HookGuard::enable_all();
         test_speculation("Instruction", spec_window);
-
-        let mut val = 0;
-        asm!("rdrand rdx", out("rdx") val);
-        println!("{:04x}", val);
 
         enable_hooks.restore();
     }
@@ -74,14 +88,14 @@ unsafe fn main() -> Status {
 }
 
 #[inline(never)]
-pub unsafe fn test_speculation(title: &str, func: unsafe fn(bool) -> u64) {
+pub unsafe fn test_speculation(title: &str, func: unsafe fn(bool, bool) -> u64) {
     let n = 2000; // Replace this with dynamic calculation if needed
 
     let mut results_true = Vec::with_capacity(n);
     let mut sum_true = 0;
 
     for i in 0..n {
-        let result = func(true);
+        let result = func(true, i==0);
         sum_true += result;
         results_true.push(result);
     }
@@ -90,11 +104,11 @@ pub unsafe fn test_speculation(title: &str, func: unsafe fn(bool) -> u64) {
         "{title} Average attack:    {:<6.2} ",
         sum_true as f64 / n as f64
     );
-    for i in 0..5 {
+    for i in 0..5.min(n) {
         print!("{:<3} ", results_true[i]);
     }
     print!(".. ");
-    for i in (n - 5)..n {
+    for i in n.saturating_sub(5)..n {
         print!("{:<3} ", results_true[i]);
     }
     println!();
@@ -103,7 +117,7 @@ pub unsafe fn test_speculation(title: &str, func: unsafe fn(bool) -> u64) {
     let mut sum_false = 0;
 
     for i in 0..n {
-        let result = func(false);
+        let result = func(false, i==0);
         sum_false += result;
         results_false.push(result);
     }
@@ -112,22 +126,46 @@ pub unsafe fn test_speculation(title: &str, func: unsafe fn(bool) -> u64) {
         "{title} Average base-line: {:<6.2} ",
         sum_false as f64 / n as f64
     );
-    for i in 0..5 {
+    for i in 0..5.min(n) {
         print!("{:<3} ", results_false[i]);
     }
     print!(".. ");
-    for i in (n - 5)..n {
+    for i in n.saturating_sub(5)..n {
         print!("{:<3} ", results_false[i]);
     }
     println!();
 }
 
 #[inline(never)]
-pub unsafe fn spec_window(attack: bool) -> u64 {
+pub unsafe fn spec_window(attack: bool, pmc: bool) -> u64 {
     let difference: u64;
 
     let mut q = [0u32; 256];
     q[0] = 0x22;
+
+    let mut pmc_ms_entry = PerformanceCounter::new(0);
+    pmc_ms_entry.event().apply_perf_event_specifier(MS_DECODED_MS_ENTRY);
+    pmc_ms_entry.event().set_user_mode(true);
+    pmc_ms_entry.event().set_os_mode(true);
+    pmc_ms_entry.reset();
+
+    let mut pmc_uops_issued = PerformanceCounter::new(1);
+    pmc_uops_issued.event().apply_perf_event_specifier(UOPS_ISSUED_ANY);
+    pmc_uops_issued.event().set_user_mode(true);
+    pmc_uops_issued.event().set_os_mode(true);
+    pmc_uops_issued.reset();
+
+    let mut pmc_instructions_retired = PerformanceCounter::new(2);
+    pmc_instructions_retired.event().apply_perf_event_specifier(INSTRUCTIONS_RETIRED);
+    pmc_instructions_retired.event().set_user_mode(true);
+    pmc_instructions_retired.event().set_os_mode(true);
+    pmc_instructions_retired.reset();
+
+    let mut pmc_uops_retired = PerformanceCounter::new(3);
+    pmc_uops_retired.event().apply_perf_event_specifier(UOPS_RETIRED_ANY);
+    pmc_uops_retired.event().set_user_mode(true);
+    pmc_uops_retired.event().set_os_mode(true);
+    pmc_uops_retired.reset();
 
     asm!("wbinvd");
 
@@ -140,17 +178,21 @@ pub unsafe fn spec_window(attack: bool) -> u64 {
     // https://blog.can.ac/2021/03/22/speculating-x86-64-isa-with-one-weird-trick/
     flush_decode_stream_buffer();
 
+    pmc_instructions_retired.enable();
+    pmc_uops_retired.enable();
+    pmc_uops_issued.enable();
+    pmc_ms_entry.enable();
+
     asm!(
         "xor rdx,rdx",
         "cmp {attack}, 0",
         "jz 2f",
 
-        // payload here
-
         "call 4f",
 
         // Speculative window
 
+        //"rdrand rdx",
         "lea rdx, [{q_ptr}]",
         "mov rdx, [rdx]",
 
@@ -162,8 +204,6 @@ pub unsafe fn spec_window(attack: bool) -> u64 {
         "lea rax, [rip+2f]",
         "xchg [rsp], rax",
         "ret",
-
-        // payload end
 
         "2:",
 
@@ -204,6 +244,15 @@ pub unsafe fn spec_window(attack: bool) -> u64 {
         after = out(reg) _,
         difference = out(reg) difference,
     );
+
+    pmc_ms_entry.disable();
+    pmc_uops_issued.disable();
+    pmc_uops_retired.disable();
+    pmc_instructions_retired.disable();
+
+    if pmc {
+        println!("PMC {}: MSROM: {} uISSUE: {} uRETIRE: {} iRETIRE: {}", if attack { "Attack" } else { "Baseline" }, pmc_ms_entry.read(), pmc_uops_issued.read(), pmc_uops_retired.read(), pmc_instructions_retired.read());
+    }
 
     difference
 }
