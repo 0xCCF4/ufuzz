@@ -1,0 +1,23 @@
+[package]
+name = "spec_fuzz"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+__debug_performance_trace = []
+__debug_print_udp = []
+
+[dependencies]
+log = { version = "0.4.25",default-features = false, features = [] }
+rand_core = "0.9.0"
+data_types = {path = "../data_types", features = ["nostd"]}
+x86 = "0.52"
+uefi = { version = "0.34.1", features = ["logger", "panic_handler", "alloc", "global_allocator"]}
+uefi-raw = {version = "0.10.0"}
+uefi_udp4 = { path = "../uefi_udp4"}
+serde = {version = "1.0.218", default-features = false, features = ["alloc"]}
+serde_json = {version = "1.0.140", features = ["alloc", "float_roundtrip"], default-features = false}
+itertools = { version = "0.14.0", default-features = false, features = ["use_alloc"] }
+fuzzer_data = { path = "../fuzzer_data" }
+ucode_compiler_dynamic = { path = "../ucode_compiler_dynamic" }
+x86_perf_counter = { path = "../x86_perf_counter" }

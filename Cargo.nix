@@ -157,6 +157,16 @@ rec {
       # File a bug if you depend on any for non-debug work!
       debug = internal.debugCrate { inherit packageId; };
     };
+    "spec_fuzz" = rec {
+      packageId = "spec_fuzz";
+      build = internal.buildRustCrateWithFeatures {
+        packageId = "spec_fuzz";
+      };
+
+      # Debug support which might change between releases.
+      # File a bug if you depend on any for non-debug work!
+      debug = internal.debugCrate { inherit packageId; };
+    };
     "speculation" = rec {
       packageId = "speculation";
       build = internal.buildRustCrateWithFeatures {
@@ -211,6 +221,16 @@ rec {
       packageId = "uefi_udp4";
       build = internal.buildRustCrateWithFeatures {
         packageId = "uefi_udp4";
+      };
+
+      # Debug support which might change between releases.
+      # File a bug if you depend on any for non-debug work!
+      debug = internal.debugCrate { inherit packageId; };
+    };
+    "x86_perf_counter" = rec {
+      packageId = "x86_perf_counter";
+      build = internal.buildRustCrateWithFeatures {
+        packageId = "x86_perf_counter";
       };
 
       # Debug support which might change between releases.
@@ -719,13 +739,55 @@ rec {
         ];
 
       };
-      "bitfield" = rec {
+      "bitfield 0.17.0" = rec {
         crateName = "bitfield";
         version = "0.17.0";
         edition = "2015";
         sha256 = "1q4n13japrj852yzidhjfcq702yxkvrpv5mhmacsliz5az8x567p";
         authors = [
           "Loïc Damien <loic.damien@dzamlo.ch>"
+        ];
+
+      };
+      "bitfield 0.19.0" = rec {
+        crateName = "bitfield";
+        version = "0.19.0";
+        edition = "2021";
+        sha256 = "0653zd4s75y1hrp2ygk89kijvr2k4slikv3cjll3lmviq2q56vkq";
+        authors = [
+          "Loïc Damien <loic.damien@dzamlo.ch>"
+        ];
+        dependencies = [
+          {
+            name = "bitfield-macros";
+            packageId = "bitfield-macros";
+          }
+        ];
+
+      };
+      "bitfield-macros" = rec {
+        crateName = "bitfield-macros";
+        version = "0.19.0";
+        edition = "2021";
+        sha256 = "0jilbj9y06h916chb24iix2l07c2i2s1hmw9mddabwzisc2m9007";
+        procMacro = true;
+        libName = "bitfield_macros";
+        authors = [
+          "Loïc Damien <loic.damien@dzamlo.ch>"
+        ];
+        dependencies = [
+          {
+            name = "proc-macro2";
+            packageId = "proc-macro2";
+          }
+          {
+            name = "quote";
+            packageId = "quote";
+          }
+          {
+            name = "syn";
+            packageId = "syn 2.0.96";
+          }
         ];
 
       };
@@ -2470,6 +2532,14 @@ rec {
             usesDefaultFeatures = false;
             features = [ "alloc" "derive" ];
           }
+          {
+            name = "ucode_compiler_dynamic";
+            packageId = "ucode_compiler_dynamic";
+          }
+          {
+            name = "x86_perf_counter";
+            packageId = "x86_perf_counter";
+          }
         ];
 
       };
@@ -2575,6 +2645,10 @@ rec {
           {
             name = "x86";
             packageId = "x86";
+          }
+          {
+            name = "x86_perf_counter";
+            packageId = "x86_perf_counter";
           }
         ];
         buildDependencies = [
@@ -3775,7 +3849,7 @@ rec {
         dependencies = [
           {
             name = "bitfield";
-            packageId = "bitfield";
+            packageId = "bitfield 0.17.0";
             target = { target, features }: (("x86_64" == target."arch" or null) || ("x86" == target."arch" or null));
           }
           {
@@ -8145,6 +8219,85 @@ rec {
         };
         resolvedDefaultFeatures = [ "all" ];
       };
+      "spec_fuzz" = rec {
+        crateName = "spec_fuzz";
+        version = "0.1.0";
+        edition = "2021";
+        crateBin = [
+          {
+            name = "spec_fuzz";
+            path = "src/main.rs";
+            requiredFeatures = [ ];
+          }
+        ];
+        src = lib.cleanSourceWith { filter = sourceFilter;  src = ./spec_fuzz; };
+        dependencies = [
+          {
+            name = "data_types";
+            packageId = "data_types";
+            features = [ "nostd" ];
+          }
+          {
+            name = "fuzzer_data";
+            packageId = "fuzzer_data";
+          }
+          {
+            name = "itertools";
+            packageId = "itertools 0.14.0";
+            usesDefaultFeatures = false;
+            features = [ "use_alloc" ];
+          }
+          {
+            name = "log";
+            packageId = "log";
+            usesDefaultFeatures = false;
+          }
+          {
+            name = "rand_core";
+            packageId = "rand_core 0.9.2";
+          }
+          {
+            name = "serde";
+            packageId = "serde";
+            usesDefaultFeatures = false;
+            features = [ "alloc" ];
+          }
+          {
+            name = "serde_json";
+            packageId = "serde_json";
+            usesDefaultFeatures = false;
+            features = [ "alloc" "float_roundtrip" ];
+          }
+          {
+            name = "ucode_compiler_dynamic";
+            packageId = "ucode_compiler_dynamic";
+          }
+          {
+            name = "uefi";
+            packageId = "uefi";
+            features = [ "logger" "panic_handler" "alloc" "global_allocator" ];
+          }
+          {
+            name = "uefi-raw";
+            packageId = "uefi-raw";
+          }
+          {
+            name = "uefi_udp4";
+            packageId = "uefi_udp4";
+          }
+          {
+            name = "x86";
+            packageId = "x86";
+          }
+          {
+            name = "x86_perf_counter";
+            packageId = "x86_perf_counter";
+          }
+        ];
+        features = {
+        };
+        resolvedDefaultFeatures = [ "__debug_performance_trace" "__debug_print_udp" ];
+      };
       "speculation" = rec {
         crateName = "speculation";
         version = "0.1.0";
@@ -8181,6 +8334,10 @@ rec {
             name = "uefi";
             packageId = "uefi";
             features = [ "logger" "panic_handler" "alloc" "global_allocator" ];
+          }
+          {
+            name = "x86_perf_counter";
+            packageId = "x86_perf_counter";
           }
         ];
         buildDependencies = [
@@ -9678,6 +9835,12 @@ rec {
             name = "num-traits";
             packageId = "num-traits";
             usesDefaultFeatures = false;
+          }
+          {
+            name = "serde";
+            packageId = "serde";
+            usesDefaultFeatures = false;
+            features = [ "derive" ];
           }
         ];
         buildDependencies = [
@@ -12532,6 +12695,29 @@ rec {
           "phf_codegen" = [ "dep:phf_codegen" ];
           "serde_json" = [ "dep:serde_json" ];
         };
+      };
+      "x86_perf_counter" = rec {
+        crateName = "x86_perf_counter";
+        version = "0.1.0";
+        edition = "2021";
+        src = lib.cleanSourceWith { filter = sourceFilter;  src = ./x86_perf_counter; };
+        dependencies = [
+          {
+            name = "bitfield";
+            packageId = "bitfield 0.19.0";
+          }
+          {
+            name = "serde";
+            packageId = "serde";
+            usesDefaultFeatures = false;
+            features = [ "alloc" "derive" ];
+          }
+          {
+            name = "x86";
+            packageId = "x86";
+          }
+        ];
+
       };
       "xtask" = rec {
         crateName = "xtask";

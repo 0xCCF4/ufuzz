@@ -7,6 +7,9 @@ use num_traits::FromPrimitive;
 use alloc::format;
 use alloc::vec::Vec;
 use core::borrow::{Borrow, BorrowMut};
+use serde::de::Error as DeError;
+use serde::ser::Error as SerError;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, FromPrimitive)]
 #[allow(non_camel_case_types)] // these are the names
@@ -115,6 +118,35 @@ pub struct SequenceWord {
     control: Option<SequenceWordPart<SequenceWordControl>>,
     sync: Option<SequenceWordPart<SequenceWordSync>>,
     goto: Option<SequenceWordPart<UCInstructionAddress>>,
+}
+
+impl Serialize for SequenceWord {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self.assemble() {
+            Ok(value) => value.serialize(serializer),
+            Err(e) => Err(S::Error::custom(format!(
+                "Failed to assemble sequence word: {e:?}"
+            ))),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for SequenceWord {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = u32::deserialize(deserializer)?;
+        match SequenceWord::disassemble_no_crc_check(value) {
+            Ok(seqw) => Ok(seqw),
+            Err(e) => Err(D::Error::custom(format!(
+                "Failed to disassemble sequence word: {e:?}"
+            ))),
+        }
+    }
 }
 
 impl SequenceWord {

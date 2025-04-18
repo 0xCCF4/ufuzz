@@ -58,6 +58,7 @@ serde = {version = "1.0.218", default-features = false, features = ["alloc"]}
 serde_json = {version = "1.0.140", features = ["alloc", "float_roundtrip"], default-features = false}
 itertools = { version = "0.14.0", default-features = false, features = ["use_alloc"] }
 performance_timing = { path = "../performance_timing" }
+x86_perf_counter = { path = "../x86_perf_counter" }
 
 [build-dependencies]
 chrono = "0.4.39"

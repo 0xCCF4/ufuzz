@@ -30,12 +30,14 @@ Component       | Description
 [`nix`](nix/) | Contains the definition of system of the fuzzer master and fuzzer instrumentor.
 [`performance_timing`](performance_timing/) | Contains the tools to collect timing information from the fuzzer device,
 [`performance_timing_macros`](performance_timing_macros/) | Contains utility macros to automate timing collection from target functions.
+[`spec_fuzz`](spec_fuzz/) | Contains the implementation of the speculative micrcode fuzzer.
 [`speculation`](speculation/) | Contains some test scenarios to check speculative execution behavior.
 [`ucode_compiler_bridge`](ucode_compiler_bridge/) | Contains a bridge implementation to interface with the microcode compiler from [CustomProcessingUnit](https://github.com/pietroborrello/CustomProcessingUnit) and preprocessor macros for deriving multi file microcode updates.
 [`ucode_compiler_derive`](ucode_compiler_derive/)| Contains utility macros to automate the generation of microcode updates.
 [`ucode_compiler_dynamic`](ucode_compiler_dynamic/) | Contains runtime mircocode update compilation.
 [`ucode_dump`](ucode_dump/) | Contains microcode dumps of the CPU.
 [`uefi_udp4`](uefi_udp4/) | Contains a basic UEFI driver implementation of UDP.
+[`x86_perf_counter`](x86_perf_counter/) | Contains the implementation to use x86 performance counters. 
 [`xtask`](xtask/) | Contains build automation for this project.
 
 ## Getting started

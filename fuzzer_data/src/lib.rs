@@ -9,6 +9,9 @@ use core::fmt::Debug;
 use hypervisor::state::{VmExitReason, VmState};
 use performance_timing::measurements::MeasureValues;
 use serde::{Deserialize, Serialize};
+use ucode_compiler_dynamic::instruction::Instruction;
+use ucode_compiler_dynamic::sequence_word::SequenceWord;
+use x86_perf_counter::PerfEventSpecifier;
 
 extern crate alloc;
 
@@ -72,6 +75,7 @@ pub enum OtaD2CTransport {
     Capabilities {
         coverage_collection: bool,
         manufacturer: String,
+        pmc_number: u8,
         processor_version_eax: u32, // cpuid 1:eax
         processor_version_ebx: u32, // cpuid 1:ebx
         processor_version_ecx: u32, // cpuid 1:ecx
@@ -91,6 +95,13 @@ pub enum OtaD2CTransport {
         measurements: BTreeMap<String, MeasureValues<f64>>,
     },
     ResetSession,
+    PMCStableCheckResults {
+        pmc_stable: BTreeMap<u8, bool>, // index -> stable?
+    },
+    UCodeSpeculationResult {
+        arch_reg_difference: BTreeMap<String, (u64, u64)>,
+        perf_counter_difference: BTreeMap<u8, (u64, u64)>, // perf index -> (normal, with_speculation)
+    },
 }
 
 pub type Code = Vec<u8>;
@@ -105,13 +116,28 @@ pub enum OtaC2DUnreliable {
 pub enum OtaC2DTransport {
     AreYouThere,
     GetCapabilities,
-    Blacklist { address: Vec<u16> },
+    Blacklist {
+        address: Vec<u16>,
+    },
     DidYouExcludeAnAddressLastRun,
     GiveMeYourBlacklistedAddresses,
     ReportPerformanceTiming,
 
-    SetRandomSeed { seed: u64 },
-    ExecuteSample { code: Code },
+    SetRandomSeed {
+        seed: u64,
+    },
+    ExecuteSample {
+        code: Code,
+    },
+
+    UCodeSpeculation {
+        triad: [Instruction; 3],
+        sequence_word: SequenceWord,
+        perf_counter_setup: Vec<PerfEventSpecifier>,
+    },
+    TestIfPMCStable {
+        perf_counter_setup: Vec<PerfEventSpecifier>,
+    },
 
     Reboot,
 }

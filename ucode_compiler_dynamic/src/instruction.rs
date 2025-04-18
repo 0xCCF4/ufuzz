@@ -3,8 +3,10 @@ use crate::opcodes::Opcode;
 use core::fmt::Display;
 use data_types::addresses::{Address, UCInstructionAddress};
 use num_traits::FromPrimitive;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[repr(transparent)]
 pub struct Instruction {
     instruction: u64,
 }

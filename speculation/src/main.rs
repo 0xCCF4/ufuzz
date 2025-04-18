@@ -13,7 +13,10 @@ use custom_processing_unit::{
 };
 use data_types::addresses::MSRAMHookIndex;
 use log::info;
-use speculation::{patches, read_pmc, write_pmc, PerfEventSelect, PerformanceCounter, BRANCH_MISSES_RETIRED, INSTRUCTIONS_RETIRED, MS_DECODED_MS_ENTRY, UOPS_ISSUED_ANY, UOPS_RETIRED_ANY};
+use speculation::{
+    BRANCH_MISSES_RETIRED, INSTRUCTIONS_RETIRED, MS_DECODED_MS_ENTRY, PerfEventSelect,
+    PerformanceCounter, UOPS_ISSUED_ANY, UOPS_RETIRED_ANY, patches, read_pmc, write_pmc,
+};
 use uefi::{Status, entry, print, println};
 use x86::cpuid::CpuId;
 use x86::msr::{IA32_PERFEVTSEL0, IA32_PERFEVTSEL1};
@@ -74,7 +77,6 @@ unsafe fn main() -> Status {
         return Status::ABORTED;
     }
 
-
     {
         let enable_hooks = HookGuard::enable_all();
         //test_speculation("Instruction", spec_window);
@@ -97,7 +99,7 @@ pub unsafe fn test_speculation(title: &str, func: unsafe fn(bool, bool) -> u64) 
     let mut sum_true = 0;
 
     for i in 0..n {
-        let result = func(true, i==0);
+        let result = func(true, i == 0);
         sum_true += result;
         results_true.push(result);
     }
@@ -119,7 +121,7 @@ pub unsafe fn test_speculation(title: &str, func: unsafe fn(bool, bool) -> u64) 
     let mut sum_false = 0;
 
     for i in 0..n {
-        let result = func(false, i==0);
+        let result = func(false, i == 0);
         sum_false += result;
         results_false.push(result);
     }
@@ -142,25 +144,33 @@ pub unsafe fn spec_ucode() {
     let result: u64;
 
     let mut pmc_ms_entry = PerformanceCounter::new(0);
-    pmc_ms_entry.event().apply_perf_event_specifier(MS_DECODED_MS_ENTRY);
+    pmc_ms_entry
+        .event()
+        .apply_perf_event_specifier(MS_DECODED_MS_ENTRY);
     pmc_ms_entry.event().set_user_mode(true);
     pmc_ms_entry.event().set_os_mode(true);
     pmc_ms_entry.reset();
 
     let mut pmc_uops_issued = PerformanceCounter::new(1);
-    pmc_uops_issued.event().apply_perf_event_specifier(UOPS_ISSUED_ANY);
+    pmc_uops_issued
+        .event()
+        .apply_perf_event_specifier(UOPS_ISSUED_ANY);
     pmc_uops_issued.event().set_user_mode(true);
     pmc_uops_issued.event().set_os_mode(true);
     pmc_uops_issued.reset();
 
     let mut pmc_instructions_retired = PerformanceCounter::new(2);
-    pmc_instructions_retired.event().apply_perf_event_specifier(INSTRUCTIONS_RETIRED);
+    pmc_instructions_retired
+        .event()
+        .apply_perf_event_specifier(INSTRUCTIONS_RETIRED);
     pmc_instructions_retired.event().set_user_mode(true);
     pmc_instructions_retired.event().set_os_mode(true);
     pmc_instructions_retired.reset();
 
     let mut pmc_uops_retired = PerformanceCounter::new(3);
-    pmc_uops_retired.event().apply_perf_event_specifier(UOPS_RETIRED_ANY);
+    pmc_uops_retired
+        .event()
+        .apply_perf_event_specifier(UOPS_RETIRED_ANY);
     pmc_uops_retired.event().set_user_mode(true);
     pmc_uops_retired.event().set_os_mode(true);
     pmc_uops_retired.reset();
@@ -177,7 +187,15 @@ pub unsafe fn spec_ucode() {
     pmc_uops_retired.disable();
     pmc_instructions_retired.disable();
 
-    println!("MSROM: {} uISSUE: {} uRETIRE: {} iRETIRE: {} Result {:04x}",pmc_ms_entry.read(), pmc_uops_issued.read(), pmc_uops_retired.read(), pmc_instructions_retired.read(), result);
+    println!(
+        "MSROM: {} uISSUE: {} uRETIRE: {} uSPEC: {} iRETIRE: {} Result {:04x}",
+        pmc_ms_entry.read(),
+        pmc_uops_issued.read(),
+        pmc_uops_retired.read(),
+        pmc_uops_retired.read() - pmc_uops_issued.read(),
+        pmc_instructions_retired.read(),
+        result
+    );
 }
 
 #[inline(never)]
@@ -188,25 +206,33 @@ pub unsafe fn spec_window(attack: bool, pmc: bool) -> u64 {
     q[0] = 0x22;
 
     let mut pmc_ms_entry = PerformanceCounter::new(0);
-    pmc_ms_entry.event().apply_perf_event_specifier(MS_DECODED_MS_ENTRY);
+    pmc_ms_entry
+        .event()
+        .apply_perf_event_specifier(MS_DECODED_MS_ENTRY);
     pmc_ms_entry.event().set_user_mode(true);
     pmc_ms_entry.event().set_os_mode(true);
     pmc_ms_entry.reset();
 
     let mut pmc_uops_issued = PerformanceCounter::new(1);
-    pmc_uops_issued.event().apply_perf_event_specifier(UOPS_ISSUED_ANY);
+    pmc_uops_issued
+        .event()
+        .apply_perf_event_specifier(UOPS_ISSUED_ANY);
     pmc_uops_issued.event().set_user_mode(true);
     pmc_uops_issued.event().set_os_mode(true);
     pmc_uops_issued.reset();
 
     let mut pmc_instructions_retired = PerformanceCounter::new(2);
-    pmc_instructions_retired.event().apply_perf_event_specifier(INSTRUCTIONS_RETIRED);
+    pmc_instructions_retired
+        .event()
+        .apply_perf_event_specifier(INSTRUCTIONS_RETIRED);
     pmc_instructions_retired.event().set_user_mode(true);
     pmc_instructions_retired.event().set_os_mode(true);
     pmc_instructions_retired.reset();
 
     let mut pmc_uops_retired = PerformanceCounter::new(3);
-    pmc_uops_retired.event().apply_perf_event_specifier(UOPS_RETIRED_ANY);
+    pmc_uops_retired
+        .event()
+        .apply_perf_event_specifier(UOPS_RETIRED_ANY);
     pmc_uops_retired.event().set_user_mode(true);
     pmc_uops_retired.event().set_os_mode(true);
     pmc_uops_retired.reset();
@@ -294,7 +320,14 @@ pub unsafe fn spec_window(attack: bool, pmc: bool) -> u64 {
     pmc_instructions_retired.disable();
 
     if pmc {
-        println!("PMC {}: MSROM: {} uISSUE: {} uRETIRE: {} iRETIRE: {}", if attack { "Attack" } else { "Baseline" }, pmc_ms_entry.read(), pmc_uops_issued.read(), pmc_uops_retired.read(), pmc_instructions_retired.read());
+        println!(
+            "PMC {}: MSROM: {} uISSUE: {} uRETIRE: {} iRETIRE: {}",
+            if attack { "Attack" } else { "Baseline" },
+            pmc_ms_entry.read(),
+            pmc_uops_issued.read(),
+            pmc_uops_retired.read(),
+            pmc_instructions_retired.read()
+        );
     }
 
     difference

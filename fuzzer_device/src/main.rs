@@ -42,6 +42,7 @@ use uefi::proto::media::file::{File, FileAttribute, FileMode};
 use uefi::{entry, println, CString16, Error, Status};
 use uefi_raw::table::runtime::ResetType;
 use x86::cpuid::cpuid;
+use x86_perf_counter::PerformanceCounter;
 
 #[cfg(feature = "device_brix")]
 const P0_FREQ: f64 = 1.09e9;
@@ -217,6 +218,7 @@ unsafe fn main() -> Status {
                     let capabilities = OtaD2CTransport::Capabilities {
                         coverage_collection: executor.supports_coverage_collection(),
                         manufacturer: vendor_str,
+                        pmc_number: PerformanceCounter::number_of_counters(),
                         processor_version_eax: processor_version.eax,
                         processor_version_ebx: processor_version.ebx,
                         processor_version_ecx: processor_version.ecx,
@@ -478,6 +480,10 @@ unsafe fn main() -> Status {
                     }
 
                     drop(_guard);
+                }
+                OtaC2DTransport::UCodeSpeculation {..} | OtaC2DTransport::TestIfPMCStable {..} => {
+                    let _ = udp.log_reliable(Level::Error, "Method not supported");
+                    error!("Method not supported");
                 }
             }
         }

@@ -330,6 +330,9 @@ fn build_app(project: &str, release: bool, device: bool) -> Result<PathBuf, DynE
             "--no-default-features",
         ]);
         "fuzzer_device"
+    } else if project == "spec_fuzz" {
+        status.args(["-p", project, "--bins"]);
+        "spec_fuzz"
     } else if project == "hypervisor" {
         status.args(["-p", project, "--example", "test_hypervisor"]);
         "examples/test_hypervisor"

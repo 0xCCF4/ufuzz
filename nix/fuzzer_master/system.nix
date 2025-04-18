@@ -22,6 +22,8 @@
         after = [ "network.target" ];
         wantedBy = [ "multi-user.target" ];
 
+        enable = false;
+
         serviceConfig = {
           ExecStart = "${packages."${system}".fuzzer_master}/bin/fuzz_master genetic";
           WorkingDirectory = "/home/thesis";
@@ -42,6 +44,24 @@
 
         serviceConfig = {
           ExecStart = "${packages."${system}".fuzzer_master}/bin/fuzz_master genetic /home/thesis/corpus.json";
+          WorkingDirectory = "/home/thesis";
+          Restart = "always";
+          RestartSec = 5;
+        };
+        environment = {
+          RUST_LOG = "trace";
+        };
+      };
+
+      systemd.services.spec_fuzz = {
+        description = "Spec Fuzz Service";
+        after = [ "network.target" ];
+        wantedBy = [ "multi-user.target" ];
+
+        enable = false;
+
+        serviceConfig = {
+          ExecStart = "${packages."${system}".fuzzer_master}/bin/fuzz_master spec";
           WorkingDirectory = "/home/thesis";
           Restart = "always";
           RestartSec = 5;
