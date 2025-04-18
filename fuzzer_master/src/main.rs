@@ -228,6 +228,7 @@ async fn main() {
                             processor_version_ebx,
                             processor_version_ecx,
                             processor_version_edx,
+                            pmc_number,
                         },
                     ..
                 })) = udp
@@ -248,6 +249,7 @@ async fn main() {
                     println!("Capabilities:");
                     println!(" - Coverage collection: {}", coverage_collection);
                     println!(" - Manufacturer: {}", manufacturer);
+                    println!(" - PMC count: {}", pmc_number);
                     println!(
                         " - Processor version: {:#x} {:#x} {:#x} {:#x}",
                         processor_version_eax,

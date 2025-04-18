@@ -21,6 +21,7 @@
         description = "Fuzzer Master Service";
         after = [ "network.target" ];
         wantedBy = [ "multi-user.target" ];
+        conflicts = ["fuzzer_master_corpus.service" "spec_fuzz.service"];
 
         enable = false;
 
@@ -39,6 +40,7 @@
         description = "Fuzzer Master Service with corpus";
         after = [ "network.target" ];
         wantedBy = [ "multi-user.target" ];
+        conflicts = ["fuzzer_master.service" "spec_fuzz.service"];
 
         enable = false;
 
@@ -57,6 +59,7 @@
         description = "Spec Fuzz Service";
         after = [ "network.target" ];
         wantedBy = [ "multi-user.target" ];
+        conflicts = ["fuzzer_master.service" "fuzzer_master_corpus.service"];
 
         enable = false;
 

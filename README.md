@@ -44,19 +44,19 @@ Component       | Description
 Download [CustomProcessingUnit](https://github.com/pietroborrello/CustomProcessingUnit) and 1. place it into the parent directory of this folder or 2. set the env var `UASM` to the
 `uasm.py` file from CustomProcessingUnit. The uFuzz project uses the `uasm.py` script to compile microcode updates.
 
-Then apply the following patch for `uasm.py`: [uasm.py.patch](ucode_compiler_bridge/uasm.py.patch).
+Then apply the following git-patch for `uasm.py`: [uasm.py.patch](ucode_compiler_bridge/uasm.py.patch).
 
 To deploy the fuzzer instrumentor and fuzzer master, you will need `nix` installed.
 Go into the [`nix`}(nix/) directory, change the public ssh keys, IPs etc., then, change IP within the [`fuzzer_master`](fuzzer_master/) project,
-and run the following command:
+and run the following command (`|& nom` is optional):
 ```bash
-nix build .#images.master
-nix build .#images.node
+nix build .#images.master |& nom
+nix build .#images.node |& nom
 ```
 This builds SD card images for the fuzzer master and fuzzer instrumentor. After initial setup,
-further changes may be deployed using (deploy-rs) by running in the `nix` directory:
+further changes may be deployed using (deploy-rs) by running in the `nix` directory (`|& nom` is optional):
 ```bash
-nix run
+nix run |& nom
 ```
 
 To built and deploy the fuzzer device UEFI app, first, change the IP settings, then; fuzzer instrumentor must be running, then
@@ -65,7 +65,10 @@ compile and deploy the app using:
 HOST_NODE="put IP of the instrumentor here" cargo xtask put-remote --startup fuzzer_device
 ```
 
-Then boot the fuzzer master.
+Then boot the fuzzer master. Start the `fuzzer_master` app manually or start any of the following services:
+- `fuzzer_master`
+- `fuzzer_master_corpus`: requires that a corpus generated with `cargo run corpus-gen` is present at `/home/thesis/corpus.json`.
+- `spec_fuzz`
 
 ---
 
