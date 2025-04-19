@@ -92,8 +92,7 @@ pub unsafe fn read_pmc(counter_index: u8) -> u64 {
 
 pub struct PerformanceCounter {
     pub index: u8,
-    pub perf_event_select_enable: PerfEventSelect,
-    pub perf_event_select_disable: PerfEventSelect,
+    pub perf_event: PerfEventSelect,
 }
 
 impl PerformanceCounter {
@@ -102,6 +101,16 @@ impl PerformanceCounter {
             .get_performance_monitoring_info()
             .expect("perf counters not available")
             .number_of_counters()
+    }
+
+    pub fn from_perf_event_specifier(index: u8, event: &PerfEventSpecifier) -> Self {
+        let mut result = Self::new(index);
+        result.event().apply_perf_event_specifier(event);
+        result.event().set_user_mode(true);
+        result.event().set_os_mode(true);
+        result.reset();
+
+        result
     }
 
     pub fn new(index: u8) -> Self {
@@ -114,34 +123,31 @@ impl PerformanceCounter {
         }
         Self {
             index,
-            perf_event_select_enable: PerfEventSelect(0),
-            perf_event_select_disable: PerfEventSelect(0),
+            perf_event: PerfEventSelect(0),
         }
     }
 
     pub fn set_perf_event(&mut self, event: PerfEventSelect) {
-        self.perf_event_select_enable = event;
+        self.perf_event = event;
     }
 
     #[inline(always)]
     pub fn enable(&mut self) {
         unsafe {
-            self.perf_event_select_enable.set_enable_counters(true);
-            self.perf_event_select_disable.set_enable_counters(false);
-
-            self.perf_event_select_enable.apply_to_msr(self.index);
+            self.perf_event.set_enable_counters(true);
+            self.perf_event.apply_to_msr(self.index);
         }
     }
 
     #[inline(always)]
     pub fn disable(&mut self) {
         unsafe {
-            self.perf_event_select_disable.apply_to_msr(self.index);
+            wrmsr(IA32_PERFEVTSEL0 + self.index as u32, 0);
         }
     }
 
     pub fn event(&mut self) -> &mut PerfEventSelect {
-        &mut self.perf_event_select_enable
+        &mut self.perf_event
     }
 
     pub fn read(&self) -> u64 {
@@ -155,5 +161,9 @@ impl PerformanceCounter {
     pub fn reset(&mut self) {
         self.disable();
         self.write(0);
+    }
+
+    pub const fn wrmsr_offset(&self) -> u32 {
+        IA32_PERFEVTSEL0 + self.index as u32
     }
 }

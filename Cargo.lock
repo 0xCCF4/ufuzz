@@ -2456,6 +2456,7 @@ dependencies = [
  "custom_processing_unit",
  "data_types",
  "fuzzer_data",
+ "hypervisor",
  "itertools 0.14.0",
  "log",
  "rand_core 0.9.2",

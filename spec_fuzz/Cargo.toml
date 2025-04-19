@@ -9,7 +9,7 @@ __debug_print_udp = []
 
 [dependencies]
 log = { version = "0.4.25",default-features = false, features = [] }
-rand_core = "0.9.0"
+rand_core = { version = "0.9.0", default-features = false }
 data_types = {path = "../data_types", features = ["nostd"]}
 x86 = "0.52"
 uefi = { version = "0.34.1", features = ["logger", "panic_handler", "alloc", "global_allocator"]}
@@ -21,7 +21,8 @@ itertools = { version = "0.14.0", default-features = false, features = ["use_all
 fuzzer_data = { path = "../fuzzer_data" }
 ucode_compiler_dynamic = { path = "../ucode_compiler_dynamic" }
 x86_perf_counter = { path = "../x86_perf_counter" }
-custom_processing_unit = {path = "../custom_processing_unit"}
+custom_processing_unit = {path = "../custom_processing_unit", features = ["nostd"]}
+hypervisor = { path = "../hypervisor" }
 
 [build-dependencies]
 ucode_compiler_bridge = { path = "../ucode_compiler_bridge" }

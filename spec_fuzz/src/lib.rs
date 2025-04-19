@@ -12,12 +12,18 @@ extern crate alloc;
 
 use crate::controller_connection::ControllerConnection;
 use alloc::collections::BTreeMap;
-use alloc::string::String;
 use alloc::vec::Vec;
+use alloc::{format, vec};
+use core::arch::asm;
+use core::mem;
+use custom_processing_unit::patch_ucode;
+use fuzzer_data::SpeculationResult;
+use hypervisor::state::GuestRegisters;
 use log::Level;
 use ucode_compiler_dynamic::instruction::Instruction;
 use ucode_compiler_dynamic::sequence_word::SequenceWord;
-use x86_perf_counter::PerfEventSpecifier;
+use x86::msr::{IA32_PERFEVTSEL0, IA32_PERFEVTSEL1, IA32_PERFEVTSEL2, IA32_PERFEVTSEL3};
+use x86_perf_counter::{PerfEventSpecifier, PerformanceCounter};
 
 pub fn check_if_pmc_stable(
     udp: &mut ControllerConnection,
@@ -28,21 +34,404 @@ pub fn check_if_pmc_stable(
     BTreeMap::new()
 }
 
-pub struct SpeculationResult {
-    pub arch_reg_difference: BTreeMap<String, (u64, u64)>,
-    pub perf_counter_difference: BTreeMap<u8, (u64, u64)>,
-}
-
 pub fn execute_speculation(
     udp: &mut ControllerConnection,
-    _triad: [Instruction; 3],
-    _sequence_word: SequenceWord,
-    _perf_counter_setup: Vec<PerfEventSpecifier>,
+    triad: [Instruction; 3],
+    sequence_word: SequenceWord,
+    perf_counter_setup: Vec<PerfEventSpecifier>,
 ) -> SpeculationResult {
     let _ = udp.log_reliable(Level::Trace, "execute speculation");
 
+    let sequence_word = match sequence_word.assemble() {
+        Ok(word) => word,
+        Err(e) => {
+            let _ = udp.log_reliable(
+                Level::Error,
+                &format!("Failed to assemble sequence word: {:?}", e),
+            );
+            return SpeculationResult {
+                arch_before: GuestRegisters::default(),
+                arch_after: GuestRegisters::default(),
+                perf_counters: Vec::new(),
+            };
+        }
+    };
+
+    if let Err(err) = patch_ucode(
+        patches::patch::LABEL_SPECULATIVE_WINDOW,
+        &[[
+            triad[0].assemble() as usize,
+            triad[1].assemble() as usize,
+            triad[2].assemble() as usize,
+            sequence_word as usize,
+        ]],
+    ) {
+        let _ = udp.log_reliable(Level::Error, &format!("Failed to patch ucode: {:?}", err));
+        return SpeculationResult {
+            arch_before: GuestRegisters::default(),
+            arch_after: GuestRegisters::default(),
+            perf_counters: Vec::new(),
+        };
+    }
+
+    let perf_counter_setup: [Option<PerfEventSpecifier>; 4] = {
+        let mut setup = perf_counter_setup.into_iter().map(Some).collect::<Vec<_>>();
+        setup.truncate(4);
+        while setup.len() < 4 {
+            setup.push(None);
+        }
+        [
+            setup[0].clone(),
+            setup[1].clone(),
+            setup[2].clone(),
+            setup[3].clone(),
+        ]
+    };
+
+    collect_perf_counters_values(perf_counter_setup)
+}
+
+#[inline(always)]
+fn collect_perf_counters_values(
+    perf_counter_setup: [Option<PerfEventSpecifier>; 4],
+) -> SpeculationResult {
+    let mut initial_state = GuestRegisters::default();
+    let mut final_state = GuestRegisters::default();
+
+    let mut perf0 = if let Some(event) = &perf_counter_setup[0] {
+        PerformanceCounter::from_perf_event_specifier(0, event)
+    } else {
+        PerformanceCounter::new(0)
+    };
+    let mut perf1 = if let Some(event) = &perf_counter_setup[1] {
+        PerformanceCounter::from_perf_event_specifier(1, event)
+    } else {
+        PerformanceCounter::new(1)
+    };
+    let mut perf2 = if let Some(event) = &perf_counter_setup[2] {
+        PerformanceCounter::from_perf_event_specifier(2, event)
+    } else {
+        PerformanceCounter::new(2)
+    };
+    let mut perf3 = if let Some(event) = &perf_counter_setup[3] {
+        PerformanceCounter::from_perf_event_specifier(3, event)
+    } else {
+        PerformanceCounter::new(3)
+    };
+
+    perf0
+        .event()
+        .set_enable_counters(perf_counter_setup[0].is_some());
+    perf1
+        .event()
+        .set_enable_counters(perf_counter_setup[1].is_some());
+    perf2
+        .event()
+        .set_enable_counters(perf_counter_setup[2].is_some());
+    perf3
+        .event()
+        .set_enable_counters(perf_counter_setup[3].is_some());
+
+    unsafe {
+        asm!(
+        "mov rax, 0x0000",
+
+        // save values for later reference
+        "pushfq",
+        "push rax",
+        "push rbx",
+        "push rcx",
+        "push rdx",
+        "push rsi",
+        "push rdi",
+        "push r8",
+        "push r9",
+        "push r10",
+        "push r11",
+        "push r12",
+        "push r13",
+        "push r14",
+        "push r15",
+        "push rbp",
+        "sub rsp, 0x100",
+        "movaps xmmword ptr [rsp], xmm0",
+        "movaps xmmword ptr [rsp + 0x10], xmm1",
+        "movaps xmmword ptr [rsp + 0x20], xmm2",
+        "movaps xmmword ptr [rsp + 0x30], xmm3",
+        "movaps xmmword ptr [rsp + 0x40], xmm4",
+        "movaps xmmword ptr [rsp + 0x50], xmm5",
+        "movaps xmmword ptr [rsp + 0x60], xmm6",
+        "movaps xmmword ptr [rsp + 0x70], xmm7",
+        "movaps xmmword ptr [rsp + 0x80], xmm8",
+        "movaps xmmword ptr [rsp + 0x90], xmm9",
+        "movaps xmmword ptr [rsp + 0xA0], xmm10",
+        "movaps xmmword ptr [rsp + 0xB0], xmm11",
+        "movaps xmmword ptr [rsp + 0xC0], xmm12",
+        "movaps xmmword ptr [rsp + 0xD0], xmm13",
+        "movaps xmmword ptr [rsp + 0xE0], xmm14",
+        "movaps xmmword ptr [rsp + 0xF0], xmm15",
+
+        // enable perf counters
+        "wrmsr {msr_sel_offset0}, r8",
+        "wrmsr {msr_sel_offset1}, r9",
+        "wrmsr {msr_sel_offset2}, r10",
+        "wrmsr {msr_sel_offset3}, r11",
+
+        // SYNCFULL
+        "rdseed rax",
+
+        // now do experiment execution
+        "rdrand rax",
+
+        // disable perf counters
+        "wrmsr {msr_sel_offset3}, 0x0000",
+        "wrmsr {msr_sel_offset2}, 0x0000",
+        "wrmsr {msr_sel_offset1}, 0x0000",
+        "wrmsr {msr_sel_offset0}, 0x0000",
+
+        // SYNCFULL
+        "rdseed rax",
+
+        // save comparison values
+        "pushfq",
+        "push rax",
+        "push rbx",
+        "push rcx",
+        "push rdx",
+        "push rsi",
+        "push rdi",
+        "push r8",
+        "push r9",
+        "push r10",
+        "push r11",
+        "push r12",
+        "push r13",
+        "push r14",
+        "push r15",
+        "push rbp",
+        "sub rsp, 0x100",
+        "movaps xmmword ptr [rsp], xmm0",
+        "movaps xmmword ptr [rsp + 0x10], xmm1",
+        "movaps xmmword ptr [rsp + 0x20], xmm2",
+        "movaps xmmword ptr [rsp + 0x30], xmm3",
+        "movaps xmmword ptr [rsp + 0x40], xmm4",
+        "movaps xmmword ptr [rsp + 0x50], xmm5",
+        "movaps xmmword ptr [rsp + 0x60], xmm6",
+        "movaps xmmword ptr [rsp + 0x70], xmm7",
+        "movaps xmmword ptr [rsp + 0x80], xmm8",
+        "movaps xmmword ptr [rsp + 0x90], xmm9",
+        "movaps xmmword ptr [rsp + 0xA0], xmm10",
+        "movaps xmmword ptr [rsp + 0xB0], xmm11",
+        "movaps xmmword ptr [rsp + 0xC0], xmm12",
+        "movaps xmmword ptr [rsp + 0xD0], xmm13",
+        "movaps xmmword ptr [rsp + 0xE0], xmm14",
+        "movaps xmmword ptr [rsp + 0xF0], xmm15",
+
+        // go back to initial store
+        "add rsp, 0x100", // reverse xmm0-15
+        "add rsp, 0x80",  // reverse rax-rbp
+
+        // restore initial state
+        "movaps xmm15, xmmword ptr [rsp + 0xF0]",
+        "movaps xmm14, xmmword ptr [rsp + 0xE0]",
+        "movaps xmm13, xmmword ptr [rsp + 0xD0]",
+        "movaps xmm12, xmmword ptr [rsp + 0xC0]",
+        "movaps xmm11, xmmword ptr [rsp + 0xB0]",
+        "movaps xmm10, xmmword ptr [rsp + 0xA0]",
+        "movaps xmm9, xmmword ptr [rsp + 0x90]",
+        "movaps xmm8, xmmword ptr [rsp + 0x80]",
+        "movaps xmm7, xmmword ptr [rsp + 0x70]",
+        "movaps xmm6, xmmword ptr [rsp + 0x60]",
+        "movaps xmm5, xmmword ptr [rsp + 0x50]",
+        "movaps xmm4, xmmword ptr [rsp + 0x40]",
+        "movaps xmm3, xmmword ptr [rsp + 0x30]",
+        "movaps xmm2, xmmword ptr [rsp + 0x20]",
+        "movaps xmm1, xmmword ptr [rsp + 0x10]",
+        "movaps xmm0, xmmword ptr [rsp]",
+        "add rsp, 0x100",
+        "pop rbp",
+        "pop r15",
+        "pop r14",
+        "pop r13",
+        "pop r12",
+        "pop r11",
+        "pop r10",
+        "pop r9",
+        "pop r8",
+        "pop rdi",
+        "pop rsi",
+        "pop rdx",
+        "pop rcx",
+        "pop rbx",
+        "pop rax",
+        "popfq",
+
+        // initial state
+        "mov [rcx + {registers_rflags}], [rsp - 0x08]",
+        "mov [rcx + {registers_rax}], [rsp - 0x10]",
+        "mov [rcx + {registers_rbx}], [rsp - 0x18]",
+        "mov [rcx + {registers_rcx}], [rsp - 0x20]",
+        "mov [rcx + {registers_rdx}], [rsp - 0x28]",
+        "mov [rcx + {registers_rsi}], [rsp - 0x30]",
+        "mov [rcx + {registers_rdi}], [rsp - 0x38]",
+        "mov [rcx + {registers_r8}], [rsp - 0x40]",
+        "mov [rcx + {registers_r9}], [rsp - 0x48]",
+        "mov [rcx + {registers_r10}], [rsp - 0x50]",
+        "mov [rcx + {registers_r11}], [rsp - 0x58]",
+        "mov [rcx + {registers_r12}], [rsp - 0x60]",
+        "mov [rcx + {registers_r13}], [rsp - 0x68]",
+        "mov [rcx + {registers_r14}], [rsp - 0x70]",
+        "mov [rcx + {registers_r15}], [rsp - 0x78]",
+        "mov [rcx + {registers_rbp}], [rsp - 0x80]",
+        "mov [rcx + {registers_xmm15} + 0x00], [rsp - 0x90]",
+        "mov [rcx + {registers_xmm15} + 0x08], [rsp - 0x98]",
+        "mov [rcx + {registers_xmm14} + 0x00], [rsp - 0xA0]",
+        "mov [rcx + {registers_xmm14} + 0x08], [rsp - 0xA8]",
+        "mov [rcx + {registers_xmm13} + 0x00], [rsp - 0xB0]",
+        "mov [rcx + {registers_xmm13} + 0x08], [rsp - 0xB8]",
+        "mov [rcx + {registers_xmm12} + 0x00], [rsp - 0xC0]",
+        "mov [rcx + {registers_xmm12} + 0x08], [rsp - 0xC8]",
+        "mov [rcx + {registers_xmm11} + 0x00], [rsp - 0xD0]",
+        "mov [rcx + {registers_xmm11} + 0x08], [rsp - 0xD8]",
+        "mov [rcx + {registers_xmm10} + 0x00], [rsp - 0xE0]",
+        "mov [rcx + {registers_xmm10} + 0x08], [rsp - 0xE8]",
+        "mov [rcx + {registers_xmm9} + 0x00], [rsp - 0xF0]",
+        "mov [rcx + {registers_xmm9} + 0x08], [rsp - 0xF8]",
+        "mov [rcx + {registers_xmm8} + 0x00], [rsp - 0x100]",
+        "mov [rcx + {registers_xmm8} + 0x08], [rsp - 0x108]",
+        "mov [rcx + {registers_xmm7} + 0x00], [rsp - 0x110]",
+        "mov [rcx + {registers_xmm7} + 0x08], [rsp - 0x118]",
+        "mov [rcx + {registers_xmm6} + 0x00], [rsp - 0x120]",
+        "mov [rcx + {registers_xmm6} + 0x08], [rsp - 0x128]",
+        "mov [rcx + {registers_xmm5} + 0x00], [rsp - 0x130]",
+        "mov [rcx + {registers_xmm5} + 0x08], [rsp - 0x138]",
+        "mov [rcx + {registers_xmm4} + 0x00], [rsp - 0x140]",
+        "mov [rcx + {registers_xmm4} + 0x08], [rsp - 0x148]",
+        "mov [rcx + {registers_xmm3} + 0x00], [rsp - 0x150]",
+        "mov [rcx + {registers_xmm3} + 0x08], [rsp - 0x158]",
+        "mov [rcx + {registers_xmm2} + 0x00], [rsp - 0x160]",
+        "mov [rcx + {registers_xmm2} + 0x08], [rsp - 0x168]",
+        "mov [rcx + {registers_xmm1} + 0x00], [rsp - 0x170]",
+        "mov [rcx + {registers_xmm1} + 0x08], [rsp - 0x178]",
+        "mov [rcx + {registers_xmm0} + 0x00], [rsp - 0x180]",
+        "mov [rcx + {registers_xmm0} + 0x08], [rsp - 0x188]",
+
+        // after state
+        "mov [rdx + {registers_rflags}], [rsp - 0x190]",
+        "mov [rdx + {registers_rax}], [rsp - 0x198]",
+        "mov [rdx + {registers_rbx}], [rsp - 0x1A0]",
+        "mov [rdx + {registers_rcx}], [rsp - 0x1A8]",
+        "mov [rdx + {registers_rdx}], [rsp - 0x1B0]",
+        "mov [rdx + {registers_rsi}], [rsp - 0x1B8]",
+        "mov [rdx + {registers_rdi}], [rsp - 0x1C0]",
+        "mov [rdx + {registers_r8}], [rsp - 0x1C8]",
+        "mov [rdx + {registers_r9}], [rsp - 0x1D0]",
+        "mov [rdx + {registers_r10}], [rsp - 0x1D8]",
+        "mov [rdx + {registers_r11}], [rsp - 0x1E0]",
+        "mov [rdx + {registers_r12}], [rsp - 0x1E8]",
+        "mov [rdx + {registers_r13}], [rsp - 0x1F0]",
+        "mov [rdx + {registers_r14}], [rsp - 0x1F8]",
+        "mov [rdx + {registers_r15}], [rsp - 0x200]",
+        "mov [rdx + {registers_rbp}], [rsp - 0x208]",
+        "mov [rdx + {registers_xmm15} + 0x00], [rsp - 0x210]",
+        "mov [rdx + {registers_xmm15} + 0x08], [rsp - 0x218]",
+        "mov [rdx + {registers_xmm14} + 0x00], [rsp - 0x220]",
+        "mov [rdx + {registers_xmm14} + 0x08], [rsp - 0x228]",
+        "mov [rdx + {registers_xmm13} + 0x00], [rsp - 0x230]",
+        "mov [rdx + {registers_xmm13} + 0x08], [rsp - 0x238]",
+        "mov [rdx + {registers_xmm12} + 0x00], [rsp - 0x240]",
+        "mov [rdx + {registers_xmm12} + 0x08], [rsp - 0x248]",
+        "mov [rdx + {registers_xmm11} + 0x00], [rsp - 0x250]",
+        "mov [rdx + {registers_xmm11} + 0x08], [rsp - 0x258]",
+        "mov [rdx + {registers_xmm10} + 0x00], [rsp - 0x260]",
+        "mov [rdx + {registers_xmm10} + 0x08], [rsp - 0x268]",
+        "mov [rdx + {registers_xmm9} + 0x00], [rsp - 0x270]",
+        "mov [rdx + {registers_xmm9} + 0x08], [rsp - 0x278]",
+        "mov [rdx + {registers_xmm8} + 0x00], [rsp - 0x280]",
+        "mov [rdx + {registers_xmm8} + 0x08], [rsp - 0x288]",
+        "mov [rdx + {registers_xmm7} + 0x00], [rsp - 0x290]",
+        "mov [rdx + {registers_xmm7} + 0x08], [rsp - 0x298]",
+        "mov [rdx + {registers_xmm6} + 0x00], [rsp - 0x2A0]",
+        "mov [rdx + {registers_xmm6} + 0x08], [rsp - 0x2A8]",
+        "mov [rdx + {registers_xmm5} + 0x00], [rsp - 0x2B0]",
+        "mov [rdx + {registers_xmm5} + 0x08], [rsp - 0x2B8]",
+        "mov [rdx + {registers_xmm4} + 0x00], [rsp - 0x2C0]",
+        "mov [rdx + {registers_xmm4} + 0x08], [rsp - 0x2C8]",
+        "mov [rdx + {registers_xmm3} + 0x00], [rsp - 0x2D0]",
+        "mov [rdx + {registers_xmm3} + 0x08], [rsp - 0x2D8]",
+        "mov [rdx + {registers_xmm2} + 0x00], [rsp - 0x2E0]",
+        "mov [rdx + {registers_xmm2} + 0x08], [rsp - 0x2E8]",
+        "mov [rdx + {registers_xmm1} + 0x00], [rsp - 0x2F0]",
+        "mov [rdx + {registers_xmm1} + 0x08], [rsp - 0x2F8]",
+        "mov [rdx + {registers_xmm0} + 0x00], [rsp - 0x300]",
+        "mov [rdx + {registers_xmm0} + 0x08], [rsp - 0x308]",
+
+        in("rcx") &mut initial_state,
+        in("rdx") &mut final_state,
+        registers_rax = const mem::offset_of!(GuestRegisters, rax),
+        registers_rcx = const mem::offset_of!(GuestRegisters, rcx),
+        registers_rdx = const mem::offset_of!(GuestRegisters, rdx),
+        registers_rbx = const mem::offset_of!(GuestRegisters, rbx),
+        //registers_rsp = const mem::offset_of!(GuestRegisters, rsp),
+        registers_rbp = const mem::offset_of!(GuestRegisters, rbp),
+        registers_rsi = const mem::offset_of!(GuestRegisters, rsi),
+        registers_rdi = const mem::offset_of!(GuestRegisters, rdi),
+        registers_r8  = const mem::offset_of!(GuestRegisters, r8),
+        registers_r9  = const mem::offset_of!(GuestRegisters, r9),
+        registers_r10 = const mem::offset_of!(GuestRegisters, r10),
+        registers_r11 = const mem::offset_of!(GuestRegisters, r11),
+        registers_r12 = const mem::offset_of!(GuestRegisters, r12),
+        registers_r13 = const mem::offset_of!(GuestRegisters, r13),
+        registers_r14 = const mem::offset_of!(GuestRegisters, r14),
+        registers_r15 = const mem::offset_of!(GuestRegisters, r15),
+        //registers_rip = const mem::offset_of!(GuestRegisters, rip),
+        registers_rflags = const mem::offset_of!(GuestRegisters, rflags),
+        registers_xmm0 = const mem::offset_of!(GuestRegisters, xmm0),
+        registers_xmm0b = const mem::offset_of!(GuestRegisters, xmm0)+0x08,
+        registers_xmm1 = const mem::offset_of!(GuestRegisters, xmm1),
+        registers_xmm1b = const mem::offset_of!(GuestRegisters, xmm1)+0x08,
+        registers_xmm2 = const mem::offset_of!(GuestRegisters, xmm2),
+        registers_xmm2b = const mem::offset_of!(GuestRegisters, xmm2)+0x08,
+        registers_xmm3 = const mem::offset_of!(GuestRegisters, xmm3),
+        registers_xmm3b = const mem::offset_of!(GuestRegisters, xmm3)+0x08,
+        registers_xmm4 = const mem::offset_of!(GuestRegisters, xmm4),
+        registers_xmm4b = const mem::offset_of!(GuestRegisters, xmm4)+0x08,
+        registers_xmm5 = const mem::offset_of!(GuestRegisters, xmm5),
+        registers_xmm5b = const mem::offset_of!(GuestRegisters, xmm5)+0x08,
+        registers_xmm6 = const mem::offset_of!(GuestRegisters, xmm6),
+        registers_xmm6b = const mem::offset_of!(GuestRegisters, xmm6)+0x08,
+        registers_xmm7 = const mem::offset_of!(GuestRegisters, xmm7),
+        registers_xmm7b = const mem::offset_of!(GuestRegisters, xmm7)+0x08,
+        registers_xmm8 = const mem::offset_of!(GuestRegisters, xmm8),
+        registers_xmm8b = const mem::offset_of!(GuestRegisters, xmm8)+0x08,
+        registers_xmm9 = const mem::offset_of!(GuestRegisters, xmm9),
+        registers_xmm9b = const mem::offset_of!(GuestRegisters, xmm9)+0x08,
+        registers_xmm10 = const mem::offset_of!(GuestRegisters, xmm10),
+        registers_xmm10b = const mem::offset_of!(GuestRegisters, xmm10)+0x08,
+        registers_xmm11 = const mem::offset_of!(GuestRegisters, xmm11),
+        registers_xmm11b = const mem::offset_of!(GuestRegisters, xmm11)+0x08,
+        registers_xmm12 = const mem::offset_of!(GuestRegisters, xmm12),
+        registers_xmm12b = const mem::offset_of!(GuestRegisters, xmm12)+0x08,
+        registers_xmm13 = const mem::offset_of!(GuestRegisters, xmm13),
+        registers_xmm13b = const mem::offset_of!(GuestRegisters, xmm13)+0x08,
+        registers_xmm14 = const mem::offset_of!(GuestRegisters, xmm14),
+        registers_xmm14b = const mem::offset_of!(GuestRegisters, xmm14)+0x08,
+        registers_xmm15 = const mem::offset_of!(GuestRegisters, xmm15),
+        registers_xmm15b = const mem::offset_of!(GuestRegisters, xmm15)+0x08,
+        in("r8") perf0.event().0,
+        in("r9") perf1.event().0,
+        in("r10") perf2.event().0,
+        in("r11") perf3.event().0,
+        msr_sel_offset0 = const IA32_PERFEVTSEL0,
+        msr_sel_offset1 = const IA32_PERFEVTSEL1,
+        msr_sel_offset2 = const IA32_PERFEVTSEL2,
+        msr_sel_offset3 = const IA32_PERFEVTSEL3,
+        );
+    }
+
     SpeculationResult {
-        arch_reg_difference: BTreeMap::new(),
-        perf_counter_difference: BTreeMap::new(),
+        perf_counters: vec![perf0.read(), perf1.read(), perf2.read(), perf3.read()],
+        arch_after: final_state,
+        arch_before: initial_state,
     }
 }

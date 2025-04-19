@@ -9,6 +9,10 @@ extern crate alloc;
 
 use alloc::format;
 use alloc::string::ToString;
+use custom_processing_unit::{
+    apply_hook_patch_func, apply_patch, hook, CustomProcessingUnit, HookGuard,
+};
+use data_types::addresses::MSRAMHookIndex;
 use fuzzer_data::{OtaC2D, OtaC2DTransport, OtaD2CTransport};
 use log::{error, trace, warn, Level};
 #[cfg(feature = "__debug_performance_trace")]
@@ -18,7 +22,6 @@ use spec_fuzz::{check_if_pmc_stable, execute_speculation, patches};
 use uefi::{entry, println, Status};
 use uefi_raw::table::runtime::ResetType;
 use x86::cpuid::cpuid;
-use custom_processing_unit::{apply_patch, CustomProcessingUnit};
 use x86_perf_counter::PerformanceCounter;
 
 #[entry]
@@ -50,6 +53,32 @@ unsafe fn main() -> Status {
         error!("Failed to apply patch: {:?}", err);
         return Status::ABORTED;
     }
+
+    // hook rdrand -> EXPERIMENT
+    if let Err(err) = hook(
+        apply_hook_patch_func(),
+        MSRAMHookIndex::ZERO,
+        0x428,
+        patches::patch::LABEL_ENTRY,
+        true,
+    ) {
+        error!("Failed to apply hook: {:?}", err);
+        return Status::ABORTED;
+    }
+
+    // hook rdseed -> SYNCFULL
+    if let Err(err) = hook(
+        apply_hook_patch_func(),
+        MSRAMHookIndex::ZERO + 1,
+        0x430,
+        patches::patch::LABEL_SYNCFULL,
+        true,
+    ) {
+        error!("Failed to apply hook: {:?}", err);
+        return Status::ABORTED;
+    }
+
+    let _enable_hooks = HookGuard::enable_all();
 
     let mut udp: ControllerConnection = {
         trace!("Connecting to UDP");
@@ -155,10 +184,7 @@ unsafe fn main() -> Status {
             } => {
                 let result =
                     execute_speculation(&mut udp, triad, sequence_word, perf_counter_setup);
-                if let Err(err) = udp.send(OtaD2CTransport::UCodeSpeculationResult {
-                    arch_reg_difference: result.arch_reg_difference,
-                    perf_counter_difference: result.perf_counter_difference,
-                }) {
+                if let Err(err) = udp.send(OtaD2CTransport::UCodeSpeculationResult(result)) {
                     error!("Failed to speculation results: {:?}", err);
                     let _ = udp.log_reliable(
                         Level::Error,

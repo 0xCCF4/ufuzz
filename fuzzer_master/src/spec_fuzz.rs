@@ -1,6 +1,5 @@
 use crate::database::Database;
 use crate::device_connection::DeviceConnection;
-use crate::fuzzer_node_bridge::FuzzerNodeInterface;
 use crate::net::{net_speculative_sample, ExecuteSampleResult};
 use crate::CommandExitResult;
 use itertools::Itertools;
@@ -27,7 +26,6 @@ pub struct SpecFuzzMutState {
 
 pub async fn main(
     net: &mut DeviceConnection,
-    interface: &FuzzerNodeInterface,
     database: &mut Database,
     state: &mut SpecFuzzMutState,
 ) -> CommandExitResult {
@@ -74,13 +72,14 @@ pub async fn main(
                     x86_perf_counter::MS_DECODED_MS_ENTRY,
                     x86_perf_counter::UOPS_ISSUED_ANY,
                     x86_perf_counter::UOPS_RETIRED_ANY,
-                ]
-            ).await;
+                ],
+            )
+            .await;
 
             let result = match result {
                 ExecuteSampleResult::Timeout => return CommandExitResult::ForceReconnect,
                 ExecuteSampleResult::Rerun => return CommandExitResult::Operational,
-                ExecuteSampleResult::Success(x) => x
+                ExecuteSampleResult::Success(x) => x,
             };
 
             println!("Result: {} {:?}", instruction.opcode(), result);

@@ -1,10 +1,7 @@
-use alloc::collections::BTreeMap;
 use crate::instruction_corpus::CorpusInstruction;
 use alloc::vec::Vec;
 use core::cmp::Ordering;
-use log::warn;
 use rand_core::RngCore;
-use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone)]

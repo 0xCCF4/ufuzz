@@ -30,7 +30,7 @@ pub struct InstructionMutState {
 
 pub async fn main(
     net: &mut DeviceConnection,
-    interface: &FuzzerNodeInterface,
+    _interface: &FuzzerNodeInterface,
     database: &mut Database,
     state: &mut InstructionMutState,
 ) -> CommandExitResult {

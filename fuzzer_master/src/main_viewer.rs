@@ -6,7 +6,6 @@ use fuzzer_master::database::{CodeEvent, Timestamp};
 use hypervisor::state::{StateDifference, VmExitReason};
 use itertools::Itertools;
 use log::error;
-use std::collections::hash_map::Entry;
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::BufWriter;
 use std::io::Write;

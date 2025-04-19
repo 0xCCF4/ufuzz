@@ -6,6 +6,7 @@ use crate::manual_execution::disassemble_code;
 use crate::{wait_for_device, CommandExitResult, WaitForDeviceResult};
 use fuzzer_data::{
     Code, ExecutionResult, Ota, OtaC2DTransport, OtaD2CTransport, ReportExecutionProblem,
+    SpeculationResult,
 };
 use hypervisor::state::VmExitReason;
 use itertools::Itertools;
@@ -337,12 +338,6 @@ pub async fn net_fuzzing_pretext(
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct SpeculationResult {
-    arch_reg_difference: BTreeMap<String, (u64, u64)>,
-    perf_counter_difference: BTreeMap<u8, (u64, u64)>, // perf index -> (normal, with_speculation)
-}
-
 pub async fn net_receive_speculative_result(
     net: &mut DeviceConnection,
     timeout: Duration,
@@ -353,14 +348,8 @@ pub async fn net_receive_speculative_result(
         if let Some(packet) = packet {
             if let Ota::Transport { content, .. } = packet {
                 match content {
-                    OtaD2CTransport::UCodeSpeculationResult {
-                        arch_reg_difference,
-                        perf_counter_difference,
-                    } => {
-                        return Some(SpeculationResult {
-                            arch_reg_difference,
-                            perf_counter_difference,
-                        });
+                    OtaD2CTransport::UCodeSpeculationResult(result) => {
+                        return Some(result);
                     }
                     _ => {
                         warn!("Unexpected packet: {:?}", content);

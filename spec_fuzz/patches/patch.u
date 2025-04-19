@@ -25,3 +25,11 @@ unk_256() !m1 SEQW LFNCEWAIT, UEND0
 NOP
 NOP
 NOP
+
+
+<syncfull>
+unk_256() !m1 SEQW SYNCFULL, UEND0
+
+NOP
+NOP
+NOP

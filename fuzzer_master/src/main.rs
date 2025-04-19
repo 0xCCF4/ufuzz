@@ -216,7 +216,7 @@ async fn main() {
             }
             Cmd::Spec => {
                 let _timing = TimeMeasurement::begin("host::spec_fuzz_loop");
-                spec_fuzz::main(&mut udp, &interface, &mut database, &mut state_spec_fuzz).await
+                spec_fuzz::main(&mut udp, &mut database, &mut state_spec_fuzz).await
             }
             Cmd::Cap => {
                 let _ = udp

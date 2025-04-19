@@ -6,7 +6,7 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt::Debug;
-use hypervisor::state::{VmExitReason, VmState};
+use hypervisor::state::{GuestRegisters, VmExitReason, VmState};
 use performance_timing::measurements::MeasureValues;
 use serde::{Deserialize, Serialize};
 use ucode_compiler_dynamic::instruction::Instruction;
@@ -98,10 +98,14 @@ pub enum OtaD2CTransport {
     PMCStableCheckResults {
         pmc_stable: BTreeMap<u8, bool>, // index -> stable?
     },
-    UCodeSpeculationResult {
-        arch_reg_difference: BTreeMap<String, (u64, u64)>,
-        perf_counter_difference: BTreeMap<u8, (u64, u64)>, // perf index -> (normal, with_speculation)
-    },
+    UCodeSpeculationResult(SpeculationResult),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SpeculationResult {
+    pub arch_before: GuestRegisters,
+    pub arch_after: GuestRegisters,
+    pub perf_counters: Vec<u64>,
 }
 
 pub type Code = Vec<u8>;
