@@ -1,7 +1,10 @@
+use alloc::collections::BTreeMap;
 use crate::instruction_corpus::CorpusInstruction;
 use alloc::vec::Vec;
 use core::cmp::Ordering;
+use log::warn;
 use rand_core::RngCore;
+use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone)]
@@ -74,8 +77,17 @@ impl GeneticPool {
         &mut self.population
     }
     pub fn evolution<R: RngCore>(&mut self, random: &mut R) {
-        self.population.sort();
-        self.population.reverse();
+        #[cfg(not(feature = "__no_coverage_feedback"))]
+        {
+            self.population.sort();
+            self.population.reverse();
+        }
+
+        #[cfg(feature = "__no_coverage_feedback")]
+        {
+            self.population.shuffle(random);
+            warn!("Using random population shuffel!");
+        }
 
         self.population
             .truncate(self.settings.keep_best_x_solutions);

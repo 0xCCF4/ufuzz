@@ -7,9 +7,10 @@ use fuzzer_master::fuzzer_node_bridge::FuzzerNodeInterface;
 use fuzzer_master::genetic_breeding::BreedingState;
 use fuzzer_master::instruction_mutations::InstructionMutState;
 use fuzzer_master::net::{net_reboot_device, net_receive_performance_timing};
+use fuzzer_master::spec_fuzz::SpecFuzzMutState;
 use fuzzer_master::{
-    genetic_breeding, instruction_mutations, manual_execution, wait_for_device, CommandExitResult,
-    WaitForDeviceResult, P0_FREQ,
+    genetic_breeding, instruction_mutations, manual_execution, spec_fuzz, wait_for_device,
+    CommandExitResult, WaitForDeviceResult, P0_FREQ,
 };
 use itertools::Itertools;
 use log::{error, info, trace, warn};
@@ -43,6 +44,7 @@ enum Cmd {
     Reboot,
     Cap,
     Performance,
+    Spec,
     Manual {
         #[arg(short, long)]
         input: PathBuf,
@@ -175,6 +177,7 @@ async fn main() {
 
     let mut state_breeding = BreedingState::default();
     let mut state_instructions = InstructionMutState::default();
+    let mut state_spec_fuzz = SpecFuzzMutState::default();
     let mut continue_count = 0;
     let mut last_time_perf_from_device = Instant::now() - Duration::from_secs(1000000);
 
@@ -210,6 +213,10 @@ async fn main() {
                     &mut state_instructions,
                 )
                 .await
+            }
+            Cmd::Spec => {
+                let _timing = TimeMeasurement::begin("host::spec_fuzz_loop");
+                spec_fuzz::main(&mut udp, &interface, &mut database, &mut state_spec_fuzz).await
             }
             Cmd::Cap => {
                 let _ = udp

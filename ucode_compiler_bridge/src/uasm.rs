@@ -765,10 +765,21 @@ pub fn preprocess_scripts<A: AsRef<Path>, B: AsRef<Path>, C: AsRef<Path>>(
         .expect("regex compile error");
     let repeat_regex = regex::Regex::new(r"(?m)^\s*(repeat|rep)\s+(0*[1-9][0-9]*)\s*:\s*([^\n]*)$")
         .expect("regex compile error");
+    
+    let dst = dst.as_ref();
+    if !dst.exists() {
+        std::fs::create_dir_all(&dst).or_else(|e| {
+            Err(ErrorKind::FailedToWrite(
+                dst.to_owned(),
+                "preprocessing stage: dir creation".to_string(),
+                e,
+            ))
+        })?;
+    }
 
-    for file in dst.as_ref().read_dir().or_else(|e| {
+    for file in dst.read_dir().or_else(|e| {
         Err(ErrorKind::FailedToRead(
-            dst.as_ref().to_owned(),
+            dst.to_owned(),
             "preprocessing stage: dir: remove".to_string(),
             e,
         ))
@@ -776,7 +787,7 @@ pub fn preprocess_scripts<A: AsRef<Path>, B: AsRef<Path>, C: AsRef<Path>>(
         let file = file
             .or_else(|err| {
                 Err(ErrorKind::FailedToRead(
-                    dst.as_ref().to_owned(),
+                    dst.to_owned(),
                     "preprocessing stage: dir content: remove".to_string(),
                     err,
                 ))
@@ -802,7 +813,7 @@ pub fn preprocess_scripts<A: AsRef<Path>, B: AsRef<Path>, C: AsRef<Path>>(
 
     for file in src.as_ref().read_dir().or_else(|e| {
         Err(ErrorKind::FailedToRead(
-            dst.as_ref().to_owned(),
+            dst.to_owned(),
             "preprocessing stage: dir: compile".to_string(),
             e,
         ))
@@ -810,7 +821,7 @@ pub fn preprocess_scripts<A: AsRef<Path>, B: AsRef<Path>, C: AsRef<Path>>(
         let file = file
             .or_else(|err| {
                 Err(ErrorKind::FailedToRead(
-                    dst.as_ref().to_owned(),
+                    dst.to_owned(),
                     "preprocessing stage: dir content: compile".to_string(),
                     err,
                 ))
@@ -890,7 +901,6 @@ pub fn preprocess_scripts<A: AsRef<Path>, B: AsRef<Path>, C: AsRef<Path>>(
         });
 
         let target_file = dst
-            .as_ref()
             .join(file.file_name().expect("file name error"));
 
         std::fs::write(&target_file, target_content).or_else(|err| {

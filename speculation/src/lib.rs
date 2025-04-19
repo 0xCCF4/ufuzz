@@ -1,10 +1,6 @@
 #![no_std]
 
-use bitfield::bitfield;
-use core::arch::asm;
-use uefi::{Status, println};
-use x86::cpuid::CpuId;
-use x86::msr::{IA32_PERFEVTSEL0, IA32_PERFEVTSEL4, IA32_PMC0, rdmsr, wrmsr};
+use x86_perf_counter::PerfEventSpecifier;
 
 pub mod patches;
 

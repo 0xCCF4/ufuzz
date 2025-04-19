@@ -150,6 +150,12 @@ impl<'de> Deserialize<'de> for SequenceWord {
 }
 
 impl SequenceWord {
+    pub const NOP: SequenceWord = SequenceWord {
+        control: None,
+        sync: None,
+        goto: None,
+    };
+
     pub fn new() -> Self {
         Self::default()
     }

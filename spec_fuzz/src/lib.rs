@@ -6,6 +6,7 @@
 #![no_std]
 
 pub mod controller_connection;
+pub mod patches;
 
 extern crate alloc;
 

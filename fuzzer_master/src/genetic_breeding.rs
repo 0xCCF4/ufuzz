@@ -126,7 +126,7 @@ pub async fn main(
                     match net_execute_sample(net, interface, database, sample.code()).await {
                         ExecuteSampleResult::Timeout => return CommandExitResult::ForceReconnect,
                         ExecuteSampleResult::Rerun => return CommandExitResult::Operational,
-                        ExecuteSampleResult::Success(a, b) => (a, b),
+                        ExecuteSampleResult::Success((a, b)) => (a, b),
                     };
 
                 sample.rating = Some(result.fitness.clone());

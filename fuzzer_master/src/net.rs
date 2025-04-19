@@ -14,6 +14,9 @@ use performance_timing::measurements::MeasureValues;
 use rand::random;
 use std::collections::BTreeMap;
 use std::time::Duration;
+use ucode_compiler_dynamic::instruction::Instruction;
+use ucode_compiler_dynamic::sequence_word::SequenceWord;
+use x86_perf_counter::PerfEventSpecifier;
 
 pub async fn net_blacklist(net: &mut DeviceConnection, database: &mut Database) -> bool {
     for blacklist in &database
@@ -54,7 +57,7 @@ pub async fn net_execute_sample(
     interface: &FuzzerNodeInterface,
     db: &mut Database,
     sample: &[u8],
-) -> ExecuteSampleResult {
+) -> ExecuteSampleResult<(ExecutionResult, Vec<ReportExecutionProblem>)> {
     let mut disasm = String::new();
     disassemble_code(sample, &mut disasm);
     trace!("{}", disasm);
@@ -116,7 +119,7 @@ pub async fn net_execute_sample(
         warn!("Empty coverage.");
     }
 
-    ExecuteSampleResult::Success(result, events)
+    ExecuteSampleResult::Success((result, events))
 }
 
 pub async fn net_receive_excluded_addresses(net: &mut DeviceConnection) -> Option<u16> {
@@ -266,10 +269,10 @@ pub async fn net_receive_performance_timing(
     }
 }
 
-pub enum ExecuteSampleResult {
+pub enum ExecuteSampleResult<T> {
     Timeout,
     Rerun,
-    Success(ExecutionResult, Vec<ReportExecutionProblem>),
+    Success(T),
 }
 
 pub async fn net_fuzzing_pretext(
@@ -332,4 +335,66 @@ pub async fn net_fuzzing_pretext(
 
         CommandExitResult::Operational
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct SpeculationResult {
+    arch_reg_difference: BTreeMap<String, (u64, u64)>,
+    perf_counter_difference: BTreeMap<u8, (u64, u64)>, // perf index -> (normal, with_speculation)
+}
+
+pub async fn net_receive_speculative_result(
+    net: &mut DeviceConnection,
+    timeout: Duration,
+) -> Option<SpeculationResult> {
+    loop {
+        let packet = net.receive(Some(timeout)).await;
+
+        if let Some(packet) = packet {
+            if let Ota::Transport { content, .. } = packet {
+                match content {
+                    OtaD2CTransport::UCodeSpeculationResult {
+                        arch_reg_difference,
+                        perf_counter_difference,
+                    } => {
+                        return Some(SpeculationResult {
+                            arch_reg_difference,
+                            perf_counter_difference,
+                        });
+                    }
+                    _ => {
+                        warn!("Unexpected packet: {:?}", content);
+                    }
+                }
+            }
+        } else {
+            return None;
+        }
+    }
+}
+
+pub async fn net_speculative_sample(
+    net: &mut DeviceConnection,
+    triad: [Instruction; 3],
+    sequence_word: SequenceWord,
+    perf_counter_setup: Vec<PerfEventSpecifier>,
+) -> ExecuteSampleResult<SpeculationResult> {
+    if let Err(err) = net
+        .send(OtaC2DTransport::UCodeSpeculation {
+            triad,
+            sequence_word,
+            perf_counter_setup,
+        })
+        .await
+    {
+        error!("Failed to execute sample: {:?}", err);
+        return ExecuteSampleResult::Timeout;
+    }
+
+    ExecuteSampleResult::Success(
+        match net_receive_speculative_result(net, Duration::from_secs(SAMPLE_TIMEOUT)).await {
+            None => return ExecuteSampleResult::Timeout,
+            Some(x) => x,
+        },
+    )
 }

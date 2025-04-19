@@ -3,6 +3,9 @@ name = "fuzzer_data"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+__no_coverage_feedback = []
+
 [dependencies]
 serde = { version = "1.0.218", features = ["alloc", "derive"], default-features = false }
 hypervisor = { path = "../hypervisor" }
@@ -13,3 +16,4 @@ log = { version = "0.4.26", features = ["serde"] }
 performance_timing = { path = "../performance_timing" }
 ucode_compiler_dynamic = { path = "../ucode_compiler_dynamic" }
 x86_perf_counter = { path = "../x86_perf_counter" }
+rand = { version = "0.9.0", features = ["alloc"], default-features = false }

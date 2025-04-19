@@ -1,0 +1,27 @@
+.org 7c00
+
+<entry>
+rax := ZEROEXT_DSZ64(0xabab)
+tmp0 := ZEROEXT_DSZ64(0x1000)
+rep 2: func chain(tmp1)
+tmp0 := SUB_DSZ64(tmp0, tmp1)
+
+UJMPCC_DIRECT_NOTTAKEN_CONDNZ(tmp0, <taken>)
+rax := ZEROEXT_DSZ64(0xdead) # indicates failure
+NOPB
+
+<speculative_window>
+NOP
+NOP
+NOP
+
+NOP SEQW SYNCFULL # end speculative window gracefully
+NOPB
+
+<taken>
+rax := ZEROEXT_DSZ64(0x0000)
+unk_256() !m1 SEQW LFNCEWAIT, UEND0
+
+NOP
+NOP
+NOP

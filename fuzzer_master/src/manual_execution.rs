@@ -66,7 +66,7 @@ pub async fn main<A: AsRef<Path>, B: AsRef<Path>>(
     let (result, events) = match net_execute_sample(udp, interface, db, &actual_bytes).await {
         ExecuteSampleResult::Timeout => return CommandExitResult::RetryOrReconnect,
         ExecuteSampleResult::Rerun => return CommandExitResult::Operational,
-        ExecuteSampleResult::Success(a, b) => (a, b),
+        ExecuteSampleResult::Success((a, b)) => (a, b),
     };
 
     db.push_results(actual_bytes.to_vec(), result.clone(), events.clone(), 0, 0);

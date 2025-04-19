@@ -1,9 +1,8 @@
-
+use crate::PerfEventSpecifier;
 use bitfield::bitfield;
 use core::arch::asm;
 use x86::cpuid::CpuId;
-use x86::msr::{IA32_PERFEVTSEL0, IA32_PMC0, wrmsr};
-use crate::PerfEventSpecifier;
+use x86::msr::{wrmsr, IA32_PERFEVTSEL0, IA32_PMC0};
 
 bitfield! {
     #[derive(Clone, Copy)]
@@ -158,4 +157,3 @@ impl PerformanceCounter {
         self.write(0);
     }
 }
-

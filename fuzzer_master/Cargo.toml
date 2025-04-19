@@ -5,6 +5,7 @@ edition = "2021"
 
 [features]
 __debug_only_below_0x1000 = [] # collect coverage only below address 0x1000
+__no_coverage_feedback = ["fuzzer_data/__no_coverage_feedback"]
 
 [dependencies]
 reqwest = { version = "0.12.12", default-features = false }
@@ -26,6 +27,8 @@ coverage = { path = "../coverage", features = ["nostd"] }
 ucode_dump = { path = "../ucode_dump" }
 data_types = { path = "../data_types" }
 performance_timing = { path = "../performance_timing" }
+ucode_compiler_dynamic = { path = "../ucode_compiler_dynamic" }
+x86_perf_counter = { path = "../x86_perf_counter" }
 
 [[bin]]
 name = "fuzz_master"

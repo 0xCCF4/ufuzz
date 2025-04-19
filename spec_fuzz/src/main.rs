@@ -14,10 +14,11 @@ use log::{error, trace, warn, Level};
 #[cfg(feature = "__debug_performance_trace")]
 use performance_timing::track_time;
 use spec_fuzz::controller_connection::{ConnectionSettings, ControllerConnection};
-use spec_fuzz::{check_if_pmc_stable, execute_speculation};
+use spec_fuzz::{check_if_pmc_stable, execute_speculation, patches};
 use uefi::{entry, println, Status};
 use uefi_raw::table::runtime::ResetType;
 use x86::cpuid::cpuid;
+use custom_processing_unit::{apply_patch, CustomProcessingUnit};
 use x86_perf_counter::PerformanceCounter;
 
 #[entry]
@@ -26,6 +27,29 @@ unsafe fn main() -> Status {
 
     uefi::helpers::init().unwrap();
     println!("Hello world!");
+
+    let mut cpu = match CustomProcessingUnit::new() {
+        Ok(x) => x,
+        Err(err) => {
+            error!("Failed to create CPU: {:?}", err);
+            return Status::ABORTED;
+        }
+    };
+
+    if let Err(err) = cpu.init() {
+        error!("Failed to initialize CPU: {:?}", err);
+        return Status::ABORTED;
+    }
+
+    if let Err(err) = cpu.zero_hooks() {
+        error!("Failed to zero hooks: {:?}", err);
+        return Status::ABORTED;
+    }
+
+    if let Err(err) = apply_patch(&patches::patch::PATCH) {
+        error!("Failed to apply patch: {:?}", err);
+        return Status::ABORTED;
+    }
 
     let mut udp: ControllerConnection = {
         trace!("Connecting to UDP");

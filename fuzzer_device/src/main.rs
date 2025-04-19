@@ -481,7 +481,8 @@ unsafe fn main() -> Status {
 
                     drop(_guard);
                 }
-                OtaC2DTransport::UCodeSpeculation {..} | OtaC2DTransport::TestIfPMCStable {..} => {
+                OtaC2DTransport::UCodeSpeculation { .. }
+                | OtaC2DTransport::TestIfPMCStable { .. } => {
                     let _ = udp.log_reliable(Level::Error, "Method not supported");
                     error!("Method not supported");
                 }

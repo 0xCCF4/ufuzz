@@ -15,6 +15,8 @@ pub mod instruction_mutations;
 pub mod manual_execution;
 pub mod net;
 
+pub mod spec_fuzz;
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum CommandExitResult {
     ExitProgram,
