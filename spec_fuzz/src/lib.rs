@@ -55,7 +55,7 @@ pub fn execute_speculation(
     sequence_word: SequenceWord,
     perf_counter_setup: Vec<PerfEventSpecifier>,
 ) -> SpeculationResult {
-    let _ = udp.log_reliable(Level::Trace, "execute speculation");
+    let _ = udp.log_reliable(Level::Info, format!("execute speculation: {} {:04x}", triad[0].opcode(), triad[0].assemble()));
 
     let sequence_word = match sequence_word.assemble() {
         Ok(word) => word,
@@ -187,6 +187,12 @@ fn collect_perf_counters_values(
         "movaps xmmword ptr [rsp + 0xF0], xmm15",
 
         // enable perf counters
+
+        "push rax",
+        "push rcx",
+        "push rdx",
+        "pushfq",
+
         "xor edx, edx",
 
         "mov ecx, {msr_sel_offset0}",
@@ -212,6 +218,11 @@ fn collect_perf_counters_values(
         "mov eax, edx",
         "shr rdx, 32",
         "wrmsr",
+
+        "popfq",
+        "pop rdx",
+        "pop rcx",
+        "pop rax",
 
         // SYNCFULL
         "rdseed rax",
@@ -517,6 +528,7 @@ fn collect_perf_counters_values(
         "pop rax",
         "mov [rdx + {registers_rflags}], rax",
 
+        out("rax") _,
         in("rcx") &mut initial_state,
         in("rdx") &mut final_state,
         registers_rax = const mem::offset_of!(GuestRegisters, rax),

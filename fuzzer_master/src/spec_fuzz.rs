@@ -67,6 +67,7 @@ pub async fn main(
             ExecuteSampleResult::Success(x) => x,
         };
 
+        info!("baseline: {:?}", result.perf_counters);
         state.baseline = result.perf_counters;
 
         // initialize
@@ -89,6 +90,7 @@ pub async fn main(
 
     if state.fsm == FSM::Running {
         while let Some(instruction) = state.ucode_queue.pop() {
+
             let result = net_speculative_sample(
                 net,
                 [instruction, Instruction::NOP, Instruction::NOP],
@@ -103,8 +105,14 @@ pub async fn main(
             .await;
 
             let result = match result {
-                ExecuteSampleResult::Timeout => return CommandExitResult::ForceReconnect,
-                ExecuteSampleResult::Rerun => return CommandExitResult::Operational,
+                ExecuteSampleResult::Timeout => {
+                    error!("Timeout: {} : {:04x}", instruction.opcode(), instruction.assemble());
+                    return CommandExitResult::ForceReconnect
+                },
+                ExecuteSampleResult::Rerun => {
+                    state.ucode_queue.push(instruction);
+                    return CommandExitResult::Operational
+                },
                 ExecuteSampleResult::Success(x) => x,
             };
 
@@ -145,8 +153,6 @@ pub async fn main(
                     );
                 }
             }
-
-            println!("Result: {} {:?}", instruction.opcode(), result);
         }
     }
 
