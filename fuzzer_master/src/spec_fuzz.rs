@@ -5,6 +5,7 @@ use crate::CommandExitResult;
 use itertools::Itertools;
 use log::{error, info};
 use rand::{random, SeedableRng};
+use hypervisor::state::StateDifference;
 use ucode_compiler_dynamic::instruction::Instruction;
 use ucode_compiler_dynamic::sequence_word::SequenceWord;
 
@@ -22,6 +23,7 @@ pub struct SpecFuzzMutState {
     random_source: Option<rand_isaac::Isaac64Rng>,
 
     ucode_queue: Vec<Instruction>,
+    baseline: Vec<u64>,
 }
 
 pub async fn main(
@@ -45,6 +47,28 @@ pub async fn main(
     }
 
     if state.fsm == FSM::Uninitialized {
+
+        let result = net_speculative_sample(
+            net,
+            [Instruction::NOP, Instruction::NOP, Instruction::NOP],
+            SequenceWord::NOP,
+            vec![
+                x86_perf_counter::INSTRUCTIONS_RETIRED,
+                x86_perf_counter::MS_DECODED_MS_ENTRY,
+                x86_perf_counter::UOPS_ISSUED_ANY,
+                x86_perf_counter::UOPS_RETIRED_ANY,
+            ],
+        )
+            .await;
+
+        let result = match result {
+            ExecuteSampleResult::Timeout => return CommandExitResult::ForceReconnect,
+            ExecuteSampleResult::Rerun => return CommandExitResult::Operational,
+            ExecuteSampleResult::Success(x) => x,
+        };
+
+        state.baseline = result.perf_counters;
+
         // initialize
         let instructions = ucode_dump::dump::ROM_cpu_000506CA
             .instructions()
@@ -57,6 +81,8 @@ pub async fn main(
                 .ucode_queue
                 .push(Instruction::disassemble(*instruction));
         }
+
+
 
         state.fsm = FSM::Running;
     }
@@ -81,6 +107,44 @@ pub async fn main(
                 ExecuteSampleResult::Rerun => return CommandExitResult::Operational,
                 ExecuteSampleResult::Success(x) => x,
             };
+
+            if result.perf_counters != state.baseline {
+                error!("Perf counter mismatch: {:?} : {} : {:04x}", result, instruction.opcode(), instruction.assemble());
+                if result.perf_counters[0] != state.baseline[0] {
+                    error!(
+                        "Perf counter mismatch: INSTRUCTIONS_RETIRED: {} -> {}",
+                        result.perf_counters[0], state.baseline[0]
+                    );
+                }
+                if result.perf_counters[1] != state.baseline[1] {
+                    error!(
+                        "Perf counter mismatch: MS_DECODED_MS_ENTRY: {} -> {}",
+                        result.perf_counters[1], state.baseline[1]
+                    );
+                }
+                if result.perf_counters[2] != state.baseline[2] {
+                    error!(
+                        "Perf counter mismatch: UOPS_ISSUED_ANY: {} -> {}",
+                        result.perf_counters[2], state.baseline[2]
+                    );
+                }
+                if result.perf_counters[3] != state.baseline[3] {
+                    error!(
+                        "Perf counter mismatch: UOPS_RETIRED_ANY: {} -> {}",
+                        result.perf_counters[3], state.baseline[3]
+                    );
+                }
+            }
+
+            if result.arch_before != result.arch_after {
+                error!("Arch state mismatch: {} : {:04x}", instruction.opcode(), instruction.assemble());
+                for (name, before, after) in result.arch_before.difference(&result.arch_after) {
+                    error!(
+                        "Arch state mismatch: {}: {:?} -> {:?}",
+                        name, before, after
+                    );
+                }
+            }
 
             println!("Result: {} {:?}", instruction.opcode(), result);
         }

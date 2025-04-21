@@ -2523,6 +2523,12 @@ rec {
             features = [ "alloc" ];
           }
           {
+            name = "rand";
+            packageId = "rand 0.9.0";
+            usesDefaultFeatures = false;
+            features = [ "alloc" ];
+          }
+          {
             name = "rand_core";
             packageId = "rand_core 0.9.2";
           }
@@ -2541,7 +2547,9 @@ rec {
             packageId = "x86_perf_counter";
           }
         ];
-
+        features = {
+        };
+        resolvedDefaultFeatures = [ "__no_coverage_feedback" ];
       };
       "fuzzer_device" = rec {
         crateName = "fuzzer_device";
@@ -2783,13 +2791,22 @@ rec {
             features = [ "full" ];
           }
           {
+            name = "ucode_compiler_dynamic";
+            packageId = "ucode_compiler_dynamic";
+          }
+          {
             name = "ucode_dump";
             packageId = "ucode_dump";
           }
+          {
+            name = "x86_perf_counter";
+            packageId = "x86_perf_counter";
+          }
         ];
         features = {
+          "__no_coverage_feedback" = [ "fuzzer_data/__no_coverage_feedback" ];
         };
-        resolvedDefaultFeatures = [ "__debug_only_below_0x1000" ];
+        resolvedDefaultFeatures = [ "__debug_only_below_0x1000" "__no_coverage_feedback" ];
       };
       "fuzzer_node" = rec {
         crateName = "fuzzer_node";
@@ -8233,6 +8250,11 @@ rec {
         src = lib.cleanSourceWith { filter = sourceFilter;  src = ./spec_fuzz; };
         dependencies = [
           {
+            name = "custom_processing_unit";
+            packageId = "custom_processing_unit";
+            features = [ "nostd" ];
+          }
+          {
             name = "data_types";
             packageId = "data_types";
             features = [ "nostd" ];
@@ -8240,6 +8262,10 @@ rec {
           {
             name = "fuzzer_data";
             packageId = "fuzzer_data";
+          }
+          {
+            name = "hypervisor";
+            packageId = "hypervisor";
           }
           {
             name = "itertools";
@@ -8255,6 +8281,7 @@ rec {
           {
             name = "rand_core";
             packageId = "rand_core 0.9.2";
+            usesDefaultFeatures = false;
           }
           {
             name = "serde";
@@ -8292,6 +8319,12 @@ rec {
           {
             name = "x86_perf_counter";
             packageId = "x86_perf_counter";
+          }
+        ];
+        buildDependencies = [
+          {
+            name = "ucode_compiler_bridge";
+            packageId = "ucode_compiler_bridge";
           }
         ];
         features = {
@@ -12705,6 +12738,7 @@ rec {
           {
             name = "bitfield";
             packageId = "bitfield 0.19.0";
+            target = { target, features }: (("x86_64" == target."arch" or null) || ("x86" == target."arch" or null));
           }
           {
             name = "serde";
@@ -12715,6 +12749,7 @@ rec {
           {
             name = "x86";
             packageId = "x86";
+            target = { target, features }: (("x86_64" == target."arch" or null) || ("x86" == target."arch" or null));
           }
         ];
 

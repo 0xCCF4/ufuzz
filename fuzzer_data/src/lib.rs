@@ -96,7 +96,7 @@ pub enum OtaD2CTransport {
     },
     ResetSession,
     PMCStableCheckResults {
-        pmc_stable: BTreeMap<u8, bool>, // index -> stable?
+        pmc_stable: Vec<bool>, // index -> stable?
     },
     UCodeSpeculationResult(SpeculationResult),
 }

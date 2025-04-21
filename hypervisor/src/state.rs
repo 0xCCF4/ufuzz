@@ -95,6 +95,114 @@ impl GuestRegisters {
     }
 }
 
+impl StateDifference for GuestRegisters {
+    fn difference<'a, 'b>(&'a self, other: &'b Self) -> Vec<(&'static str, Box<&'a dyn Debug>, Box<&'b dyn Debug>)> {
+        let mut result: Vec<(&'static str, Box<&'a dyn Debug>, Box<&'b dyn Debug>)> =
+            Vec::new();
+
+        if self.rax != other.rax {
+            result.push(("rax", Box::new(&self.rax), Box::new(&other.rax)));
+        }
+        if self.rbx != other.rbx {
+            result.push(("rbx", Box::new(&self.rbx), Box::new(&other.rbx)));
+        }
+        if self.rcx != other.rcx {
+            result.push(("rcx", Box::new(&self.rcx), Box::new(&other.rcx)));
+        }
+        if self.rdx != other.rdx {
+            result.push(("rdx", Box::new(&self.rdx), Box::new(&other.rdx)));
+        }
+        if self.rdi != other.rdi {
+            result.push(("rdi", Box::new(&self.rdi), Box::new(&other.rdi)));
+        }
+        if self.rsi != other.rsi {
+            result.push(("rsi", Box::new(&self.rsi), Box::new(&other.rsi)));
+        }
+        if self.rbp != other.rbp {
+            result.push(("rbp", Box::new(&self.rbp), Box::new(&other.rbp)));
+        }
+        if self.r8 != other.r8 {
+            result.push(("r8", Box::new(&self.r8), Box::new(&other.r8)));
+        }
+        if self.r9 != other.r9 {
+            result.push(("r9", Box::new(&self.r9), Box::new(&other.r9)));
+        }
+        if self.r10 != other.r10 {
+            result.push(("r10", Box::new(&self.r10), Box::new(&other.r10)));
+        }
+        if self.r11 != other.r11 {
+            result.push(("r11", Box::new(&self.r11), Box::new(&other.r11)));
+        }
+        if self.r12 != other.r12 {
+            result.push(("r12", Box::new(&self.r12), Box::new(&other.r12)));
+        }
+        if self.r13 != other.r13 {
+            result.push(("r13", Box::new(&self.r13), Box::new(&other.r13)));
+        }
+        if self.r14 != other.r14 {
+            result.push(("r14", Box::new(&self.r14), Box::new(&other.r14)));
+        }
+        if self.r15 != other.r15 {
+            result.push(("r15", Box::new(&self.r15), Box::new(&other.r15)));
+        }
+        if self.rsp != other.rsp {
+            result.push(("rsp", Box::new(&self.rsp), Box::new(&other.rsp)));
+        }
+        if self.rflags != other.rflags {
+            result.push(("rflags", Box::new(&self.rflags), Box::new(&other.rflags)));
+        }
+        if self.xmm0 != other.xmm0 {
+            result.push(("xmm0", Box::new(&self.xmm0), Box::new(&other.xmm0)));
+        }
+        if self.xmm1 != other.xmm1 {
+            result.push(("xmm1", Box::new(&self.xmm1), Box::new(&other.xmm1)));
+        }
+        if self.xmm2 != other.xmm2 {
+            result.push(("xmm2", Box::new(&self.xmm2), Box::new(&other.xmm2)));
+        }
+        if self.xmm3 != other.xmm3 {
+            result.push(("xmm3", Box::new(&self.xmm3), Box::new(&other.xmm3)));
+        }
+        if self.xmm4 != other.xmm4 {
+            result.push(("xmm4", Box::new(&self.xmm4), Box::new(&other.xmm4)));
+        }
+        if self.xmm5 != other.xmm5 {
+            result.push(("xmm5", Box::new(&self.xmm5), Box::new(&other.xmm5)));
+        }
+        if self.xmm6 != other.xmm6 {
+            result.push(("xmm6", Box::new(&self.xmm6), Box::new(&other.xmm6)));
+        }
+        if self.xmm7 != other.xmm7 {
+            result.push(("xmm7", Box::new(&self.xmm7), Box::new(&other.xmm7)));
+        }
+        if self.xmm8 != other.xmm8 {
+            result.push(("xmm8", Box::new(&self.xmm8), Box::new(&other.xmm8)));
+        }
+        if self.xmm9 != other.xmm9 {
+            result.push(("xmm9", Box::new(&self.xmm9), Box::new(&other.xmm9)));
+        }
+        if self.xmm10 != other.xmm10 {
+            result.push(("xmm10", Box::new(&self.xmm10), Box::new(&other.xmm10)));
+        }
+        if self.xmm11 != other.xmm11 {
+            result.push(("xmm11", Box::new(&self.xmm11), Box::new(&other.xmm11)));
+        }
+        if self.xmm12 != other.xmm12 {
+            result.push(("xmm12", Box::new(&self.xmm12), Box::new(&other.xmm12)));
+        }
+        if self.xmm13 != other.xmm13 {
+            result.push(("xmm13", Box::new(&self.xmm13), Box::new(&other.xmm13)));
+        }
+        if self.xmm14 != other.xmm14 {
+            result.push(("xmm14", Box::new(&self.xmm14), Box::new(&other.xmm14)));
+        }
+        if self.xmm15 != other.xmm15 {
+            result.push(("xmm15", Box::new(&self.xmm15), Box::new(&other.xmm15)));
+        }
+        result
+    }
+}
+
 #[repr(C)]
 #[repr(align(16))]
 #[derive(Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Hash)]
