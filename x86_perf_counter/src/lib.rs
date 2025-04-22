@@ -2,7 +2,7 @@
 
 extern crate core;
 
-#[derive(Clone, Copy, Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Clone, Copy, Serialize, Deserialize, Debug, PartialEq, Eq, Ord, PartialOrd)]
 pub struct PerfEventSpecifier {
     pub event_select: u8,
     pub umask: u8,

@@ -5,7 +5,7 @@ use data_types::addresses::{Address, UCInstructionAddress};
 use num_traits::FromPrimitive;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Ord, PartialOrd)]
 #[repr(transparent)]
 pub struct Instruction {
     instruction: u64,

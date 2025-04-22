@@ -44,7 +44,9 @@ enum Cmd {
     Reboot,
     Cap,
     Performance,
-    Spec,
+    Spec {
+        report: PathBuf,
+    },
     Manual {
         #[arg(short, long)]
         input: PathBuf,
@@ -214,9 +216,9 @@ async fn main() {
                 )
                 .await
             }
-            Cmd::Spec => {
+            Cmd::Spec { report } => {
                 let _timing = TimeMeasurement::begin("host::spec_fuzz_loop");
-                spec_fuzz::main(&mut udp, &mut database, &mut state_spec_fuzz).await
+                spec_fuzz::main(&mut udp, &mut database, &mut state_spec_fuzz, &report).await
             }
             Cmd::Cap => {
                 let _ = udp

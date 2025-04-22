@@ -64,7 +64,7 @@
         enable = false;
 
         serviceConfig = {
-          ExecStart = "${packages."${system}".fuzzer_master}/bin/fuzz_master spec";
+          ExecStart = "${packages."${system}".fuzzer_master}/bin/fuzz_master spec /home/thesis/spec_fuzz.json";
           WorkingDirectory = "/home/thesis";
           Restart = "always";
           RestartSec = 5;

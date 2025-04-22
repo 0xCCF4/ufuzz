@@ -6,8 +6,92 @@ use hypervisor::state::StateDifference;
 use itertools::Itertools;
 use log::{error, info};
 use rand::{random, SeedableRng};
+use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, BTreeSet};
+use std::io::BufReader;
+use std::path::Path;
 use ucode_compiler_dynamic::instruction::Instruction;
 use ucode_compiler_dynamic::sequence_word::SequenceWord;
+use x86_perf_counter::PerfEventSpecifier;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum SpecResult {
+    Timeout,
+    Executed {
+        pmc_delta: BTreeMap<PerfEventSpecifier, i64>, // pmc setup -> delta
+        arch_delta: BTreeSet<String>,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SpecReport {
+    pub opcodes: BTreeMap<Instruction, SpecResult>,
+}
+
+impl SpecReport {
+    pub fn new() -> Self {
+        Self {
+            opcodes: BTreeMap::new(),
+        }
+    }
+
+    pub fn load_file<P: AsRef<Path>>(path: P) -> Result<Self, String> {
+        serde_json::from_reader(BufReader::new(
+            std::fs::File::open(&path)
+                .map_err(|e| format!("Failed to open file: {:?} - {:?}", path.as_ref(), e))?,
+        ))
+        .map_err(|e| format!("Failed to deserialize JSON: {:?}", e))
+    }
+
+    pub fn save_file<P: AsRef<Path>>(&self, path: P) -> Result<(), String> {
+        serde_json::to_writer_pretty(
+            std::fs::File::create(&path)
+                .map_err(|e| format!("Failed to create file: {:?} - {:?}", path.as_ref(), e))?,
+            self,
+        )
+        .map_err(|e| format!("Failed to serialize JSON: {:?}", e))
+    }
+
+    pub fn add_result(&mut self, instruction: Instruction, result: SpecResult) {
+        let value = self.opcodes.entry(instruction).or_insert(result.clone());
+
+        match result {
+            SpecResult::Timeout => {
+                if let SpecResult::Executed { .. } = value {
+                    error!(
+                        "Timeout for instruction but it had worked before: {:?}",
+                        instruction
+                    );
+                }
+                *value = SpecResult::Timeout;
+            }
+            SpecResult::Executed {
+                arch_delta,
+                pmc_delta,
+            } => {
+                if let SpecResult::Executed {
+                    arch_delta: old_arch_delta,
+                    pmc_delta: old_pmc_delta,
+                } = value
+                {
+                    old_arch_delta.extend(arch_delta);
+                    for (key, delta) in pmc_delta.iter() {
+                        *old_pmc_delta.entry(*key).or_insert(0) = *delta;
+                    }
+                } else {
+                    error!(
+                        "Executed {:?} but it had worked before: {:?}",
+                        instruction, value
+                    );
+                    *value = SpecResult::Executed {
+                        arch_delta,
+                        pmc_delta,
+                    };
+                }
+            }
+        }
+    }
+}
 
 #[derive(Debug, Default, PartialEq)]
 enum FSM {
@@ -24,12 +108,15 @@ pub struct SpecFuzzMutState {
 
     ucode_queue: Vec<Instruction>,
     baseline: Vec<u64>,
+
+    report: SpecReport,
 }
 
-pub async fn main(
+pub async fn main<A: AsRef<Path>>(
     net: &mut DeviceConnection,
     database: &mut Database,
     state: &mut SpecFuzzMutState,
+    report: A,
 ) -> CommandExitResult {
     // device is either restarted or new experimentation run
 
@@ -40,6 +127,8 @@ pub async fn main(
 
             info!("Starting new experimentation run with seed: {}", seed);
             state.random_source = Some(rand_isaac::Isaac64Rng::seed_from_u64(seed));
+
+            state.report = SpecReport::load_file(&report).unwrap_or_default();
         }
         FSM::Running => {
             // device was restarted
@@ -73,12 +162,12 @@ pub async fn main(
         let instructions = ucode_dump::dump::ROM_cpu_000506CA
             .instructions()
             .iter()
-            .map(|x|Instruction::disassemble(*x).opcode())
+            .map(|x| Instruction::disassemble(*x).opcode())
             .chain(
                 ucode_dump::dump::ROM_cpu_000506C9
                     .instructions()
                     .iter()
-                    .map(|x|Instruction::disassemble(*x).opcode()),
+                    .map(|x| Instruction::disassemble(*x).opcode()),
             )
             .unique()
             .sorted();
@@ -113,6 +202,10 @@ pub async fn main(
                         instruction.opcode(),
                         instruction.assemble()
                     );
+                    state.report.add_result(instruction, SpecResult::Timeout);
+                    if let Err(err) = state.report.save_file(&report) {
+                        error!("Failed to save the report: {:?}", err);
+                    }
                     return CommandExitResult::ForceReconnect;
                 }
                 ExecuteSampleResult::Rerun => {
@@ -121,6 +214,19 @@ pub async fn main(
                 }
                 ExecuteSampleResult::Success(x) => x,
             };
+
+            let pmc_delta = result
+                .perf_counters
+                .iter()
+                .zip(state.baseline.iter())
+                .zip([
+                    x86_perf_counter::INSTRUCTIONS_RETIRED,
+                    x86_perf_counter::MS_DECODED_MS_ENTRY,
+                    x86_perf_counter::UOPS_ISSUED_ANY,
+                    x86_perf_counter::UOPS_RETIRED_ANY,
+                ])
+                .map(|((result, baseline), key)| (key, *result as i64 - *baseline as i64))
+                .collect::<BTreeMap<_, _>>();
 
             if result.perf_counters != state.baseline {
                 error!(
@@ -155,15 +261,32 @@ pub async fn main(
                 }
             }
 
+            let arch_delta = result.arch_before.difference(&result.arch_after);
+
             if result.arch_before != result.arch_after {
                 error!(
                     "Arch state mismatch: {} : {:04x}",
                     instruction.opcode(),
                     instruction.assemble()
                 );
-                for (name, before, after) in result.arch_before.difference(&result.arch_after) {
+                for (name, before, after) in arch_delta.iter() {
                     error!("Arch state mismatch: {}: {:?} -> {:?}", name, before, after);
                 }
+            }
+
+            state.report.add_result(
+                instruction,
+                SpecResult::Executed {
+                    pmc_delta,
+                    arch_delta: arch_delta
+                        .iter()
+                        .map(|(name, _, _)| name.to_string())
+                        .collect::<BTreeSet<String>>(),
+                },
+            );
+
+            if let Err(err) = state.report.save_file(&report) {
+                error!("Failed to save the report: {:?}", err);
             }
         }
     }
