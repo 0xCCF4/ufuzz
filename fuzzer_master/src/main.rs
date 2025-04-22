@@ -6,12 +6,13 @@ use fuzzer_master::device_connection::DeviceConnection;
 use fuzzer_master::fuzzer_node_bridge::FuzzerNodeInterface;
 use fuzzer_master::genetic_breeding::BreedingState;
 use fuzzer_master::instruction_mutations::InstructionMutState;
-use fuzzer_master::net::{net_reboot_device, net_receive_performance_timing};
+use fuzzer_master::net::{net_reboot_device, net_receive_performance_timing, ExecuteSampleResult};
 use fuzzer_master::spec_fuzz::SpecFuzzMutState;
 use fuzzer_master::{
-    genetic_breeding, instruction_mutations, manual_execution, spec_fuzz, wait_for_device,
+    genetic_breeding, instruction_mutations, manual_execution, net, spec_fuzz, wait_for_device,
     CommandExitResult, WaitForDeviceResult, P0_FREQ,
 };
+use hypervisor::state::StateDifference;
 use itertools::Itertools;
 use log::{error, info, trace, warn};
 use performance_timing::{track_time, TimeMeasurement};
@@ -21,6 +22,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::Instant;
+use ucode_compiler_dynamic::instruction::Instruction;
+use ucode_compiler_dynamic::sequence_word::SequenceWord;
 
 pub mod main_compare;
 pub mod main_viewer;
@@ -46,6 +49,12 @@ enum Cmd {
     Performance,
     Spec {
         report: PathBuf,
+    },
+    SpecManual {
+        #[arg(short, long)]
+        instruction: Option<String>,
+        #[arg(short, long)]
+        sequence_word: Option<String>,
     },
     Manual {
         #[arg(short, long)]
@@ -219,6 +228,67 @@ async fn main() {
             Cmd::Spec { report } => {
                 let _timing = TimeMeasurement::begin("host::spec_fuzz_loop");
                 spec_fuzz::main(&mut udp, &mut database, &mut state_spec_fuzz, &report).await
+            }
+            Cmd::SpecManual {
+                instruction,
+                sequence_word,
+            } => {
+                let instruction = instruction
+                    .as_ref()
+                    .and_then(|hex| u64::from_str_radix(hex, 16).ok())
+                    .map(Instruction::disassemble);
+
+                let sequence_word = sequence_word
+                    .as_ref()
+                    .and_then(|hex| u32::from_str_radix(hex, 16).ok())
+                    .map(SequenceWord::disassemble)
+                    .map(|s| {
+                        s.unwrap_or_else(|e| {
+                            error!("Invalid sequence word: {:?}", e);
+                            SequenceWord::NOP
+                        })
+                    });
+
+                let result = net::net_speculative_sample(
+                    &mut udp,
+                    [
+                        instruction.unwrap_or(Instruction::NOP),
+                        Instruction::NOP,
+                        Instruction::NOP,
+                    ],
+                    sequence_word.unwrap_or(SequenceWord::NOP),
+                    vec![
+                        x86_perf_counter::INSTRUCTIONS_RETIRED,
+                        x86_perf_counter::MS_DECODED_MS_ENTRY,
+                        x86_perf_counter::UOPS_ISSUED_ANY,
+                        x86_perf_counter::UOPS_RETIRED_ANY,
+                    ],
+                )
+                .await;
+
+                match result {
+                    ExecuteSampleResult::Timeout => {
+                        error!("Timeout while executing the sample");
+                        CommandExitResult::ExitProgram
+                    }
+                    ExecuteSampleResult::Rerun => CommandExitResult::RetryOrReconnect,
+                    ExecuteSampleResult::Success(data) => {
+                        for (val, name) in data.perf_counters.iter().zip([
+                            "iRetired",
+                            "msDecoded",
+                            "uOpsIssued",
+                            "uOpsRetired",
+                        ]) {
+                            println!("{}: {}", name, val);
+                        }
+
+                        for (name, before, after) in data.arch_before.difference(&data.arch_after) {
+                            println!("DIFF {}: {:#x?} -> {:#x?}", name, before, after);
+                        }
+
+                        CommandExitResult::ExitProgram
+                    }
+                }
             }
             Cmd::Cap => {
                 let _ = udp

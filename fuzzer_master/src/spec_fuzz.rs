@@ -8,7 +8,7 @@ use log::{error, info};
 use rand::{random, SeedableRng};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
-use std::io::BufReader;
+use std::io::{BufReader, BufWriter};
 use std::path::Path;
 use ucode_compiler_dynamic::instruction::Instruction;
 use ucode_compiler_dynamic::sequence_word::SequenceWord;
@@ -23,9 +23,9 @@ pub enum SpecResult {
     },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SpecReport {
-    pub opcodes: BTreeMap<Instruction, SpecResult>,
+    pub opcodes: BTreeMap<u64, SpecResult>,
 }
 
 impl SpecReport {
@@ -45,15 +45,20 @@ impl SpecReport {
 
     pub fn save_file<P: AsRef<Path>>(&self, path: P) -> Result<(), String> {
         serde_json::to_writer_pretty(
-            std::fs::File::create(&path)
-                .map_err(|e| format!("Failed to create file: {:?} - {:?}", path.as_ref(), e))?,
+            BufWriter::new(
+                std::fs::File::create(&path)
+                    .map_err(|e| format!("Failed to create file: {:?} - {:?}", path.as_ref(), e))?,
+            ),
             self,
         )
         .map_err(|e| format!("Failed to serialize JSON: {:?}", e))
     }
 
     pub fn add_result(&mut self, instruction: Instruction, result: SpecResult) {
-        let value = self.opcodes.entry(instruction).or_insert(result.clone());
+        let value = self
+            .opcodes
+            .entry(instruction.assemble_no_crc())
+            .or_insert(result.clone());
 
         match result {
             SpecResult::Timeout => {
