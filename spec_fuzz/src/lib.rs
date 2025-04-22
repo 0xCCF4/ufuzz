@@ -15,10 +15,10 @@ use alloc::vec::Vec;
 use alloc::{format, vec};
 use core::arch::asm;
 use core::mem;
-use itertools::Itertools;
 use custom_processing_unit::patch_ucode;
 use fuzzer_data::SpeculationResult;
 use hypervisor::state::GuestRegisters;
+use itertools::Itertools;
 use log::Level;
 use ucode_compiler_dynamic::instruction::Instruction;
 use ucode_compiler_dynamic::sequence_word::SequenceWord;
@@ -34,11 +34,13 @@ pub fn check_if_pmc_stable(
     let mut results = [Vec::new(), Vec::new(), Vec::new(), Vec::new()];
 
     for _ in 0..10 {
-        let result = execute_speculation(udp, [
-            Instruction::NOP,
-            Instruction::NOP,
-            Instruction::NOP,
-        ], SequenceWord::NOP, perf_counter_setup.clone()).perf_counters;
+        let result = execute_speculation(
+            udp,
+            [Instruction::NOP, Instruction::NOP, Instruction::NOP],
+            SequenceWord::NOP,
+            perf_counter_setup.clone(),
+        )
+        .perf_counters;
 
         results[0].push(result[0]);
         results[1].push(result[1]);
@@ -46,7 +48,10 @@ pub fn check_if_pmc_stable(
         results[3].push(result[3]);
     }
 
-    results.into_iter().map(|x|x.iter().all_equal()).collect_vec()
+    results
+        .into_iter()
+        .map(|x| x.iter().all_equal())
+        .collect_vec()
 }
 
 pub fn execute_speculation(
@@ -55,7 +60,14 @@ pub fn execute_speculation(
     sequence_word: SequenceWord,
     perf_counter_setup: Vec<PerfEventSpecifier>,
 ) -> SpeculationResult {
-    let _ = udp.log_reliable(Level::Info, format!("execute speculation: {} {:04x}", triad[0].opcode(), triad[0].assemble()));
+    let _ = udp.log_reliable(
+        Level::Info,
+        format!(
+            "execute speculation: {} {:04x}",
+            triad[0].opcode(),
+            triad[0].assemble()
+        ),
+    );
 
     let sequence_word = match sequence_word.assemble() {
         Ok(word) => word,

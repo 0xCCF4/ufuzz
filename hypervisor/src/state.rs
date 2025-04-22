@@ -96,9 +96,11 @@ impl GuestRegisters {
 }
 
 impl StateDifference for GuestRegisters {
-    fn difference<'a, 'b>(&'a self, other: &'b Self) -> Vec<(&'static str, Box<&'a dyn Debug>, Box<&'b dyn Debug>)> {
-        let mut result: Vec<(&'static str, Box<&'a dyn Debug>, Box<&'b dyn Debug>)> =
-            Vec::new();
+    fn difference<'a, 'b>(
+        &'a self,
+        other: &'b Self,
+    ) -> Vec<(&'static str, Box<&'a dyn Debug>, Box<&'b dyn Debug>)> {
+        let mut result: Vec<(&'static str, Box<&'a dyn Debug>, Box<&'b dyn Debug>)> = Vec::new();
 
         if self.rax != other.rax {
             result.push(("rax", Box::new(&self.rax), Box::new(&other.rax)));

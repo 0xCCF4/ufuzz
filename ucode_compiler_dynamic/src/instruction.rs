@@ -20,6 +20,12 @@ impl Instruction {
         }
     }
 
+    pub const fn from_opcode(opcode: Opcode) -> Instruction {
+        Self {
+            instruction: (opcode as u16 as u64) << 32,
+        }
+    }
+
     const fn opcode_raw(&self) -> u16 {
         ((self.instruction >> 32) & 0xFFF) as u16
     }

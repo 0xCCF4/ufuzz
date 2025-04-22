@@ -69,7 +69,7 @@ fn generate_opcode_file<A: AsRef<Path>, B: AsRef<Path>>(opcodes: A, target_file:
 
     result.push_str("use num_derive::FromPrimitive;\n");
 
-    result.push_str("#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, FromPrimitive)]\n");
+    result.push_str("#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, FromPrimitive, PartialOrd, Ord)]\n");
     result.push_str("#[allow(non_camel_case_types)]\n");
     result.push_str("pub enum Opcode {\n");
     for (mm, op, comment) in definitions.iter() {

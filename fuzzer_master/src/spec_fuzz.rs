@@ -2,10 +2,10 @@ use crate::database::Database;
 use crate::device_connection::DeviceConnection;
 use crate::net::{net_speculative_sample, ExecuteSampleResult};
 use crate::CommandExitResult;
+use hypervisor::state::StateDifference;
 use itertools::Itertools;
 use log::{error, info};
 use rand::{random, SeedableRng};
-use hypervisor::state::StateDifference;
 use ucode_compiler_dynamic::instruction::Instruction;
 use ucode_compiler_dynamic::sequence_word::SequenceWord;
 
@@ -47,7 +47,6 @@ pub async fn main(
     }
 
     if state.fsm == FSM::Uninitialized {
-
         let result = net_speculative_sample(
             net,
             [Instruction::NOP, Instruction::NOP, Instruction::NOP],
@@ -59,7 +58,7 @@ pub async fn main(
                 x86_perf_counter::UOPS_RETIRED_ANY,
             ],
         )
-            .await;
+        .await;
 
         let result = match result {
             ExecuteSampleResult::Timeout => return CommandExitResult::ForceReconnect,
@@ -74,23 +73,26 @@ pub async fn main(
         let instructions = ucode_dump::dump::ROM_cpu_000506CA
             .instructions()
             .iter()
-            .chain(ucode_dump::dump::ROM_cpu_000506C9.instructions().iter())
+            .map(|x|Instruction::disassemble(*x).opcode())
+            .chain(
+                ucode_dump::dump::ROM_cpu_000506C9
+                    .instructions()
+                    .iter()
+                    .map(|x|Instruction::disassemble(*x).opcode()),
+            )
             .unique()
             .sorted();
         for instruction in instructions {
             state
                 .ucode_queue
-                .push(Instruction::disassemble(*instruction));
+                .push(Instruction::from_opcode(instruction));
         }
-
-
 
         state.fsm = FSM::Running;
     }
 
     if state.fsm == FSM::Running {
         while let Some(instruction) = state.ucode_queue.pop() {
-
             let result = net_speculative_sample(
                 net,
                 [instruction, Instruction::NOP, Instruction::NOP],
@@ -106,18 +108,27 @@ pub async fn main(
 
             let result = match result {
                 ExecuteSampleResult::Timeout => {
-                    error!("Timeout: {} : {:04x}", instruction.opcode(), instruction.assemble());
-                    return CommandExitResult::ForceReconnect
-                },
+                    error!(
+                        "Timeout: {} : {:04x}",
+                        instruction.opcode(),
+                        instruction.assemble()
+                    );
+                    return CommandExitResult::ForceReconnect;
+                }
                 ExecuteSampleResult::Rerun => {
                     state.ucode_queue.push(instruction);
-                    return CommandExitResult::Operational
-                },
+                    return CommandExitResult::Operational;
+                }
                 ExecuteSampleResult::Success(x) => x,
             };
 
             if result.perf_counters != state.baseline {
-                error!("Perf counter mismatch: {:?} : {} : {:04x}", result, instruction.opcode(), instruction.assemble());
+                error!(
+                    "Perf counter mismatch: {:?} : {} : {:04x}",
+                    result,
+                    instruction.opcode(),
+                    instruction.assemble()
+                );
                 if result.perf_counters[0] != state.baseline[0] {
                     error!(
                         "Perf counter mismatch: INSTRUCTIONS_RETIRED: {} -> {}",
@@ -145,12 +156,13 @@ pub async fn main(
             }
 
             if result.arch_before != result.arch_after {
-                error!("Arch state mismatch: {} : {:04x}", instruction.opcode(), instruction.assemble());
+                error!(
+                    "Arch state mismatch: {} : {:04x}",
+                    instruction.opcode(),
+                    instruction.assemble()
+                );
                 for (name, before, after) in result.arch_before.difference(&result.arch_after) {
-                    error!(
-                        "Arch state mismatch: {}: {:?} -> {:?}",
-                        name, before, after
-                    );
+                    error!("Arch state mismatch: {}: {:?} -> {:?}", name, before, after);
                 }
             }
         }
