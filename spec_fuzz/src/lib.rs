@@ -15,14 +15,16 @@ use alloc::vec::Vec;
 use alloc::{format, vec};
 use core::arch::asm;
 use core::mem;
-use custom_processing_unit::patch_ucode;
+use custom_processing_unit::{apply_ldat_read_func, ms_patch_instruction_read, ms_patch_instruction_write, patch_ucode, HookGuard};
 use fuzzer_data::SpeculationResult;
 use hypervisor::state::GuestRegisters;
 use itertools::Itertools;
-use log::Level;
+use log::{trace, Level};
+use uefi::println;
 use ucode_compiler_dynamic::instruction::Instruction;
 use ucode_compiler_dynamic::sequence_word::SequenceWord;
 use x86::msr::{IA32_PERFEVTSEL0, IA32_PERFEVTSEL1, IA32_PERFEVTSEL2, IA32_PERFEVTSEL3};
+use data_types::addresses::Address;
 use x86_perf_counter::{PerfEventSpecifier, PerformanceCounter};
 
 pub fn check_if_pmc_stable(
@@ -68,6 +70,7 @@ pub fn execute_speculation(
             triad[0].assemble()
         ),
     );
+    trace!("Execute speculation: {} {:04x}", triad[0].opcode(), triad[0].assemble());
 
     let sequence_word = match sequence_word.assemble() {
         Ok(word) => word,
@@ -84,22 +87,9 @@ pub fn execute_speculation(
         }
     };
 
-    if let Err(err) = patch_ucode(
-        patches::patch::LABEL_SPECULATIVE_WINDOW,
-        &[[
-            triad[0].assemble() as usize,
-            triad[1].assemble() as usize,
-            triad[2].assemble() as usize,
-            sequence_word as usize,
-        ]],
-    ) {
-        let _ = udp.log_reliable(Level::Error, &format!("Failed to patch ucode: {:?}", err));
-        return SpeculationResult {
-            arch_before: GuestRegisters::default(),
-            arch_after: GuestRegisters::default(),
-            perf_counters: Vec::new(),
-        };
-    }
+    ms_patch_instruction_write(patches::patch::LABEL_SPECULATIVE_WINDOW, triad[0].assemble() as usize);
+
+    unsafe { asm!("rdseed rax", out("rax")_); }
 
     let perf_counter_setup: [Option<PerfEventSpecifier>; 4] = {
         let mut setup = perf_counter_setup.into_iter().map(Some).collect::<Vec<_>>();
@@ -115,7 +105,8 @@ pub fn execute_speculation(
         ]
     };
 
-    collect_perf_counters_values(perf_counter_setup)
+    let result = collect_perf_counters_values(perf_counter_setup);
+    result
 }
 
 #[inline(always)]
@@ -159,10 +150,10 @@ fn collect_perf_counters_values(
         .event()
         .set_enable_counters(perf_counter_setup[3].is_some());
 
+    let guard = HookGuard::enable_all();
+
     unsafe {
         asm!(
-        "mov rax, 0x0000",
-
         // save values for later reference
         "pushfq",
         "push rax",
@@ -303,27 +294,7 @@ fn collect_perf_counters_values(
         // SYNCFULL
         "rdseed rax",
 
-        // go back to initial store
-        "add rsp, 0x100", // reverse xmm0-15
-        "add rsp, 0x80",  // reverse rax-rbp
-
-        // restore initial state
-        "movaps xmm15, xmmword ptr [rsp + 0xF0]",
-        "movaps xmm14, xmmword ptr [rsp + 0xE0]",
-        "movaps xmm13, xmmword ptr [rsp + 0xD0]",
-        "movaps xmm12, xmmword ptr [rsp + 0xC0]",
-        "movaps xmm11, xmmword ptr [rsp + 0xB0]",
-        "movaps xmm10, xmmword ptr [rsp + 0xA0]",
-        "movaps xmm9, xmmword ptr [rsp + 0x90]",
-        "movaps xmm8, xmmword ptr [rsp + 0x80]",
-        "movaps xmm7, xmmword ptr [rsp + 0x70]",
-        "movaps xmm6, xmmword ptr [rsp + 0x60]",
-        "movaps xmm5, xmmword ptr [rsp + 0x50]",
-        "movaps xmm4, xmmword ptr [rsp + 0x40]",
-        "movaps xmm3, xmmword ptr [rsp + 0x30]",
-        "movaps xmm2, xmmword ptr [rsp + 0x20]",
-        "movaps xmm1, xmmword ptr [rsp + 0x10]",
-        "movaps xmm0, xmmword ptr [rsp]",
+        "add rsp, 0x180",
         "add rsp, 0x100",
         "pop rbp",
         "pop r15",
@@ -341,10 +312,9 @@ fn collect_perf_counters_values(
         "pop rbx",
         "pop rax",
         "popfq",
+        "sub rsp, 0x180",
+        "sub rsp, 0x180",
 
-        // go to compare state
-        "sub rsp, 0x180",
-        "sub rsp, 0x180",
 
         "pop rax",
         "mov [rcx + {registers_xmm0}], rax",
@@ -540,9 +510,50 @@ fn collect_perf_counters_values(
         "pop rax",
         "mov [rdx + {registers_rflags}], rax",
 
+        // go back to initial store
+        "sub rsp, 0x180",
+
+        // restore initial state
+        "movaps xmm15, xmmword ptr [rsp + 0xF0]",
+        "movaps xmm14, xmmword ptr [rsp + 0xE0]",
+        "movaps xmm13, xmmword ptr [rsp + 0xD0]",
+        "movaps xmm12, xmmword ptr [rsp + 0xC0]",
+        "movaps xmm11, xmmword ptr [rsp + 0xB0]",
+        "movaps xmm10, xmmword ptr [rsp + 0xA0]",
+        "movaps xmm9, xmmword ptr [rsp + 0x90]",
+        "movaps xmm8, xmmword ptr [rsp + 0x80]",
+        "movaps xmm7, xmmword ptr [rsp + 0x70]",
+        "movaps xmm6, xmmword ptr [rsp + 0x60]",
+        "movaps xmm5, xmmword ptr [rsp + 0x50]",
+        "movaps xmm4, xmmword ptr [rsp + 0x40]",
+        "movaps xmm3, xmmword ptr [rsp + 0x30]",
+        "movaps xmm2, xmmword ptr [rsp + 0x20]",
+        "movaps xmm1, xmmword ptr [rsp + 0x10]",
+        "movaps xmm0, xmmword ptr [rsp]",
+        "add rsp, 0x100",
+        "pop rbp",
+        "pop r15",
+        "pop r14",
+        "pop r13",
+        "pop r12",
+        "pop r11",
+        "pop r10",
+        "pop r9",
+        "pop r8",
+        "pop rdi",
+        "pop rsi",
+        "pop rdx",
+        "pop rcx",
+        "pop rbx",
+        "pop rax",
+        "popfq",
+
+        "lfence",
+        "mfence",
+
         out("rax") _,
-        in("rcx") &mut initial_state,
-        in("rdx") &mut final_state,
+        in("rcx") &mut final_state,
+        in("rdx") &mut initial_state,
         registers_rax = const mem::offset_of!(GuestRegisters, rax),
         registers_rcx = const mem::offset_of!(GuestRegisters, rcx),
         registers_rdx = const mem::offset_of!(GuestRegisters, rdx),
@@ -603,6 +614,10 @@ fn collect_perf_counters_values(
         msr_sel_offset3 = const IA32_PERFEVTSEL3,
         );
     }
+
+    final_state.rflags = initial_state.rflags; // todo
+
+    guard.restore();
 
     SpeculationResult {
         perf_counters: vec![perf0.read(), perf1.read(), perf2.read(), perf3.read()],

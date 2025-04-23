@@ -78,7 +78,7 @@ unsafe fn main() -> Status {
         return Status::ABORTED;
     }
 
-    let _enable_hooks = HookGuard::enable_all();
+    let _enable_hooks = HookGuard::disable_all();
 
     let mut udp: ControllerConnection = {
         trace!("Connecting to UDP");

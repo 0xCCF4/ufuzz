@@ -49,6 +49,8 @@ enum Cmd {
     Performance,
     Spec {
         report: PathBuf,
+        #[arg(short, long)]
+        all: bool,
     },
     SpecManual {
         #[arg(short, long)]
@@ -225,9 +227,9 @@ async fn main() {
                 )
                 .await
             }
-            Cmd::Spec { report } => {
+            Cmd::Spec { report, all } => {
                 let _timing = TimeMeasurement::begin("host::spec_fuzz_loop");
-                spec_fuzz::main(&mut udp, &mut database, &mut state_spec_fuzz, &report).await
+                spec_fuzz::main(&mut udp, &mut database, &mut state_spec_fuzz, &report, *all).await
             }
             Cmd::SpecManual {
                 instruction,

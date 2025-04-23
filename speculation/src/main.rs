@@ -14,32 +14,16 @@ use custom_processing_unit::{
 use data_types::addresses::MSRAMHookIndex;
 use log::info;
 use speculation::{
-    BRANCH_MISSES_RETIRED, INSTRUCTIONS_RETIRED, MS_DECODED_MS_ENTRY, PerfEventSelect,
-    PerformanceCounter, UOPS_ISSUED_ANY, UOPS_RETIRED_ANY, patches, read_pmc, write_pmc,
+    BRANCH_MISSES_RETIRED, INSTRUCTIONS_RETIRED, MS_DECODED_MS_ENTRY,
+    UOPS_ISSUED_ANY, UOPS_RETIRED_ANY, patches,
 };
 use uefi::{Status, entry, print, println};
-use x86::cpuid::CpuId;
-use x86::msr::{IA32_PERFEVTSEL0, IA32_PERFEVTSEL1};
+use x86_perf_counter::PerformanceCounter;
 
 #[entry]
 unsafe fn main() -> Status {
     uefi::helpers::init().unwrap();
     print!("Hello world! ");
-
-    let pmc_info = match CpuId::new().get_performance_monitoring_info() {
-        Some(info) => info,
-        None => {
-            println!("Failed to get performance monitoring info");
-            return Status::ABORTED;
-        }
-    };
-    print!("PMC version: {} ", pmc_info.version_id());
-    println!("PMC count:   {}", pmc_info.number_of_counters());
-
-    if pmc_info.number_of_counters() < 2 {
-        println!("Not enough performance monitoring counters");
-        return Status::ABORTED;
-    }
 
     let mut cpu = match CustomProcessingUnit::new() {
         Ok(cpu) => cpu,

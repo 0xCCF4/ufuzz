@@ -6,7 +6,7 @@ use hypervisor::state::StateDifference;
 use itertools::Itertools;
 use log::{error, info};
 use rand::{random, SeedableRng};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{BufReader, BufWriter};
 use std::path::Path;
@@ -18,14 +18,66 @@ use x86_perf_counter::PerfEventSpecifier;
 pub enum SpecResult {
     Timeout,
     Executed {
-        pmc_delta: BTreeMap<PerfEventSpecifier, i64>, // pmc setup -> delta
+        pmc_delta: BTreeMap<StringBox<PerfEventSpecifier>, i64>, // pmc setup -> delta
         arch_delta: BTreeSet<String>,
     },
 }
 
+
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]
+pub struct StringBox<T>(pub T);
+
+impl Serialize for StringBox<Instruction> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        format!("{}|{}|{:x}", self.0.assemble_no_crc(), self.0.opcode(), self.0.assemble_no_crc()).serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for StringBox<Instruction> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let text = String::deserialize(deserializer)?;
+        let text = text.split('|').next().expect("deserialization error");
+        let val = u64::from_str_radix(text, 10).map_err(serde::de::Error::custom)?;
+        Ok(StringBox(Instruction::disassemble(val)))
+    }
+}
+
+impl Serialize for StringBox<PerfEventSpecifier> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serde_json::to_string(&self.0).map_err(serde::ser::Error::custom)?.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for StringBox<PerfEventSpecifier> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let text = String::deserialize(deserializer)?;
+        let val = serde_json::from_str::<PerfEventSpecifier>(&text)
+            .map_err(serde::de::Error::custom)?;
+        Ok(StringBox(val))
+    }
+}
+
+impl<T> From<T> for StringBox<T> {
+    fn from(value: T) -> Self {
+        StringBox(value)
+    }
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SpecReport {
-    pub opcodes: BTreeMap<u64, SpecResult>,
+    pub opcodes: BTreeMap<StringBox<Instruction>, SpecResult>,
 }
 
 impl SpecReport {
@@ -57,7 +109,7 @@ impl SpecReport {
     pub fn add_result(&mut self, instruction: Instruction, result: SpecResult) {
         let value = self
             .opcodes
-            .entry(instruction.assemble_no_crc())
+            .entry(instruction.into())
             .or_insert(result.clone());
 
         match result {
@@ -81,7 +133,7 @@ impl SpecReport {
                 {
                     old_arch_delta.extend(arch_delta);
                     for (key, delta) in pmc_delta.iter() {
-                        *old_pmc_delta.entry(*key).or_insert(0) = *delta;
+                        *old_pmc_delta.entry(key.clone()).or_insert(0) = *delta;
                     }
                 } else {
                     error!(
@@ -122,6 +174,7 @@ pub async fn main<A: AsRef<Path>>(
     database: &mut Database,
     state: &mut SpecFuzzMutState,
     report: A,
+    all: bool
 ) -> CommandExitResult {
     // device is either restarted or new experimentation run
 
@@ -167,19 +220,27 @@ pub async fn main<A: AsRef<Path>>(
         let instructions = ucode_dump::dump::ROM_cpu_000506CA
             .instructions()
             .iter()
-            .map(|x| Instruction::disassemble(*x).opcode())
+            .map(|x| if all {
+                Instruction::disassemble(*x)
+            } else {
+                Instruction::from_opcode(Instruction::disassemble(*x).opcode())
+            })
             .chain(
                 ucode_dump::dump::ROM_cpu_000506C9
                     .instructions()
                     .iter()
-                    .map(|x| Instruction::disassemble(*x).opcode()),
+                    .map(|x| if all {
+                        Instruction::disassemble(*x)
+                    } else {
+                        Instruction::from_opcode(Instruction::disassemble(*x).opcode())
+                    }),
             )
             .unique()
             .sorted();
         for instruction in instructions {
             state
                 .ucode_queue
-                .push(Instruction::from_opcode(instruction));
+                .push(instruction);
         }
 
         state.fsm = FSM::Running;
@@ -230,16 +291,10 @@ pub async fn main<A: AsRef<Path>>(
                     x86_perf_counter::UOPS_ISSUED_ANY,
                     x86_perf_counter::UOPS_RETIRED_ANY,
                 ])
-                .map(|((result, baseline), key)| (key, *result as i64 - *baseline as i64))
+                .map(|((result, baseline), key)| (key.into(), *result as i64 - *baseline as i64))
                 .collect::<BTreeMap<_, _>>();
 
             if result.perf_counters != state.baseline {
-                error!(
-                    "Perf counter mismatch: {:?} : {} : {:04x}",
-                    result,
-                    instruction.opcode(),
-                    instruction.assemble()
-                );
                 if result.perf_counters[0] != state.baseline[0] {
                     error!(
                         "Perf counter mismatch: INSTRUCTIONS_RETIRED: {} -> {}",
@@ -268,7 +323,7 @@ pub async fn main<A: AsRef<Path>>(
 
             let arch_delta = result.arch_before.difference(&result.arch_after);
 
-            if result.arch_before != result.arch_after {
+            if arch_delta.len() > 0 {
                 error!(
                     "Arch state mismatch: {} : {:04x}",
                     instruction.opcode(),

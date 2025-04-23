@@ -7,6 +7,8 @@ use crate::instruction::Instruction;
 use crate::sequence_word::{DisassembleError, SequenceWord};
 use core::fmt;
 use core::fmt::{Display, Formatter};
+use data_types::addresses::UCInstructionAddress;
+use crate::opcodes::Opcode;
 
 pub mod instruction;
 pub mod opcodes;
@@ -75,4 +77,43 @@ pub fn even_odd_parity_u64(mut value: u64) -> u64 {
         value >>= 2;
     }
     result
+}
+
+pub enum ControlFlowNextMode {
+    /// Execution of next instruction ip+1
+    Direct,
+    /// Execution of next instruction SEQW GOTO
+    Indirect,
+}
+
+pub enum ControlFlowBranchPrediction {
+    Taken,
+    NotTaken,
+    NotPredicted,
+}
+
+pub enum ControlFlow {
+    /// The next instruction is executed
+    Next {
+        mode: ControlFlowNextMode,
+        target: UCInstructionAddress,
+    },
+    
+    ConditionalBranch {
+        prediction: ControlFlowBranchPrediction,
+        taken: Option<UCInstructionAddress>, // set if immediate
+        not_taken: UCInstructionAddress,
+    },
+    UnconditionalBranch {
+        prediction: ControlFlowBranchPrediction,
+        next: Option<UCInstructionAddress>, // set if immediate
+    },
+    
+    Unknown
+}
+
+impl Opcode {
+    pub fn control_flow(&self) -> ControlFlow {
+        todo!() // todo, also see "Analyzing and Exploiting Branch Mispredictions in Microcode"
+    }
 }
