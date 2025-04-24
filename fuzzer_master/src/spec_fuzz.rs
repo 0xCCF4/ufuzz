@@ -11,6 +11,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::io::{BufReader, BufWriter};
 use std::path::Path;
 use ucode_compiler_dynamic::instruction::Instruction;
+use ucode_compiler_dynamic::opcodes::Opcode;
 use ucode_compiler_dynamic::sequence_word::SequenceWord;
 use x86_perf_counter::PerfEventSpecifier;
 
@@ -174,7 +175,9 @@ pub async fn main<A: AsRef<Path>>(
     database: &mut Database,
     state: &mut SpecFuzzMutState,
     report: A,
-    all: bool
+    all: bool,
+    skip: bool,
+    no_crbus: bool,
 ) -> CommandExitResult {
     // device is either restarted or new experimentation run
 
@@ -196,7 +199,7 @@ pub async fn main<A: AsRef<Path>>(
     if state.fsm == FSM::Uninitialized {
         let result = net_speculative_sample(
             net,
-            [Instruction::NOP, Instruction::NOP, Instruction::NOP],
+            [Instruction::from_opcode(Opcode::ADD_DSZ32), Instruction::NOP, Instruction::NOP],
             SequenceWord::NOP,
             vec![
                 x86_perf_counter::INSTRUCTIONS_RETIRED,
@@ -236,7 +239,7 @@ pub async fn main<A: AsRef<Path>>(
                     }),
             )
             .unique()
-            .sorted();
+            .sorted_by_key(|x|x.assemble_no_crc());
         for instruction in instructions {
             state
                 .ucode_queue
@@ -248,6 +251,14 @@ pub async fn main<A: AsRef<Path>>(
 
     if state.fsm == FSM::Running {
         while let Some(instruction) = state.ucode_queue.pop() {
+            println!("Remaining: {}", state.ucode_queue.len());
+            if skip && state.report.opcodes.contains_key(&StringBox(instruction)) {
+                continue;
+            }
+            if no_crbus && instruction.opcode().is_group_MOVETOCREG() {
+                continue;
+            }
+
             let result = net_speculative_sample(
                 net,
                 [instruction, Instruction::NOP, Instruction::NOP],

@@ -342,6 +342,9 @@ pub fn main() {
             .expect("Could not open file");
         let mut writer_time = BufWriter::new(file_time);
 
+        let total_cov_file = std::fs::File::create(file.with_extension("total_cov.csv")).expect("Could not open file");
+        let mut total_cov_file = BufWriter::new(total_cov_file);
+
         for c in 0..0x7c00u16 {
             let entry = unique_coverage.get(&c);
             writeln!(
@@ -350,6 +353,12 @@ pub fn main() {
                 entry.map(|v| v.to_string()).unwrap_or("".to_string())
             )
             .expect("Could not write to file");
+
+            let mut total_coverage: u64 = 0;
+            for sample in db.data.results.iter() {
+                total_coverage += *sample.coverage.get(&c).unwrap_or(&0) as u64;
+            }
+            writeln!(&mut total_cov_file, "{c}, {total_coverage}").expect("Could not write to file");
         }
     }
 }

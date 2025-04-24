@@ -381,7 +381,7 @@ pub async fn net_speculative_sample(
     }
 
     ExecuteSampleResult::Success(
-        match net_receive_speculative_result(net, Duration::from_secs(SAMPLE_TIMEOUT)).await {
+        match net_receive_speculative_result(net, Duration::from_secs(10)).await {
             None => return ExecuteSampleResult::Timeout,
             Some(x) => x,
         },
