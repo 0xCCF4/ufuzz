@@ -134,6 +134,8 @@ pub fn main() {
     }
 
     println!("\n\nCoverage problems:");
+    let mut problematic_addresses = BTreeMap::new();
+    let mut problematic_samples = BTreeSet::new();
     for result in &db.data.results {
         for event in &result.events {
             if let CodeEvent::CoverageProblem {
@@ -142,6 +144,13 @@ pub fn main() {
                 coverage_state,
             } = event
             {
+                if matches!(coverage_exit, Some(VmExitReason::TimerExpiration)) | matches!(result.exit, VmExitReason::TimerExpiration) {
+                    continue
+                }
+                
+                *problematic_addresses.entry(*address).or_insert(0) += 1u32;
+                problematic_samples.insert(result.code.clone());
+                
                 println!("Sample: {}", code_to_hex_string(result.code.as_slice()));
                 println!("Coverage problem at address {:#x}", address);
 
@@ -159,6 +168,19 @@ pub fn main() {
                 println!();
             }
         }
+    }
+    
+    println!("\n\nProblematic Addresses:");
+    let mut sorted_addresses: Vec<_> = problematic_addresses.iter().collect();
+    sorted_addresses.sort_by(|a, b| b.1.cmp(a.1));
+
+    for (address, count) in sorted_addresses {
+        println!(" - {:#x}: {}", address, count);
+    }
+    
+    println!("\n\nProblematic samples:");
+    for result in problematic_samples {
+        println!(" {}", code_to_hex_string(result.as_slice()));
     }
 
     println!("\n\nCoverage summary:");

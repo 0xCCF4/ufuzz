@@ -22,6 +22,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::Instant;
+use fuzzer_master::manual_execution::ManualExecutionState;
 use ucode_compiler_dynamic::instruction::Instruction;
 use ucode_compiler_dynamic::sequence_word::SequenceWord;
 
@@ -69,6 +70,8 @@ enum Cmd {
         output: Option<PathBuf>,
         #[arg(short = 'f', long, default_value = "false")]
         overwrite: bool,
+        #[arg(short, long)]
+        bulk: bool,
     },
 }
 
@@ -195,6 +198,7 @@ async fn main() {
     let mut state_breeding = BreedingState::default();
     let mut state_instructions = InstructionMutState::default();
     let mut state_spec_fuzz = SpecFuzzMutState::default();
+    let mut state_manual_execution = ManualExecutionState::default();
     let mut continue_count = 0;
     let mut last_time_perf_from_device = Instant::now() - Duration::from_secs(1000000);
 
@@ -374,17 +378,24 @@ async fn main() {
                 input,
                 output,
                 overwrite,
+                bulk,
             } => {
                 manual_execution::main(
                     &mut udp,
                     &interface,
                     &mut database,
                     &input,
-                    output
-                        .as_ref()
-                        .map(|v| v.clone())
-                        .unwrap_or(input.with_extension("out")),
+                    if !bulk {
+                        Some(output
+                            .as_ref()
+                            .map(|v| v.clone())
+                            .unwrap_or(input.with_extension("out")))
+                    } else {
+                        output.as_ref().map(|v| v.clone())
+                    },
                     *overwrite,
+                    *bulk,
+                    &mut state_manual_execution
                 )
                 .await
             }
