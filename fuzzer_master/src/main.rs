@@ -64,6 +64,8 @@ enum Cmd {
         no_crbus: bool,
         #[arg(short, long)]
         exclude: Option<PathBuf>,
+        #[arg(short, long)]
+        fuzzy_pmc: bool,
     },
     SpecManual {
         #[arg(short, long)]
@@ -272,6 +274,7 @@ async fn main() {
                 skip,
                 no_crbus,
                 exclude,
+                fuzzy_pmc,
             } => {
                 let _timing = TimeMeasurement::begin("host::spec_fuzz_loop");
                 spec_fuzz::main(
@@ -283,6 +286,7 @@ async fn main() {
                     *skip,
                     *no_crbus,
                     exclude.as_ref(),
+                    *fuzzy_pmc,
                 )
                 .await
             }

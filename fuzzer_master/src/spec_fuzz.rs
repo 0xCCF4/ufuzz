@@ -97,12 +97,15 @@ impl<T> From<T> for StringBox<T> {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SpecReport {
     pub opcodes: BTreeMap<StringBox<Instruction>, SpecResult>,
+    #[serde(default)]
+    pub pmc_blacklist_event_select: BTreeSet<u8>,
 }
 
 impl SpecReport {
     pub fn new() -> Self {
         Self {
             opcodes: BTreeMap::new(),
+            pmc_blacklist_event_select: BTreeSet::new(),
         }
     }
 
@@ -173,6 +176,7 @@ impl SpecReport {
 enum FSM {
     #[default]
     Uninitialized,
+    AcquireBaseline,
     Running,
 }
 
@@ -182,10 +186,16 @@ pub struct SpecFuzzMutState {
 
     random_source: Option<rand_isaac::Isaac64Rng>,
 
-    ucode_queue: Vec<Instruction>,
-    baseline: Vec<u64>,
+    all_ucodes: Vec<Instruction>,
+    all_pmcs: Vec<PerfEventSpecifier>,
+    all_pmc_groups: Vec<Vec<PerfEventSpecifier>>,
 
     report: SpecReport,
+
+    baseline: BTreeMap<PerfEventSpecifier, u64>,
+
+    pmc_queue: Vec<Vec<PerfEventSpecifier>>,
+    ucode_queue: Vec<Instruction>,
 }
 
 pub async fn main<A: AsRef<Path>, B: AsRef<Path>>(
@@ -197,6 +207,7 @@ pub async fn main<A: AsRef<Path>, B: AsRef<Path>>(
     skip: bool,
     no_crbus: bool,
     exclude: Option<B>,
+    fuzzy_pmc: bool,
 ) -> CommandExitResult {
     // device is either restarted or new experimentation run
 
@@ -209,212 +220,254 @@ pub async fn main<A: AsRef<Path>, B: AsRef<Path>>(
             state.random_source = Some(rand_isaac::Isaac64Rng::seed_from_u64(seed));
 
             state.report = SpecReport::load_file(&report).unwrap_or_default();
-        }
-        FSM::Running => {
-            // device was restarted
-        }
-    }
 
-    if state.fsm == FSM::Uninitialized {
-        let result = net_speculative_sample(
-            net,
-            [
-                Instruction::from_opcode(Opcode::ADD_DSZ32),
-                Instruction::NOP,
-                Instruction::NOP,
-            ],
-            SequenceWord::NOP,
-            vec![
-                x86_perf_counter::INSTRUCTIONS_RETIRED,
-                x86_perf_counter::MS_DECODED_MS_ENTRY,
-                x86_perf_counter::UOPS_ISSUED_ANY,
-                x86_perf_counter::UOPS_RETIRED_ANY,
-            ],
-        )
-        .await;
-
-        let result = match result {
-            ExecuteSampleResult::Timeout => return CommandExitResult::ForceReconnect,
-            ExecuteSampleResult::Rerun => return CommandExitResult::Operational,
-            ExecuteSampleResult::Success(x) => x,
-        };
-
-        info!("baseline: {:?}", result.perf_counters);
-        state.baseline = result.perf_counters;
-
-        // initialize
-        let instructions = ucode_dump::dump::ROM_cpu_000506CA
-            .instructions()
-            .iter()
-            .map(|x| {
-                if all {
-                    Instruction::disassemble(*x)
-                } else {
-                    Instruction::from_opcode(Instruction::disassemble(*x).opcode())
-                }
-            })
-            .chain(
-                ucode_dump::dump::ROM_cpu_000506C9
-                    .instructions()
-                    .iter()
-                    .map(|x| {
-                        if all {
-                            Instruction::disassemble(*x)
-                        } else {
-                            Instruction::from_opcode(Instruction::disassemble(*x).opcode())
-                        }
-                    }),
-            )
-            .unique()
-            .sorted_by_key(|x| x.assemble_no_crc());
-
-        let excluded = match exclude {
-            None => vec![],
-            Some(exclude) => {
-                let mut excluded_text = String::new();
-                File::open(exclude)
-                    .expect("File exclude does not exists")
-                    .read_to_string(&mut excluded_text)
-                    .expect("Failed to read exclude file");
-                let lines = excluded_text.lines();
-
-                let mut result = Vec::new();
-                for line in lines {
-                    if line.is_empty() {
-                        continue;
+            let instructions = ucode_dump::dump::ROM_cpu_000506CA
+                .instructions()
+                .iter()
+                .map(|x| {
+                    if all {
+                        Instruction::disassemble(*x)
+                    } else {
+                        Instruction::from_opcode(Instruction::disassemble(*x).opcode())
                     }
-                    let before_first_comma = line
-                        .split(',')
-                        .next()
-                        .map(|v| v.to_string())
-                        .unwrap_or(line.to_string());
-                    let parsed_hex_num = u64::from_str_radix(&before_first_comma, 16)
-                        .expect("Non hex number in exclude file");
-                    let instruction = Instruction::from(parsed_hex_num);
-                    result.push(instruction);
+                })
+                .chain(
+                    ucode_dump::dump::ROM_cpu_000506C9
+                        .instructions()
+                        .iter()
+                        .map(|x| {
+                            if all {
+                                Instruction::disassemble(*x)
+                            } else {
+                                Instruction::from_opcode(Instruction::disassemble(*x).opcode())
+                            }
+                        }),
+                )
+                .unique()
+                .sorted_by_key(|x| x.assemble_no_crc());
+
+            let excluded = match exclude {
+                None => vec![],
+                Some(exclude) => {
+                    let mut excluded_text = String::new();
+                    File::open(exclude)
+                        .expect("File exclude does not exists")
+                        .read_to_string(&mut excluded_text)
+                        .expect("Failed to read exclude file");
+                    let lines = excluded_text.lines();
+
+                    let mut result = Vec::new();
+                    for line in lines {
+                        if line.is_empty() {
+                            continue;
+                        }
+                        let before_first_comma = line
+                            .split(',')
+                            .next()
+                            .map(|v| v.to_string())
+                            .unwrap_or(line.to_string());
+                        let parsed_hex_num = u64::from_str_radix(&before_first_comma, 16)
+                            .expect("Non hex number in exclude file");
+                        let instruction = Instruction::from(parsed_hex_num);
+                        result.push(instruction);
+                    }
+                    result
                 }
-                result
-            }
-        };
+            };
 
-        for instruction in instructions {
-            if !excluded.contains(&instruction) {
-                state.ucode_queue.push(instruction);
-            }
-        }
-
-        state.fsm = FSM::Running;
-    }
-
-    if state.fsm == FSM::Running {
-        while let Some(instruction) = state.ucode_queue.pop() {
-            println!("Remaining: {}", state.ucode_queue.len());
-            if skip && state.report.opcodes.contains_key(&StringBox(instruction)) {
-                continue;
-            }
-            if no_crbus && instruction.opcode().is_group_MOVETOCREG() {
-                continue;
+            for instruction in instructions {
+                if !excluded.contains(&instruction) {
+                    state.all_ucodes.push(instruction);
+                }
             }
 
-            let result = net_speculative_sample(
-                net,
-                [instruction, Instruction::NOP, Instruction::NOP],
-                SequenceWord::NOP,
-                vec![
+            if !fuzzy_pmc {
+                state.all_pmcs = vec![
                     x86_perf_counter::INSTRUCTIONS_RETIRED,
                     x86_perf_counter::MS_DECODED_MS_ENTRY,
                     x86_perf_counter::UOPS_ISSUED_ANY,
                     x86_perf_counter::UOPS_RETIRED_ANY,
-                ],
-            )
-            .await;
+                ];
+            } else {
+                for event_select in 0..0xFF {
+                    for umask in 0..0xFF {
+                        let pmc = PerfEventSpecifier {
+                            event_select,
+                            umask,
+                            edge_detect: None,
+                            cmask: None,
+                        };
+                        state.all_pmcs.push(pmc);
+                    }
+                }
+            }
 
-            let result = match result {
-                ExecuteSampleResult::Timeout => {
-                    error!(
-                        "Timeout: {} : {:04x}",
-                        instruction.opcode(),
-                        instruction.assemble()
+            state.pmc_queue.clear();
+            for pmc in state.all_pmcs.iter() {
+                state.pmc_queue.push(vec![pmc.clone()]);
+            }
+
+            state.fsm = FSM::AcquireBaseline;
+            return CommandExitResult::Operational;
+        }
+        FSM::AcquireBaseline => {
+            while let Some(pmc) = state.pmc_queue.pop() {
+                println!("Remaining Baseline: {}", state.ucode_queue.len());
+
+                let pmc = pmc.first().unwrap();
+
+                if state
+                    .report
+                    .pmc_blacklist_event_select
+                    .contains(&pmc.event_select)
+                {
+                    continue;
+                }
+
+                let result = net_speculative_sample(
+                    net,
+                    [
+                        Instruction::from_opcode(Opcode::ADD_DSZ32),
+                        Instruction::NOP,
+                        Instruction::NOP,
+                    ],
+                    SequenceWord::NOP,
+                    vec![pmc.clone()],
+                )
+                .await;
+
+                let result = match result {
+                    ExecuteSampleResult::Timeout => {
+                        error!("Timeout PMC: {:?}", pmc);
+                        state
+                            .report
+                            .pmc_blacklist_event_select
+                            .insert(pmc.event_select);
+                        if let Err(err) = state.report.save_file(&report) {
+                            error!("Failed to save the report: {:?}", err);
+                        }
+                        return CommandExitResult::ForceReconnect;
+                    }
+                    ExecuteSampleResult::Rerun => {
+                        state.pmc_queue.push(vec![pmc.clone()]);
+                        return CommandExitResult::Operational;
+                    }
+                    ExecuteSampleResult::Success(x) => x,
+                };
+
+                let result = result.perf_counters.iter().next();
+
+                match result {
+                    Some(pmc_value) => {
+                        state.baseline.insert(pmc.clone(), *pmc_value);
+                    }
+                    None => {
+                        error!("PMC value is None for {:?}", pmc);
+                    }
+                }
+            }
+
+            state.ucode_queue.clone_from(&state.all_ucodes);
+            state.all_pmc_groups.clear();
+            for pmc in &state.baseline.keys().cloned().chunks(4) {
+                state.all_pmc_groups.push(pmc.collect_vec());
+            }
+            state.pmc_queue.clone_from(&state.all_pmc_groups);
+
+            state.fsm = FSM::Running;
+            return CommandExitResult::Operational;
+        }
+        FSM::Running => {
+            while let Some(pmc) = state.pmc_queue.first() {
+                while let Some(instruction) = state.ucode_queue.first() {
+                    if skip {
+                        if let Some(entry) = state.report.opcodes.get(&StringBox(*instruction)) {
+                            if let SpecResult::Executed { pmc_delta, .. } = entry {
+                                if pmc.iter().all(|f| pmc_delta.contains_key(&StringBox(*f))) {
+                                    state.ucode_queue.pop();
+                                    continue;
+                                }
+                            }
+                        }
+                    }
+                    if no_crbus && instruction.opcode().is_group_MOVETOCREG() {
+                        continue;
+                    }
+
+                    let result = net_speculative_sample(
+                        net,
+                        [*instruction, Instruction::NOP, Instruction::NOP],
+                        SequenceWord::NOP,
+                        vec![
+                            x86_perf_counter::INSTRUCTIONS_RETIRED,
+                            x86_perf_counter::MS_DECODED_MS_ENTRY,
+                            x86_perf_counter::UOPS_ISSUED_ANY,
+                            x86_perf_counter::UOPS_RETIRED_ANY,
+                        ],
+                    )
+                    .await;
+
+                    let result = match result {
+                        ExecuteSampleResult::Timeout => {
+                            error!(
+                                "Timeout: {} : {:04x}",
+                                instruction.opcode(),
+                                instruction.assemble()
+                            );
+                            state.report.add_result(*instruction, SpecResult::Timeout);
+                            if let Err(err) = state.report.save_file(&report) {
+                                error!("Failed to save the report: {:?}", err);
+                            }
+                            return CommandExitResult::ForceReconnect;
+                        }
+                        ExecuteSampleResult::Rerun => {
+                            return CommandExitResult::Operational;
+                        }
+                        ExecuteSampleResult::Success(x) => x,
+                    };
+
+                    let mut pmc_delta = BTreeMap::new();
+                    for (i, value) in result.perf_counters.iter().enumerate() {
+                        if let Some(pmc_key) = pmc.get(i) {
+                            if let Some(baseline) = state.baseline.get(pmc_key) {
+                                let delta = *value as i64 - *baseline as i64;
+                                pmc_delta.insert(StringBox::from(pmc_key.clone()), delta);
+                            } else {
+                                error!("No baseline for pmc {pmc_key:?}");
+                            }
+                        } else {
+                            error!("unknown pmc index {i}")
+                        }
+                    }
+
+                    let arch_delta = result.arch_before.difference(&result.arch_after);
+
+                    if arch_delta.len() > 0 {
+                        error!(
+                            "Arch state mismatch: {} : {:04x}",
+                            instruction.opcode(),
+                            instruction.assemble()
+                        );
+                        for (name, before, after) in arch_delta.iter() {
+                            error!("Arch state mismatch: {}: {:?} -> {:?}", name, before, after);
+                        }
+                    }
+
+                    state.report.add_result(
+                        *instruction,
+                        SpecResult::Executed {
+                            pmc_delta,
+                            arch_delta: arch_delta
+                                .iter()
+                                .map(|(name, _, _)| name.to_string())
+                                .collect::<BTreeSet<String>>(),
+                        },
                     );
-                    state.report.add_result(instruction, SpecResult::Timeout);
+
                     if let Err(err) = state.report.save_file(&report) {
                         error!("Failed to save the report: {:?}", err);
                     }
-                    return CommandExitResult::ForceReconnect;
                 }
-                ExecuteSampleResult::Rerun => {
-                    state.ucode_queue.push(instruction);
-                    return CommandExitResult::Operational;
-                }
-                ExecuteSampleResult::Success(x) => x,
-            };
-
-            let pmc_delta = result
-                .perf_counters
-                .iter()
-                .zip(state.baseline.iter())
-                .zip([
-                    x86_perf_counter::INSTRUCTIONS_RETIRED,
-                    x86_perf_counter::MS_DECODED_MS_ENTRY,
-                    x86_perf_counter::UOPS_ISSUED_ANY,
-                    x86_perf_counter::UOPS_RETIRED_ANY,
-                ])
-                .map(|((result, baseline), key)| (key.into(), *result as i64 - *baseline as i64))
-                .collect::<BTreeMap<_, _>>();
-
-            if result.perf_counters != state.baseline {
-                if result.perf_counters[0] != state.baseline[0] {
-                    error!(
-                        "Perf counter mismatch: INSTRUCTIONS_RETIRED: {} -> {}",
-                        result.perf_counters[0], state.baseline[0]
-                    );
-                }
-                if result.perf_counters[1] != state.baseline[1] {
-                    error!(
-                        "Perf counter mismatch: MS_DECODED_MS_ENTRY: {} -> {}",
-                        result.perf_counters[1], state.baseline[1]
-                    );
-                }
-                if result.perf_counters[2] != state.baseline[2] {
-                    error!(
-                        "Perf counter mismatch: UOPS_ISSUED_ANY: {} -> {}",
-                        result.perf_counters[2], state.baseline[2]
-                    );
-                }
-                if result.perf_counters[3] != state.baseline[3] {
-                    error!(
-                        "Perf counter mismatch: UOPS_RETIRED_ANY: {} -> {}",
-                        result.perf_counters[3], state.baseline[3]
-                    );
-                }
-            }
-
-            let arch_delta = result.arch_before.difference(&result.arch_after);
-
-            if arch_delta.len() > 0 {
-                error!(
-                    "Arch state mismatch: {} : {:04x}",
-                    instruction.opcode(),
-                    instruction.assemble()
-                );
-                for (name, before, after) in arch_delta.iter() {
-                    error!("Arch state mismatch: {}: {:?} -> {:?}", name, before, after);
-                }
-            }
-
-            state.report.add_result(
-                instruction,
-                SpecResult::Executed {
-                    pmc_delta,
-                    arch_delta: arch_delta
-                        .iter()
-                        .map(|(name, _, _)| name.to_string())
-                        .collect::<BTreeSet<String>>(),
-                },
-            );
-
-            if let Err(err) = state.report.save_file(&report) {
-                error!("Failed to save the report: {:?}", err);
             }
         }
     }

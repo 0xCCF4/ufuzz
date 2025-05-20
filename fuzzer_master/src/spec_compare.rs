@@ -83,6 +83,7 @@ pub fn main() {
     println!("  Stable runs: {}", count_stable_run);
     println!("  Stable timeouts: {}", count_stable_timeout);
     println!("  Unstable: {}", count_unstable);
+    println!("  Total: {}", resulting_grade.len());
 
     if let Some(output_unstable) = args.output_unstable {
         let file = File::create(output_unstable).expect("Failed to create output file");
