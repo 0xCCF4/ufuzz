@@ -1,11 +1,11 @@
-use std::collections::VecDeque;
 use crate::database::Database;
 use crate::device_connection::DeviceConnection;
 use crate::fuzzer_node_bridge::FuzzerNodeInterface;
-use crate::net::{net_blacklist, net_execute_sample, net_fuzzing_pretext, ExecuteSampleResult};
+use crate::net::{net_execute_sample, net_fuzzing_pretext, ExecuteSampleResult};
 use crate::CommandExitResult;
 use iced_x86::{Decoder, DecoderOptions, Formatter, Instruction, NasmFormatter};
-use log::error;
+use log::{error, info};
+use std::collections::VecDeque;
 use std::io;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -17,7 +17,7 @@ pub enum ManualExecutionState {
     Started {
         output: Option<PathBuf>,
         samples: VecDeque<Vec<u8>>,
-    }
+    },
 }
 
 pub async fn main<A: AsRef<Path>, B: AsRef<Path>>(
@@ -63,11 +63,11 @@ pub async fn main<A: AsRef<Path>, B: AsRef<Path>>(
                 return CommandExitResult::ExitProgram;
             }
         }
-            .replace(|c: char| !c.is_ascii_hexdigit() && c != '\n', "");
+        .replace(|c: char| !c.is_ascii_hexdigit() && c != '\n', "");
 
         let mut queue = VecDeque::new();
 
-        fn push_sample(queue: &mut VecDeque<Vec<u8>>, sample: &str) -> CommandExitResult{
+        fn push_sample(queue: &mut VecDeque<Vec<u8>>, sample: &str) -> CommandExitResult {
             let actual_bytes = (0..sample.len())
                 .step_by(2)
                 .map(|i| u8::from_str_radix(&sample[i..i + 2], 16).unwrap())
@@ -86,30 +86,24 @@ pub async fn main<A: AsRef<Path>, B: AsRef<Path>>(
             for sample in input_buf.split('\n') {
                 let result = push_sample(&mut queue, sample);
                 if !matches!(result, CommandExitResult::Operational) {
-                    return result
+                    return result;
                 }
             }
         } else {
             let sample = input_buf.replace('\n', "");
             let result = push_sample(&mut queue, &sample);
             if !matches!(result, CommandExitResult::Operational) {
-                return result
+                return result;
             }
         }
 
         *state = ManualExecutionState::Started {
-            output: output.as_ref().map(|x|x.as_ref().to_path_buf()),
+            output: output.as_ref().map(|x| x.as_ref().to_path_buf()),
             samples: queue,
         };
     }
 
-    let result = net_fuzzing_pretext(
-        udp,
-        db,
-        &mut None,
-        &mut None,
-    )
-        .await;
+    let result = net_fuzzing_pretext(udp, db, &mut None, &mut None).await;
     if result != CommandExitResult::Operational {
         return result;
     }
@@ -122,6 +116,7 @@ pub async fn main<A: AsRef<Path>, B: AsRef<Path>>(
     };
 
     while let Some(sample) = state.1.front() {
+        info!("Sample queue size: {}", state.1.len());
         let (result, events) = match net_execute_sample(udp, interface, db, &sample).await {
             ExecuteSampleResult::Timeout => return CommandExitResult::RetryOrReconnect,
             ExecuteSampleResult::Rerun => return CommandExitResult::Operational,
@@ -151,27 +146,27 @@ pub async fn main<A: AsRef<Path>, B: AsRef<Path>>(
                 .iter()
                 .filter(|e| {
                     matches!(
-                    e,
-                    fuzzer_data::ReportExecutionProblem::SerializedMismatch { .. }
-                )
+                        e,
+                        fuzzer_data::ReportExecutionProblem::SerializedMismatch { .. }
+                    )
                 })
                 .count();
             let count_trace_mismatch = events
                 .iter()
                 .filter(|e| {
                     matches!(
-                    e,
-                    fuzzer_data::ReportExecutionProblem::StateTraceMismatch { .. }
-                )
+                        e,
+                        fuzzer_data::ReportExecutionProblem::StateTraceMismatch { .. }
+                    )
                 })
                 .count();
             let count_coverage_mismatch = events
                 .iter()
                 .filter(|e| {
                     matches!(
-                    e,
-                    fuzzer_data::ReportExecutionProblem::CoverageProblem { .. }
-                )
+                        e,
+                        fuzzer_data::ReportExecutionProblem::CoverageProblem { .. }
+                    )
                 })
                 .count();
             let other = events.len()
@@ -212,8 +207,6 @@ pub async fn main<A: AsRef<Path>, B: AsRef<Path>>(
             }
         }
     }
-
-
 
     CommandExitResult::ExitProgram
 }

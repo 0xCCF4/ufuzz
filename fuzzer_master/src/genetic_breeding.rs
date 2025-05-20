@@ -40,6 +40,7 @@ pub async fn main(
     database: &mut Database,
     state: &mut BreedingState,
     corpus: Option<&Vec<CorpusInstruction>>,
+    fuzzing_feedback: bool,
 ) -> CommandExitResult {
     // device is either restarted or new experimentation run
 
@@ -142,7 +143,7 @@ pub async fn main(
 
             state
                 .genetic_pool
-                .evolution(state.random_source.as_mut().unwrap());
+                .evolution(state.random_source.as_mut().unwrap(), fuzzing_feedback);
             state.evolution += 1;
 
             info!("Evolution: {}", state.evolution);

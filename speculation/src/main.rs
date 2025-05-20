@@ -14,8 +14,8 @@ use custom_processing_unit::{
 use data_types::addresses::MSRAMHookIndex;
 use log::info;
 use speculation::{
-    BRANCH_MISSES_RETIRED, INSTRUCTIONS_RETIRED, MS_DECODED_MS_ENTRY,
-    UOPS_ISSUED_ANY, UOPS_RETIRED_ANY, patches,
+    BRANCH_MISSES_RETIRED, INSTRUCTIONS_RETIRED, MS_DECODED_MS_ENTRY, UOPS_ISSUED_ANY,
+    UOPS_RETIRED_ANY, patches,
 };
 use uefi::{Status, entry, print, println};
 use x86_perf_counter::PerformanceCounter;

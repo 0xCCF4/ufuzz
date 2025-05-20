@@ -2547,9 +2547,7 @@ rec {
             packageId = "x86_perf_counter";
           }
         ];
-        features = {
-        };
-        resolvedDefaultFeatures = [ "__no_coverage_feedback" ];
+
       };
       "fuzzer_device" = rec {
         crateName = "fuzzer_device";
@@ -2707,6 +2705,11 @@ rec {
             path = "src/main_viewer.rs";
             requiredFeatures = [ ];
           }
+          {
+            name = "spec_viewer";
+            path = "src/spec_viewer.rs";
+            requiredFeatures = [ ];
+          }
         ];
         src = lib.cleanSourceWith { filter = sourceFilter;  src = ./fuzzer_master; };
         dependencies = [
@@ -2804,9 +2807,8 @@ rec {
           }
         ];
         features = {
-          "__no_coverage_feedback" = [ "fuzzer_data/__no_coverage_feedback" ];
         };
-        resolvedDefaultFeatures = [ "__debug_only_below_0x1000" "__no_coverage_feedback" ];
+        resolvedDefaultFeatures = [ "__debug_only_below_0x1000" ];
       };
       "fuzzer_node" = rec {
         crateName = "fuzzer_node";

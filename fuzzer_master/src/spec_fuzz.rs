@@ -8,7 +8,8 @@ use log::{error, info};
 use rand::{random, SeedableRng};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::{BTreeMap, BTreeSet};
-use std::io::{BufReader, BufWriter};
+use std::fs::File;
+use std::io::{BufReader, BufWriter, Read};
 use std::path::Path;
 use ucode_compiler_dynamic::instruction::Instruction;
 use ucode_compiler_dynamic::opcodes::Opcode;
@@ -24,6 +25,15 @@ pub enum SpecResult {
     },
 }
 
+impl SpecResult {
+    pub fn is_same_kind(&self, other: &Self) -> bool {
+        match (self, other) {
+            (SpecResult::Timeout, SpecResult::Timeout) => true,
+            (SpecResult::Executed { .. }, SpecResult::Executed { .. }) => true,
+            _ => false,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]
 pub struct StringBox<T>(pub T);
@@ -33,7 +43,13 @@ impl Serialize for StringBox<Instruction> {
     where
         S: Serializer,
     {
-        format!("{}|{}|{:x}", self.0.assemble_no_crc(), self.0.opcode(), self.0.assemble_no_crc()).serialize(serializer)
+        format!(
+            "{}|{}|{:x}",
+            self.0.assemble_no_crc(),
+            self.0.opcode(),
+            self.0.assemble_no_crc()
+        )
+        .serialize(serializer)
     }
 }
 
@@ -54,7 +70,9 @@ impl Serialize for StringBox<PerfEventSpecifier> {
     where
         S: Serializer,
     {
-        serde_json::to_string(&self.0).map_err(serde::ser::Error::custom)?.serialize(serializer)
+        serde_json::to_string(&self.0)
+            .map_err(serde::ser::Error::custom)?
+            .serialize(serializer)
     }
 }
 
@@ -64,8 +82,8 @@ impl<'de> Deserialize<'de> for StringBox<PerfEventSpecifier> {
         D: Deserializer<'de>,
     {
         let text = String::deserialize(deserializer)?;
-        let val = serde_json::from_str::<PerfEventSpecifier>(&text)
-            .map_err(serde::de::Error::custom)?;
+        let val =
+            serde_json::from_str::<PerfEventSpecifier>(&text).map_err(serde::de::Error::custom)?;
         Ok(StringBox(val))
     }
 }
@@ -170,7 +188,7 @@ pub struct SpecFuzzMutState {
     report: SpecReport,
 }
 
-pub async fn main<A: AsRef<Path>>(
+pub async fn main<A: AsRef<Path>, B: AsRef<Path>>(
     net: &mut DeviceConnection,
     database: &mut Database,
     state: &mut SpecFuzzMutState,
@@ -178,6 +196,7 @@ pub async fn main<A: AsRef<Path>>(
     all: bool,
     skip: bool,
     no_crbus: bool,
+    exclude: Option<B>,
 ) -> CommandExitResult {
     // device is either restarted or new experimentation run
 
@@ -199,7 +218,11 @@ pub async fn main<A: AsRef<Path>>(
     if state.fsm == FSM::Uninitialized {
         let result = net_speculative_sample(
             net,
-            [Instruction::from_opcode(Opcode::ADD_DSZ32), Instruction::NOP, Instruction::NOP],
+            [
+                Instruction::from_opcode(Opcode::ADD_DSZ32),
+                Instruction::NOP,
+                Instruction::NOP,
+            ],
             SequenceWord::NOP,
             vec![
                 x86_perf_counter::INSTRUCTIONS_RETIRED,
@@ -223,27 +246,61 @@ pub async fn main<A: AsRef<Path>>(
         let instructions = ucode_dump::dump::ROM_cpu_000506CA
             .instructions()
             .iter()
-            .map(|x| if all {
-                Instruction::disassemble(*x)
-            } else {
-                Instruction::from_opcode(Instruction::disassemble(*x).opcode())
+            .map(|x| {
+                if all {
+                    Instruction::disassemble(*x)
+                } else {
+                    Instruction::from_opcode(Instruction::disassemble(*x).opcode())
+                }
             })
             .chain(
                 ucode_dump::dump::ROM_cpu_000506C9
                     .instructions()
                     .iter()
-                    .map(|x| if all {
-                        Instruction::disassemble(*x)
-                    } else {
-                        Instruction::from_opcode(Instruction::disassemble(*x).opcode())
+                    .map(|x| {
+                        if all {
+                            Instruction::disassemble(*x)
+                        } else {
+                            Instruction::from_opcode(Instruction::disassemble(*x).opcode())
+                        }
                     }),
             )
             .unique()
-            .sorted_by_key(|x|x.assemble_no_crc());
+            .sorted_by_key(|x| x.assemble_no_crc());
+
+        let excluded = match exclude {
+            None => vec![],
+            Some(exclude) => {
+                let mut excluded_text = String::new();
+                File::open(exclude)
+                    .expect("File exclude does not exists")
+                    .read_to_string(&mut excluded_text)
+                    .expect("Failed to read exclude file");
+                let lines = excluded_text.lines();
+
+                let mut result = Vec::new();
+                for line in lines {
+                    if line.is_empty() {
+                        continue;
+                    }
+                    let before_first_comma = line
+                        .split(',')
+                        .next()
+                        .map(|v| v.to_string())
+                        .unwrap_or(line.to_string());
+                    let parsed_hex_num = u64::from_str_radix(&before_first_comma, 16)
+                        .expect("Non hex number in exclude file");
+                    let instruction = Instruction::from(parsed_hex_num);
+                    result.push(instruction);
+                }
+                result
+            }
+        };
+
         for instruction in instructions {
-            state
-                .ucode_queue
-                .push(instruction);
+            if !excluded.contains(&instruction) {
+                state.ucode_queue.push(instruction);
+            }
         }
 
         state.fsm = FSM::Running;

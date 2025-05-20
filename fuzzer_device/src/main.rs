@@ -849,6 +849,7 @@ fn prepare_gdb() {
     }
 }
 
+#[derive(Debug, Default)]
 struct ExcludedAddresses {
     addresses: BTreeSet<u16>,
 }

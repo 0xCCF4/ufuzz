@@ -4,11 +4,11 @@ extern crate alloc;
 extern crate core;
 
 use crate::instruction::Instruction;
+use crate::opcodes::Opcode;
 use crate::sequence_word::{DisassembleError, SequenceWord};
 use core::fmt;
 use core::fmt::{Display, Formatter};
 use data_types::addresses::UCInstructionAddress;
-use crate::opcodes::Opcode;
 
 pub mod instruction;
 pub mod opcodes;
@@ -98,7 +98,7 @@ pub enum ControlFlow {
         mode: ControlFlowNextMode,
         target: UCInstructionAddress,
     },
-    
+
     ConditionalBranch {
         prediction: ControlFlowBranchPrediction,
         taken: Option<UCInstructionAddress>, // set if immediate
@@ -108,8 +108,8 @@ pub enum ControlFlow {
         prediction: ControlFlowBranchPrediction,
         next: Option<UCInstructionAddress>, // set if immediate
     },
-    
-    Unknown
+
+    Unknown,
 }
 
 impl Opcode {

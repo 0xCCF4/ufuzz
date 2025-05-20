@@ -15,16 +15,19 @@ use alloc::vec::Vec;
 use alloc::{format, vec};
 use core::arch::asm;
 use core::mem;
-use custom_processing_unit::{apply_ldat_read_func, ms_patch_instruction_read, ms_patch_instruction_write, patch_ucode, HookGuard};
+use custom_processing_unit::{
+    apply_ldat_read_func, ms_patch_instruction_read, ms_patch_instruction_write, patch_ucode,
+    HookGuard,
+};
+use data_types::addresses::Address;
 use fuzzer_data::SpeculationResult;
 use hypervisor::state::GuestRegisters;
 use itertools::Itertools;
 use log::{trace, Level};
-use uefi::println;
 use ucode_compiler_dynamic::instruction::Instruction;
 use ucode_compiler_dynamic::sequence_word::SequenceWord;
+use uefi::println;
 use x86::msr::{IA32_PERFEVTSEL0, IA32_PERFEVTSEL1, IA32_PERFEVTSEL2, IA32_PERFEVTSEL3};
-use data_types::addresses::Address;
 use x86_perf_counter::{PerfEventSpecifier, PerformanceCounter};
 
 pub fn check_if_pmc_stable(
@@ -70,7 +73,11 @@ pub fn execute_speculation(
             triad[0].assemble()
         ),
     );
-    trace!("Execute speculation: {} {:04x}", triad[0].opcode(), triad[0].assemble());
+    trace!(
+        "Execute speculation: {} {:04x}",
+        triad[0].opcode(),
+        triad[0].assemble()
+    );
 
     let sequence_word = match sequence_word.assemble() {
         Ok(word) => word,
@@ -87,9 +94,14 @@ pub fn execute_speculation(
         }
     };
 
-    ms_patch_instruction_write(patches::patch::LABEL_SPECULATIVE_WINDOW, triad[0].assemble() as usize);
+    ms_patch_instruction_write(
+        patches::patch::LABEL_SPECULATIVE_WINDOW,
+        triad[0].assemble() as usize,
+    );
 
-    unsafe { asm!("rdseed rax", out("rax")_); }
+    unsafe {
+        asm!("rdseed rax", out("rax")_);
+    }
 
     let perf_counter_setup: [Option<PerfEventSpecifier>; 4] = {
         let mut setup = perf_counter_setup.into_iter().map(Some).collect::<Vec<_>>();

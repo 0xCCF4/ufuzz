@@ -3,9 +3,6 @@ name = "fuzzer_data"
 version = "0.1.0"
 edition = "2021"
 
-[features]
-__no_coverage_feedback = []
-
 [dependencies]
 serde = { version = "1.0.218", features = ["alloc", "derive"], default-features = false }
 hypervisor = { path = "../hypervisor" }

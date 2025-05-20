@@ -1,7 +1,8 @@
 use clap::Parser;
-use coverage::harness::coverage_harness::hookable_address_iterator::HookableAddressIterator;
-use coverage::harness::coverage_harness::modification_engine::ModificationEngineSettings;
-use data_types::addresses::Address;
+use coverage::harness::coverage_harness::modification_engine::{
+    modify_triad_for_hooking, ModificationEngineSettings,
+};
+use data_types::addresses::UCInstructionAddress;
 use fuzzer_master::database::{CodeEvent, Timestamp};
 use hypervisor::state::{StateDifference, VmExitReason};
 use itertools::Itertools;
@@ -144,13 +145,15 @@ pub fn main() {
                 coverage_state,
             } = event
             {
-                if matches!(coverage_exit, Some(VmExitReason::TimerExpiration)) | matches!(result.exit, VmExitReason::TimerExpiration) {
-                    continue
+                if matches!(coverage_exit, Some(VmExitReason::TimerExpiration))
+                    | matches!(result.exit, VmExitReason::TimerExpiration)
+                {
+                    continue;
                 }
-                
+
                 *problematic_addresses.entry(*address).or_insert(0) += 1u32;
                 problematic_samples.insert(result.code.clone());
-                
+
                 println!("Sample: {}", code_to_hex_string(result.code.as_slice()));
                 println!("Coverage problem at address {:#x}", address);
 
@@ -169,7 +172,7 @@ pub fn main() {
             }
         }
     }
-    
+
     println!("\n\nProblematic Addresses:");
     let mut sorted_addresses: Vec<_> = problematic_addresses.iter().collect();
     sorted_addresses.sort_by(|a, b| b.1.cmp(a.1));
@@ -177,25 +180,40 @@ pub fn main() {
     for (address, count) in sorted_addresses {
         println!(" - {:#x}: {}", address, count);
     }
-    
+
     println!("\n\nProblematic samples:");
     for result in problematic_samples {
         println!(" {}", code_to_hex_string(result.as_slice()));
     }
 
     println!("\n\nCoverage summary:");
-    let possible_cov_points = HookableAddressIterator::construct(
-        &ucode_dump::dump::ROM_cpu_000506CA,
-        &ModificationEngineSettings::default(),
-        1,
-        |a| {
-            db.data
-                .blacklisted_addresses
-                .iter()
-                .all(|b| a.address() != b.address as usize)
-                && (a.address() < 0x1000 || !cfg!(feature = "__debug_only_below_0x1000"))
-        },
-    );
+    let mut total_addresses_hookable = 0;
+    for i in 0..0x7c00 {
+        let address = UCInstructionAddress::from_const(i);
+        if address.triad_offset() != 0 {
+            continue;
+        }
+
+        let low_hookable = modify_triad_for_hooking(
+            address.triad_base(),
+            &ucode_dump::dump::ROM_cpu_000506CA,
+            &ModificationEngineSettings::default(),
+        )
+        .is_ok();
+        let high_hookable = modify_triad_for_hooking(
+            address.triad_base() + 2,
+            &ucode_dump::dump::ROM_cpu_000506CA,
+            &ModificationEngineSettings::default(),
+        )
+        .is_ok();
+
+        if low_hookable {
+            total_addresses_hookable += 2;
+        }
+        if high_hookable {
+            total_addresses_hookable += 1;
+        }
+    }
     let mut coverage = BTreeSet::new();
     for result in &db.data.results {
         for cov in result.coverage.iter().filter(|x| *x.1 > 0) {
@@ -218,10 +236,13 @@ pub fn main() {
         coverage.len(),
         coverage_normalized.len()
     );
-    println!(" - Possible coverage points: {}", possible_cov_points.len());
+    println!(
+        " - Possible coverage addresses: {}",
+        total_addresses_hookable
+    );
     println!(
         " - Percentage: {:.2}%",
-        coverage.len() as f64 / possible_cov_points.len() as f64 * 100.0
+        coverage.len() as f64 / total_addresses_hookable as f64 * 100.0
     );
 
     let seeds = db
@@ -364,7 +385,8 @@ pub fn main() {
             .expect("Could not open file");
         let mut writer_time = BufWriter::new(file_time);
 
-        let total_cov_file = std::fs::File::create(file.with_extension("total_cov.csv")).expect("Could not open file");
+        let total_cov_file = std::fs::File::create(file.with_extension("total_cov.csv"))
+            .expect("Could not open file");
         let mut total_cov_file = BufWriter::new(total_cov_file);
 
         for c in 0..0x7c00u16 {
@@ -380,7 +402,8 @@ pub fn main() {
             for sample in db.data.results.iter() {
                 total_coverage += *sample.coverage.get(&c).unwrap_or(&0) as u64;
             }
-            writeln!(&mut total_cov_file, "{c}, {total_coverage}").expect("Could not write to file");
+            writeln!(&mut total_cov_file, "{c}, {total_coverage}")
+                .expect("Could not write to file");
         }
     }
 }

@@ -1,9 +1,7 @@
 use crate::instruction_corpus::CorpusInstruction;
 use alloc::vec::Vec;
 use core::cmp::Ordering;
-#[cfg(feature = "__no_coverage_feedback")]
 use log::warn;
-#[cfg(feature = "__no_coverage_feedback")]
 use rand::prelude::SliceRandom;
 use rand_core::RngCore;
 use serde::{Deserialize, Serialize};
@@ -77,15 +75,11 @@ impl GeneticPool {
     pub fn all_samples_mut(&mut self) -> &mut [Sample] {
         &mut self.population
     }
-    pub fn evolution<R: RngCore>(&mut self, random: &mut R) {
-        #[cfg(not(feature = "__no_coverage_feedback"))]
-        {
+    pub fn evolution<R: RngCore>(&mut self, random: &mut R, fuzzing_feedback: bool) {
+        if fuzzing_feedback {
             self.population.sort();
             self.population.reverse();
-        }
-
-        #[cfg(feature = "__no_coverage_feedback")]
-        {
+        } else {
             self.population.shuffle(random);
             warn!("Using random population shuffel!");
         }

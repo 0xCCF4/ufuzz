@@ -6,6 +6,7 @@ use fuzzer_master::device_connection::DeviceConnection;
 use fuzzer_master::fuzzer_node_bridge::FuzzerNodeInterface;
 use fuzzer_master::genetic_breeding::BreedingState;
 use fuzzer_master::instruction_mutations::InstructionMutState;
+use fuzzer_master::manual_execution::ManualExecutionState;
 use fuzzer_master::net::{net_reboot_device, net_receive_performance_timing, ExecuteSampleResult};
 use fuzzer_master::spec_fuzz::SpecFuzzMutState;
 use fuzzer_master::{
@@ -19,21 +20,21 @@ use performance_timing::{track_time, TimeMeasurement};
 use std::io;
 use std::io::Write;
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::Instant;
-use fuzzer_master::manual_execution::ManualExecutionState;
 use ucode_compiler_dynamic::instruction::Instruction;
 use ucode_compiler_dynamic::sequence_word::SequenceWord;
 
 pub mod main_compare;
 pub mod main_viewer;
 
-pub const DATABASE_FILE: &str = "database.json";
-
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
+    #[arg(short, long)]
+    database: Option<PathBuf>,
     #[command(subcommand)]
     cmd: Cmd,
 }
@@ -41,7 +42,12 @@ struct Args {
 #[derive(Subcommand, Debug, Clone)]
 enum Cmd {
     Genetic {
+        #[arg(short, long)]
         corpus: Option<PathBuf>,
+        #[arg(short, long)]
+        timeout_hours: Option<u32>,
+        #[arg(short, long)]
+        disable_feedback: bool,
     },
     InstructionMutation,
     Init,
@@ -56,6 +62,8 @@ enum Cmd {
         skip: bool,
         #[arg(short, long)]
         no_crbus: bool,
+        #[arg(short, long)]
+        exclude: Option<PathBuf>,
     },
     SpecManual {
         #[arg(short, long)]
@@ -87,10 +95,14 @@ async fn main() {
         return;
     }
 
-    let mut database = fuzzer_master::database::Database::from_file(DATABASE_FILE).map_or_else(
+    let database_file = args
+        .database
+        .unwrap_or(PathBuf::from_str("database.json").unwrap());
+
+    let mut database = fuzzer_master::database::Database::from_file(&database_file).map_or_else(
         |e| {
             if e.kind() == std::io::ErrorKind::NotFound {
-                let db = Database::empty(DATABASE_FILE);
+                let db = Database::empty(&database_file);
                 return db;
             }
             println!("Failed to load the database: {:?}", e);
@@ -101,7 +113,7 @@ async fn main() {
             io::stdin().read_line(&mut input).unwrap();
 
             if input.trim().eq_ignore_ascii_case("y") {
-                let db = Database::empty(DATABASE_FILE);
+                let db = Database::empty(&database_file);
                 db
             } else {
                 std::process::exit(1);
@@ -114,7 +126,12 @@ async fn main() {
     let interface = Arc::new(FuzzerNodeInterface::new("http://10.83.3.198:8000"));
     let mut udp = DeviceConnection::new("10.83.3.6:4444").await.unwrap();
 
-    let corpus_vec = if let Cmd::Genetic { corpus } = &args.cmd {
+    let corpus_vec = if let Cmd::Genetic {
+        corpus,
+        timeout_hours: _,
+        disable_feedback: _,
+    } = &args.cmd
+    {
         if let Some(corpus) = corpus {
             let file_reader = match std::fs::File::open(&corpus) {
                 Ok(f) => f,
@@ -202,6 +219,8 @@ async fn main() {
     let mut continue_count = 0;
     let mut last_time_perf_from_device = Instant::now() - Duration::from_secs(1000000);
 
+    let start_time = Instant::now();
+
     loop {
         let timing = TimeMeasurement::begin("host::main_loop");
 
@@ -210,7 +229,18 @@ async fn main() {
         });
 
         let result = match &args.cmd {
-            Cmd::Genetic { corpus } => {
+            Cmd::Genetic {
+                corpus,
+                timeout_hours,
+                disable_feedback,
+            } => {
+                if let Some(timeout) = timeout_hours {
+                    if start_time.elapsed().as_secs_f64() / (60.0 * 60.0) > *timeout as f64 {
+                        info!("Timeout reached!");
+                        break;
+                    }
+                }
+
                 let _timing = TimeMeasurement::begin("host::fuzzing_loop");
                 if corpus.is_some() && corpus_vec.is_none() {
                     error!("Corpus file is not loaded");
@@ -222,6 +252,7 @@ async fn main() {
                     &mut database,
                     &mut state_breeding,
                     corpus.as_ref().map(|_v| corpus_vec.as_ref().unwrap()),
+                    !disable_feedback,
                 )
                 .await
             }
@@ -235,9 +266,25 @@ async fn main() {
                 )
                 .await
             }
-            Cmd::Spec { report, all, skip, no_crbus } => {
+            Cmd::Spec {
+                report,
+                all,
+                skip,
+                no_crbus,
+                exclude,
+            } => {
                 let _timing = TimeMeasurement::begin("host::spec_fuzz_loop");
-                spec_fuzz::main(&mut udp, &mut database, &mut state_spec_fuzz, &report, *all, *skip, *no_crbus).await
+                spec_fuzz::main(
+                    &mut udp,
+                    &mut database,
+                    &mut state_spec_fuzz,
+                    &report,
+                    *all,
+                    *skip,
+                    *no_crbus,
+                    exclude.as_ref(),
+                )
+                .await
             }
             Cmd::SpecManual {
                 instruction,
@@ -386,16 +433,18 @@ async fn main() {
                     &mut database,
                     &input,
                     if !bulk {
-                        Some(output
-                            .as_ref()
-                            .map(|v| v.clone())
-                            .unwrap_or(input.with_extension("out")))
+                        Some(
+                            output
+                                .as_ref()
+                                .map(|v| v.clone())
+                                .unwrap_or(input.with_extension("out")),
+                        )
                     } else {
                         output.as_ref().map(|v| v.clone())
                     },
                     *overwrite,
                     *bulk,
-                    &mut state_manual_execution
+                    &mut state_manual_execution,
                 )
                 .await
             }
