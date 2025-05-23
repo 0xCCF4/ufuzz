@@ -47,4 +47,8 @@ path = "src/main_combine.rs"
 
 [[bin]]
 name = "spec_compare"
-path = "src/spec_compare.rs"
+path = "src/main_spec_compare.rs"
+
+[[bin]]
+name = "spec_new_database"
+path = "src/main_spec_new_database.rs"

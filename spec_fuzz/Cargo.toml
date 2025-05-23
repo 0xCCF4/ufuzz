@@ -23,6 +23,7 @@ ucode_compiler_dynamic = { path = "../ucode_compiler_dynamic" }
 x86_perf_counter = { path = "../x86_perf_counter" }
 custom_processing_unit = {path = "../custom_processing_unit", features = ["nostd"]}
 hypervisor = { path = "../hypervisor" }
+coverage = { path = "../coverage", features = ["nostd", "uefi"] }
 
 [build-dependencies]
 ucode_compiler_bridge = { path = "../ucode_compiler_bridge" }

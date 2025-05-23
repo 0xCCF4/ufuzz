@@ -90,7 +90,17 @@ fn main() {
 
 fn main_control_remote(args: Vec<String>) {
     let host_node = env::var("HOST_NODE").unwrap_or("10.0.0.10".to_string());
+    let ssh_args = match env::var("SSH_ARGS") {
+        Ok(args) => args
+            .split_whitespace()
+            .clone()
+            .into_iter()
+            .map(str::to_string)
+            .collect(),
+        Err(_) => Vec::new(),
+    };
     let mut ssh = Command::new("ssh")
+        .args(ssh_args)
         .arg(format!("thesis@{host_node}").as_str())
         .stdin(Stdio::piped())
         .spawn()
@@ -116,6 +126,24 @@ fn main_control_remote(args: Vec<String>) {
 }
 
 fn main_put_remote(name: &str, startup: bool, release: bool) {
+    let ssh_args = match env::var("SSH_ARGS") {
+        Ok(args) => args
+            .split_whitespace()
+            .clone()
+            .into_iter()
+            .map(str::to_string)
+            .collect(),
+        Err(_) => Vec::new(),
+    };
+    let sftp_args = match env::var("SFTP_ARGS") {
+        Ok(args) => args
+            .split_whitespace()
+            .clone()
+            .into_iter()
+            .map(str::to_string)
+            .collect(),
+        Err(_) => Vec::new(),
+    };
     let (name, path) = if name == "corpus" {
         let project_root = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
         let project_root = project_root.parent().unwrap().to_path_buf();
@@ -171,6 +199,7 @@ fn main_put_remote(name: &str, startup: bool, release: bool) {
 
     println!("Pushing {} to the remote", name);
     let mut sftp = Command::new("sftp")
+        .args(sftp_args)
         .arg(&format!("thesis@{}:/tmp", host_node.as_str()))
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
@@ -184,6 +213,7 @@ fn main_put_remote(name: &str, startup: bool, release: bool) {
     let _status = sftp.wait().expect("Failed to wait on sftp");
 
     let mut ssh = Command::new("ssh")
+        .args(ssh_args)
         .arg(&format!("thesis@{}", host_node.as_str()))
         .stdin(Stdio::piped())
         .spawn()
@@ -412,9 +442,9 @@ fn build_app(project: &str, release: bool, device: bool) -> Result<PathBuf, DynE
             "uefi",
         ]);
         "examples/test_exp_hook_even"
-    } else if project == "speculation" {
-        status.args(["-p", "speculation"]);
-        "speculation"
+    } else if project == "speculation_x86" {
+        status.args(["-p", "speculation_x86"]);
+        "speculation_x86"
     } else {
         status.args(["-p", project]);
         project

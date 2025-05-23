@@ -1,0 +1,30 @@
+.org 7c00
+
+<entry>
+tmp2 := ZEROEXT_DSZ64(0xabab)
+tmp0 := ZEROEXT_DSZ64(0x1000)
+tmp1 := LDPPHYS_DSZ32_ASZ16_SC1(tmp0)
+tmp0 := SUB_DSZ64(tmp0, tmp1) # change tmp1 -> 0x1010 to remove dependency
+
+UJMPCC_DIRECT_NOTTAKEN_CONDNZ(tmp0, <taken>)
+<speculative_window>
+NOPB
+
+rax := ZEROEXT_DSZ64(0xdead) SEQW SYNCFULL, UEND0
+
+NOPB
+
+<taken>
+unk_256() !m1 SEQW LFNCEWAIT, UEND0
+
+NOP
+NOP
+NOP
+
+
+<syncfull>
+unk_256() !m1 SEQW SYNCFULL, UEND0
+
+NOP
+NOP
+NOP

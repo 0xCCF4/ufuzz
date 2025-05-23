@@ -68,13 +68,13 @@ pub fn execute_speculation(
     let _ = udp.log_reliable(
         Level::Info,
         format!(
-            "execute speculation: {} {:04x}",
+            "execute speculation_x86: {} {:04x}",
             triad[0].opcode(),
             triad[0].assemble()
         ),
     );
     trace!(
-        "Execute speculation: {} {:04x}",
+        "Execute speculation_x86: {} {:04x}",
         triad[0].opcode(),
         triad[0].assemble()
     );
@@ -100,7 +100,7 @@ pub fn execute_speculation(
     );
 
     unsafe {
-        asm!("rdseed rax", out("rax")_);
+        asm!("rdseed rax", out("rax")_); // SYNCFULL
     }
 
     let perf_counter_setup: [Option<PerfEventSpecifier>; 4] = {
@@ -238,6 +238,9 @@ fn collect_perf_counters_values(
         "pop rdx",
         "pop rcx",
         "pop rax",
+
+        // invalidate caches
+        "wbinvd",
 
         // SYNCFULL
         "rdseed rax",
@@ -626,8 +629,6 @@ fn collect_perf_counters_values(
         msr_sel_offset3 = const IA32_PERFEVTSEL3,
         );
     }
-
-    final_state.rflags = initial_state.rflags; // todo
 
     guard.restore();
 

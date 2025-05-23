@@ -9,6 +9,7 @@ extern crate alloc;
 
 use alloc::format;
 use alloc::string::ToString;
+use coverage::page_allocation::PageAllocation;
 use custom_processing_unit::{
     apply_hook_patch_func, apply_patch, hook, CustomProcessingUnit, HookGuard,
 };
@@ -21,6 +22,8 @@ use spec_fuzz::controller_connection::{ConnectionSettings, ControllerConnection}
 use spec_fuzz::{check_if_pmc_stable, execute_speculation, patches};
 use uefi::{entry, println, Status};
 use uefi_raw::table::runtime::ResetType;
+use uefi_raw::PhysicalAddress;
+use x86::apic::DestinationMode::Physical;
 use x86::cpuid::cpuid;
 use x86_perf_counter::PerformanceCounter;
 
@@ -30,6 +33,17 @@ unsafe fn main() -> Status {
 
     uefi::helpers::init().unwrap();
     println!("Hello world!");
+
+    let allocation = PageAllocation::alloc_address(PhysicalAddress::from(0x1000u64), 1);
+    match &allocation {
+        Err(err) => {
+            error!("Failed to allocate page: {:?}", err);
+        }
+        Ok(page) => {
+            trace!("Page allocated successfully");
+            page.ptr().cast::<u16>().write(0x1234);
+        }
+    }
 
     let mut cpu = match CustomProcessingUnit::new() {
         Ok(x) => x,
@@ -94,6 +108,10 @@ unsafe fn main() -> Status {
 
     if let Err(err) = udp.send(OtaD2CTransport::ResetSession) {
         error!("Failed to send reset-session: {:?}", err);
+    }
+
+    if let Err(err) = &allocation {
+        let _ = udp.log_reliable(Level::Error, format!("Failed to allocate page: {:?}", err));
     }
 
     trace!("Waiting for command...");
@@ -185,10 +203,10 @@ unsafe fn main() -> Status {
                 let result =
                     execute_speculation(&mut udp, triad, sequence_word, perf_counter_setup);
                 if let Err(err) = udp.send(OtaD2CTransport::UCodeSpeculationResult(result)) {
-                    error!("Failed to speculation results: {:?}", err);
+                    error!("Failed to speculation_x86 results: {:?}", err);
                     let _ = udp.log_reliable(
                         Level::Error,
-                        format!("Failed to speculation results: {:?}", err),
+                        format!("Failed to speculation_x86 results: {:?}", err),
                     );
                 }
             }

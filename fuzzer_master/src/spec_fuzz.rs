@@ -4,10 +4,10 @@ use crate::net::{net_speculative_sample, ExecuteSampleResult};
 use crate::CommandExitResult;
 use hypervisor::state::StateDifference;
 use itertools::Itertools;
-use log::{error, info};
+use log::{error, info, trace};
 use rand::{random, SeedableRng};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Read};
 use std::path::Path;
@@ -99,6 +99,8 @@ pub struct SpecReport {
     pub opcodes: BTreeMap<StringBox<Instruction>, SpecResult>,
     #[serde(default)]
     pub pmc_blacklist_event_select: BTreeSet<u8>,
+    #[serde(default)]
+    pub pmc_baseline: BTreeMap<StringBox<PerfEventSpecifier>, u64>,
 }
 
 impl SpecReport {
@@ -106,6 +108,7 @@ impl SpecReport {
         Self {
             opcodes: BTreeMap::new(),
             pmc_blacklist_event_select: BTreeSet::new(),
+            pmc_baseline: BTreeMap::default(),
         }
     }
 
@@ -194,8 +197,30 @@ pub struct SpecFuzzMutState {
 
     baseline: BTreeMap<PerfEventSpecifier, u64>,
 
-    pmc_queue: Vec<Vec<PerfEventSpecifier>>,
-    ucode_queue: Vec<Instruction>,
+    pmc_queue: VecDeque<Vec<PerfEventSpecifier>>,
+    ucode_queue: VecDeque<Instruction>,
+
+    expected_rflags: u64,
+}
+
+pub fn copy_database_template<A: AsRef<Path>, B: AsRef<Path>>(source_path: A, target_path: B) {
+    let mut report = SpecReport::load_file(source_path.as_ref()).unwrap_or_else(|e| {
+        error!("Failed to load database: {}", e);
+        SpecReport::default()
+    });
+
+    if target_path.as_ref().exists() {
+        error!("Target path already exists: {:?}", target_path.as_ref());
+        return;
+    }
+
+    File::create(target_path.as_ref()).expect("Failed to create target file");
+    report.opcodes.clear();
+    if let Err(err) = report.save_file(target_path.as_ref()) {
+        error!("Failed to save the report: {:?}", err);
+    } else {
+        info!("Database template copied to {:?}", target_path.as_ref());
+    }
 }
 
 pub async fn main<A: AsRef<Path>, B: AsRef<Path>>(
@@ -304,15 +329,16 @@ pub async fn main<A: AsRef<Path>, B: AsRef<Path>>(
 
             state.pmc_queue.clear();
             for pmc in state.all_pmcs.iter() {
-                state.pmc_queue.push(vec![pmc.clone()]);
+                state.pmc_queue.push_back(vec![pmc.clone()]);
             }
 
+            println!("Progressing to ACQUIRE BASELINE phase");
             state.fsm = FSM::AcquireBaseline;
             return CommandExitResult::Operational;
         }
         FSM::AcquireBaseline => {
-            while let Some(pmc) = state.pmc_queue.pop() {
-                println!("Remaining Baseline: {}", state.ucode_queue.len());
+            while let Some(pmc) = state.pmc_queue.pop_front() {
+                println!("Remaining Baseline: {}", state.pmc_queue.len());
 
                 let pmc = pmc.first().unwrap();
 
@@ -321,6 +347,11 @@ pub async fn main<A: AsRef<Path>, B: AsRef<Path>>(
                     .pmc_blacklist_event_select
                     .contains(&pmc.event_select)
                 {
+                    continue;
+                }
+
+                if let Some(baseline) = state.report.pmc_baseline.get(&StringBox(*pmc)) {
+                    state.baseline.insert(*pmc, *baseline);
                     continue;
                 }
 
@@ -349,17 +380,27 @@ pub async fn main<A: AsRef<Path>, B: AsRef<Path>>(
                         return CommandExitResult::ForceReconnect;
                     }
                     ExecuteSampleResult::Rerun => {
-                        state.pmc_queue.push(vec![pmc.clone()]);
+                        trace!("Rerunning PMC: {:?}", pmc);
+                        state.pmc_queue.push_back(vec![pmc.clone()]);
                         return CommandExitResult::Operational;
                     }
                     ExecuteSampleResult::Success(x) => x,
                 };
+
+                state.expected_rflags = result.arch_after.rflags;
 
                 let result = result.perf_counters.iter().next();
 
                 match result {
                     Some(pmc_value) => {
                         state.baseline.insert(pmc.clone(), *pmc_value);
+                        state
+                            .report
+                            .pmc_baseline
+                            .insert(StringBox(*pmc), *pmc_value);
+                        if let Err(err) = state.report.save_file(&report) {
+                            error!("Failed to save the report: {:?}", err);
+                        }
                     }
                     None => {
                         error!("PMC value is None for {:?}", pmc);
@@ -367,24 +408,32 @@ pub async fn main<A: AsRef<Path>, B: AsRef<Path>>(
                 }
             }
 
-            state.ucode_queue.clone_from(&state.all_ucodes);
+            state.ucode_queue.clear();
+            state.ucode_queue.extend(&state.all_ucodes);
             state.all_pmc_groups.clear();
             for pmc in &state.baseline.keys().cloned().chunks(4) {
                 state.all_pmc_groups.push(pmc.collect_vec());
             }
-            state.pmc_queue.clone_from(&state.all_pmc_groups);
+            state.pmc_queue.clear();
+            state.pmc_queue.extend(state.all_pmc_groups.clone());
 
+            info!("Progressing to RUN phase");
             state.fsm = FSM::Running;
             return CommandExitResult::Operational;
         }
         FSM::Running => {
-            while let Some(pmc) = state.pmc_queue.first() {
-                while let Some(instruction) = state.ucode_queue.first() {
+            while let Some(pmc) = state.pmc_queue.front() {
+                while let Some(instruction) = state.ucode_queue.front() {
+                    trace!(
+                        "Remaining: PMC:{} Instructions:{}",
+                        state.pmc_queue.len(),
+                        state.ucode_queue.len()
+                    );
                     if skip {
                         if let Some(entry) = state.report.opcodes.get(&StringBox(*instruction)) {
                             if let SpecResult::Executed { pmc_delta, .. } = entry {
                                 if pmc.iter().all(|f| pmc_delta.contains_key(&StringBox(*f))) {
-                                    state.ucode_queue.pop();
+                                    state.ucode_queue.pop_front();
                                     continue;
                                 }
                             }
@@ -407,7 +456,7 @@ pub async fn main<A: AsRef<Path>, B: AsRef<Path>>(
                     )
                     .await;
 
-                    let result = match result {
+                    let mut result = match result {
                         ExecuteSampleResult::Timeout => {
                             error!(
                                 "Timeout: {} : {:04x}",
@@ -440,6 +489,8 @@ pub async fn main<A: AsRef<Path>, B: AsRef<Path>>(
                         }
                     }
 
+                    result.arch_before.rflags = state.expected_rflags; // todo: hacky
+
                     let arch_delta = result.arch_before.difference(&result.arch_after);
 
                     if arch_delta.len() > 0 {
@@ -467,8 +518,16 @@ pub async fn main<A: AsRef<Path>, B: AsRef<Path>>(
                     if let Err(err) = state.report.save_file(&report) {
                         error!("Failed to save the report: {:?}", err);
                     }
+
+                    let _ = state.ucode_queue.pop_front();
                 }
+
+                let _ = state.pmc_queue.pop_front();
+                state.ucode_queue.clear();
+                state.ucode_queue.extend(&state.all_ucodes);
             }
+
+            info!("Finished execution")
         }
     }
 

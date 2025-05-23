@@ -87,7 +87,8 @@
       # System deploy setup
       # use "nix run" to deploy systems
       deploy.nodes.master = {
-        hostname = "10.0.0.11";
+        hostname = "127.0.0.1";
+        sshOpts = ["-p" "4445"];
         profiles.system = {
           sshUser = "thesis";
           user = "root";
@@ -95,7 +96,8 @@
         };
       };
       deploy.nodes.node = {
-        hostname = "10.0.0.10";
+        hostname = "127.0.0.1";
+        sshOpts = ["-p" "4444"];
         profiles.system = {
           sshUser = "thesis";
           user = "root";

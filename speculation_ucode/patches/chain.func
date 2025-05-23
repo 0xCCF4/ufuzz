@@ -1,0 +1,4 @@
+# ARG0: {val}
+
+{val} := AND_DSZ32({val}, 0xffff)
+{val} := LDPPHYS_DSZ32_ASZ16_SC1({val})

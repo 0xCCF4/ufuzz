@@ -2453,6 +2453,7 @@ dependencies = [
 name = "spec_fuzz"
 version = "0.1.0"
 dependencies = [
+ "coverage",
  "custom_processing_unit",
  "data_types",
  "fuzzer_data",

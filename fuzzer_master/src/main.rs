@@ -69,7 +69,7 @@ enum Cmd {
     },
     SpecManual {
         #[arg(short, long)]
-        instruction: Option<String>,
+        instruction: Option<Vec<String>>,
         #[arg(short, long)]
         sequence_word: Option<String>,
     },
@@ -294,10 +294,32 @@ async fn main() {
                 instruction,
                 sequence_word,
             } => {
-                let instruction = instruction
+                let mut instruction = instruction
                     .as_ref()
-                    .and_then(|hex| u64::from_str_radix(hex, 16).ok())
-                    .map(Instruction::disassemble);
+                    .map(|hex| {
+                        hex.iter()
+                            .map(|hex| {
+                                u64::from_str_radix(hex, 16)
+                                    .ok()
+                                    .map(Instruction::disassemble)
+                            })
+                            .collect_vec()
+                    })
+                    .unwrap_or(vec![Some(Instruction::NOP)]);
+
+                if instruction.len() > 3 {
+                    error!("Too many instructions provided");
+                    instruction.truncate(3);
+                }
+
+                if instruction.iter().any(|x| x.is_none()) {
+                    error!("Invalid instruction provided");
+                }
+
+                let instruction = instruction
+                    .into_iter()
+                    .map(|x| x.unwrap_or(Instruction::NOP))
+                    .collect_vec();
 
                 let sequence_word = sequence_word
                     .as_ref()
@@ -313,9 +335,9 @@ async fn main() {
                 let result = net::net_speculative_sample(
                     &mut udp,
                     [
-                        instruction.unwrap_or(Instruction::NOP),
-                        Instruction::NOP,
-                        Instruction::NOP,
+                        instruction.get(0).map(|x| *x).unwrap_or(Instruction::NOP),
+                        instruction.get(1).map(|x| *x).unwrap_or(Instruction::NOP),
+                        instruction.get(2).map(|x| *x).unwrap_or(Instruction::NOP),
                     ],
                     sequence_word.unwrap_or(SequenceWord::NOP),
                     vec![
@@ -333,7 +355,7 @@ async fn main() {
                         CommandExitResult::ExitProgram
                     }
                     ExecuteSampleResult::Rerun => CommandExitResult::RetryOrReconnect,
-                    ExecuteSampleResult::Success(data) => {
+                    ExecuteSampleResult::Success(mut data) => {
                         for (val, name) in data.perf_counters.iter().zip([
                             "iRetired",
                             "msDecoded",
@@ -342,6 +364,8 @@ async fn main() {
                         ]) {
                             println!("{}: {}", name, val);
                         }
+
+                        data.arch_before.rflags = 0x202; // a bit hacky, todo: do it properly
 
                         for (name, before, after) in data.arch_before.difference(&data.arch_after) {
                             println!("DIFF {}: {:#x?} -> {:#x?}", name, before, after);

@@ -31,7 +31,7 @@ Component       | Description
 [`performance_timing`](performance_timing/) | Contains the tools to collect timing information from the fuzzer device,
 [`performance_timing_macros`](performance_timing_macros/) | Contains utility macros to automate timing collection from target functions.
 [`spec_fuzz`](spec_fuzz/) | Contains the implementation of the speculative micrcode fuzzer.
-[`speculation`](speculation/) | Contains some test scenarios to check speculative execution behavior.
+[`speculation`](speculation_x86/) | Contains some test scenarios to check speculative execution behavior.
 [`ucode_compiler_bridge`](ucode_compiler_bridge/) | Contains a bridge implementation to interface with the microcode compiler from [CustomProcessingUnit](https://github.com/pietroborrello/CustomProcessingUnit) and preprocessor macros for deriving multi file microcode updates.
 [`ucode_compiler_derive`](ucode_compiler_derive/)| Contains utility macros to automate the generation of microcode updates.
 [`ucode_compiler_dynamic`](ucode_compiler_dynamic/) | Contains runtime mircocode update compilation.

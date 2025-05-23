@@ -2706,8 +2706,13 @@ rec {
             requiredFeatures = [ ];
           }
           {
-            name = "spec_viewer";
-            path = "src/spec_viewer.rs";
+            name = "spec_compare";
+            path = "src/main_spec_compare.rs";
+            requiredFeatures = [ ];
+          }
+          {
+            name = "spec_new_database";
+            path = "src/main_spec_new_database.rs";
             requiredFeatures = [ ];
           }
         ];
@@ -8251,6 +8256,11 @@ rec {
         ];
         src = lib.cleanSourceWith { filter = sourceFilter;  src = ./spec_fuzz; };
         dependencies = [
+          {
+            name = "coverage";
+            packageId = "coverage";
+            features = [ "nostd" "uefi" ];
+          }
           {
             name = "custom_processing_unit";
             packageId = "custom_processing_unit";
