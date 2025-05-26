@@ -2473,7 +2473,22 @@ dependencies = [
 ]
 
 [[package]]
-name = "speculation"
+name = "speculation_ucode"
+version = "0.1.0"
+dependencies = [
+ "coverage",
+ "custom_processing_unit",
+ "data_types",
+ "hypervisor",
+ "log",
+ "ucode_compiler_bridge",
+ "ucode_dump",
+ "uefi",
+ "x86_perf_counter",
+]
+
+[[package]]
+name = "speculation_x86"
 version = "0.1.0"
 dependencies = [
  "custom_processing_unit",

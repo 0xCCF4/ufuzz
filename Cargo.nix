@@ -167,10 +167,20 @@ rec {
       # File a bug if you depend on any for non-debug work!
       debug = internal.debugCrate { inherit packageId; };
     };
-    "speculation" = rec {
-      packageId = "speculation";
+    "speculation_ucode" = rec {
+      packageId = "speculation_ucode";
       build = internal.buildRustCrateWithFeatures {
-        packageId = "speculation";
+        packageId = "speculation_ucode";
+      };
+
+      # Debug support which might change between releases.
+      # File a bug if you depend on any for non-debug work!
+      debug = internal.debugCrate { inherit packageId; };
+    };
+    "speculation_x86" = rec {
+      packageId = "speculation_x86";
+      build = internal.buildRustCrateWithFeatures {
+        packageId = "speculation_x86";
       };
 
       # Debug support which might change between releases.
@@ -8343,18 +8353,78 @@ rec {
         };
         resolvedDefaultFeatures = [ "__debug_performance_trace" "__debug_print_udp" ];
       };
-      "speculation" = rec {
-        crateName = "speculation";
+      "speculation_ucode" = rec {
+        crateName = "speculation_ucode";
         version = "0.1.0";
         edition = "2024";
         crateBin = [
           {
-            name = "speculation";
+            name = "speculation_ucode";
             path = "src/main.rs";
             requiredFeatures = [ ];
           }
         ];
-        src = lib.cleanSourceWith { filter = sourceFilter;  src = ./speculation; };
+        src = lib.cleanSourceWith { filter = sourceFilter;  src = ./speculation_ucode; };
+        dependencies = [
+          {
+            name = "coverage";
+            packageId = "coverage";
+            usesDefaultFeatures = false;
+            features = [ "nostd" "uefi" ];
+          }
+          {
+            name = "custom_processing_unit";
+            packageId = "custom_processing_unit";
+            features = [ "nostd" ];
+          }
+          {
+            name = "data_types";
+            packageId = "data_types";
+            features = [ "nostd" ];
+          }
+          {
+            name = "hypervisor";
+            packageId = "hypervisor";
+          }
+          {
+            name = "log";
+            packageId = "log";
+            usesDefaultFeatures = false;
+          }
+          {
+            name = "ucode_dump";
+            packageId = "ucode_dump";
+          }
+          {
+            name = "uefi";
+            packageId = "uefi";
+            features = [ "logger" "panic_handler" "alloc" "global_allocator" ];
+          }
+          {
+            name = "x86_perf_counter";
+            packageId = "x86_perf_counter";
+          }
+        ];
+        buildDependencies = [
+          {
+            name = "ucode_compiler_bridge";
+            packageId = "ucode_compiler_bridge";
+          }
+        ];
+
+      };
+      "speculation_x86" = rec {
+        crateName = "speculation_x86";
+        version = "0.1.0";
+        edition = "2024";
+        crateBin = [
+          {
+            name = "speculation_x86";
+            path = "src/main.rs";
+            requiredFeatures = [ ];
+          }
+        ];
+        src = lib.cleanSourceWith { filter = sourceFilter;  src = ./speculation_x86; };
         dependencies = [
           {
             name = "custom_processing_unit";

@@ -723,7 +723,7 @@ fn genetic_pool_fuzzing(
         }
 
         if evolution_count + 1 < evolutions {
-            genetic_pool.evolution(&mut random);
+            genetic_pool.evolution(&mut random, true);
         }
     }
 

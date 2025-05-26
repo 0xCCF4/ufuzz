@@ -1,5 +1,5 @@
 [package]
-name = "speculation"
+name = "speculation_ucode"
 version = "0.1.0"
 edition = "2024"
 
@@ -17,6 +17,8 @@ uefi = { version = "0.34.1", features = ["logger", "panic_handler", "alloc", "gl
 #serde_json = {version = "1.0.140", features = ["alloc", "float_roundtrip"], default-features = false}
 #itertools = { version = "0.14.0", default-features = false, features = ["use_alloc"] }
 x86_perf_counter = { path = "../x86_perf_counter" }
+coverage = { path = "../coverage", default-features = false, features = ["nostd", "uefi"] }
+hypervisor = {path = "../hypervisor"}
 
 [build-dependencies]
 ucode_compiler_bridge = { path = "../ucode_compiler_bridge" }

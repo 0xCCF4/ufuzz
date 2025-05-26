@@ -222,6 +222,7 @@ async fn main() {
     let mut last_time_perf_from_device = Instant::now() - Duration::from_secs(1000000);
 
     let start_time = Instant::now();
+    let mut last_remaining_time = Instant::now();
 
     loop {
         let timing = TimeMeasurement::begin("host::main_loop");
@@ -240,6 +241,12 @@ async fn main() {
                     if start_time.elapsed().as_secs_f64() / (60.0 * 60.0) > *timeout as f64 {
                         info!("Timeout reached!");
                         break;
+                    } else if last_remaining_time.elapsed().as_secs_f64() >= 60.0 {
+                        last_remaining_time = Instant::now();
+                        info!(
+                            "Remaining time: {:0.2}h",
+                            last_remaining_time.elapsed().as_secs_f64() / 60.0 - (*timeout as f64)
+                        );
                     }
                 }
 

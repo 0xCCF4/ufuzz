@@ -445,6 +445,9 @@ fn build_app(project: &str, release: bool, device: bool) -> Result<PathBuf, DynE
     } else if project == "speculation_x86" {
         status.args(["-p", "speculation_x86"]);
         "speculation_x86"
+    } else if project == "speculation_ucode" {
+        status.args(["-p", "speculation_ucode"]);
+        "speculation_ucode"
     } else {
         status.args(["-p", project]);
         project

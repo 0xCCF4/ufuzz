@@ -249,7 +249,7 @@ fn collect_perf_counters_values(
         "rdrand rax",
 
         // SYNCFULL
-        "rdseed rax",
+        "rdseed rcx",
 
         // save comparison values
         "pushfq",

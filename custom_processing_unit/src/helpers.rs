@@ -647,6 +647,11 @@ pub fn restore_hooks(previous_value: usize) -> usize {
     mp
 }
 
+pub fn hooks_enabled() -> bool {
+    let mp = crbus_read(0x692);
+    mp & 1 == 0
+}
+
 pub struct HookGuard {
     previous_value: usize,
 }
