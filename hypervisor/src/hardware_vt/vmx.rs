@@ -615,7 +615,31 @@ impl hardware_vt::HardwareVt for Vmx {
         state.standard_registers.rsp = self.registers.rsp;
         state.standard_registers.rip = self.registers.rip;
 
-        // todo base, limits, ar
+        // Save segment selectors
+                state.extended_registers.es = vmread(vmcs::guest::ES_SELECTOR) as u16;
+                state.extended_registers.cs = vmread(vmcs::guest::CS_SELECTOR) as u16;
+                state.extended_registers.ss = vmread(vmcs::guest::SS_SELECTOR) as u16;
+                state.extended_registers.ds = vmread(vmcs::guest::DS_SELECTOR) as u16;
+                state.extended_registers.fs = vmread(vmcs::guest::FS_SELECTOR) as u16;
+                state.extended_registers.gs = vmread(vmcs::guest::GS_SELECTOR) as u16;
+                state.extended_registers.tr = vmread(vmcs::guest::TR_SELECTOR) as u16;
+                state.extended_registers.ldtr = vmread(vmcs::guest::LDTR_SELECTOR) as u16;
+
+                // Save segment bases
+                state.extended_registers.es_base = vmread(vmcs::guest::ES_BASE);
+                state.extended_registers.cs_base = vmread(vmcs::guest::CS_BASE);
+                state.extended_registers.ss_base = vmread(vmcs::guest::SS_BASE);
+                state.extended_registers.ds_base = vmread(vmcs::guest::DS_BASE);
+                state.extended_registers.fs_base = vmread(vmcs::guest::FS_BASE);
+                state.extended_registers.gs_base = vmread(vmcs::guest::GS_BASE);
+                state.extended_registers.tr_base = vmread(vmcs::guest::TR_BASE);
+                state.extended_registers.ldtr_base = vmread(vmcs::guest::LDTR_BASE);
+
+                // Save GDTR/IDTR
+                state.extended_registers.gdtr.base = vmread(vmcs::guest::GDTR_BASE) as *const u64;
+                state.extended_registers.gdtr.limit = vmread(vmcs::guest::GDTR_LIMIT) as u16;
+                state.extended_registers.idtr.base = vmread(vmcs::guest::IDTR_BASE) as *const u64;
+                state.extended_registers.idtr.limit = vmread(vmcs::guest::IDTR_LIMIT) as u16;
 
         state.extended_registers.sysenter_cs = vmread(vmcs::guest::IA32_SYSENTER_CS);
         state.extended_registers.sysenter_esp = vmread(vmcs::guest::IA32_SYSENTER_ESP);
@@ -866,7 +890,7 @@ const _: () = assert!(size_of::<Vmcs>() == 0x1000);
 
 /// The types of the control field.
 #[derive(Clone, Copy)]
-enum VmxControl {
+pub enum VmxControl {
     PinBased,
     ProcessorBased,
     ProcessorBased2,
@@ -976,7 +1000,7 @@ fn task_segment_descriptor(tss: &TaskStateSegment) -> u64 {
 
 /// Returns an adjust value for the control field according to the capability
 /// MSR.
-fn adjust_vmx_control(control: VmxControl, requested_value: u64) -> Result<u64, u64> {
+pub fn adjust_vmx_control(control: VmxControl, requested_value: u64) -> Result<u64, u64> {
     const IA32_VMX_BASIC_VMX_CONTROLS_FLAG: u64 = 1 << 55;
 
     // This determines the right VMX capability MSR based on the value of

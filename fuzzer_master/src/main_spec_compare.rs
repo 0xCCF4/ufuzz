@@ -116,6 +116,7 @@ pub fn main() {
 
     let mut pmc_delta_all = BTreeMap::new();
     let mut pmc_delta_per_pmc_all = BTreeMap::new();
+    let mut pmc_delta_per_pmc_all_reduced = BTreeMap::new();
     let mut arch_delta_all = BTreeMap::new();
 
     for (instruction, flagged) in resulting_grade.iter() {
@@ -149,6 +150,13 @@ pub fn main() {
                         let entry = entry.entry(v).or_insert((0u32, BTreeMap::new()));
                         entry.0 += 1;
                         *entry.1.entry(instruction.0).or_insert(0u32) += 1;
+
+                        let entry = pmc_delta_per_pmc_all_reduced
+                            .entry(k.0)
+                            .or_insert(BTreeMap::new());
+                        let entry = entry.entry(v.signum()).or_insert((0u32, BTreeMap::new()));
+                        entry.0 += 1;
+                        *entry.1.entry(instruction.0).or_insert(0u32) += 1;
                     }
                 }
             }
@@ -164,7 +172,10 @@ pub fn main() {
         "  Instructions with PMC delta: {}",
         count_instruction_with_pmc_delta
     );
-    for pmc in pmc_delta_per_pmc_all.iter().filter(|(_, v)| !v.is_empty()) {
+    for pmc in pmc_delta_per_pmc_all_reduced
+        .iter()
+        .filter(|(_, v)| !v.is_empty())
+    {
         for (key, val) in pmc.1.iter() {
             let mut by_opcode = BTreeMap::new();
             for (k, v) in val.1.iter() {
@@ -172,7 +183,7 @@ pub fn main() {
                 *entry += *v;
             }
             println!(
-                "    {:02x}:{:02x}, {key}:{}, {:?}",
+                "    {:02x}:{:02x}, {key:>2}:{:>5}, {:?}...",
                 pmc.0.event_select,
                 pmc.0.umask,
                 val.0,
@@ -180,6 +191,7 @@ pub fn main() {
                     .iter()
                     .sorted_by(|a, b| a.1.cmp(b.1))
                     .rev()
+                    .take(4)
                     .collect_vec()
             );
         }

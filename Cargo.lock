@@ -819,6 +819,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "ucode_compiler_derive",
  "ucode_dump",
  "uefi",
  "uefi-raw",

@@ -64,6 +64,9 @@ x86_perf_counter = { path = "../x86_perf_counter" }
 chrono = "0.4.39"
 sha2 = "0.10.8"
 
+[dev-dependencies]
+ucode_compiler_derive = { path = "../ucode_compiler_derive" }
+
 [[bin]]
 name = "fuzzer_device"
 path = "src/main.rs"

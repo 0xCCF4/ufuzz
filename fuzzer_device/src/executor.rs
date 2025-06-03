@@ -4,7 +4,7 @@ mod coverage_collection;
 mod fake_coverage_collection;
 #[cfg(feature = "__debug_bochs_pretend")]
 use fake_coverage_collection as coverage_collection;
-mod hypervisor;
+pub mod hypervisor;
 
 use crate::cmos::NMIGuard;
 use crate::controller_connection::ControllerConnection;
@@ -34,7 +34,6 @@ use performance_timing::track_time;
 use rand_core::RngCore;
 #[cfg(feature = "__debug_print_progress_print")]
 use uefi::print;
-use uefi::println;
 
 struct CoverageCollectorData {
     pub collector: CoverageCollector,

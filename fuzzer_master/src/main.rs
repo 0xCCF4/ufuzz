@@ -245,7 +245,7 @@ async fn main() {
                         last_remaining_time = Instant::now();
                         info!(
                             "Remaining time: {:0.2}h",
-                            last_remaining_time.elapsed().as_secs_f64() / 60.0 - (*timeout as f64)
+                            start_time.elapsed().as_secs_f64() / 60.0 - (*timeout as f64)
                         );
                     }
                 }

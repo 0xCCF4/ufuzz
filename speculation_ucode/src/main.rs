@@ -8,7 +8,9 @@ use core::arch::asm;
 use core::mem;
 use core::mem::offset_of;
 use coverage::page_allocation::PageAllocation;
-use custom_processing_unit::{CustomProcessingUnit, HookGuard, apply_hook_patch_func, apply_patch, hook, hooks_enabled};
+use custom_processing_unit::{
+    CustomProcessingUnit, HookGuard, apply_hook_patch_func, apply_patch, hook, hooks_enabled,
+};
 use data_types::addresses::MSRAMHookIndex;
 use hypervisor::state::{GuestRegisters, StateDifference};
 use log::{error, info, trace};
@@ -187,7 +189,10 @@ fn spec_ucode() {
         "rdrand rax",
 
         // SYNCFULL
-        "rdseed rax",
+        "lfence",
+        "sfence",
+        "mfence",
+        "rdseed r8",
 
         // save comparison values
         "pushfq",
@@ -543,6 +548,8 @@ fn spec_ucode() {
     println!("Hooks enabled after: {}", hooks_enabled());
 
     before.rflags = 0x202;
+
+    println!("RDX: {:x?}", before.rdx);
 
     let difference = before.difference(&after);
     if difference.is_empty() {

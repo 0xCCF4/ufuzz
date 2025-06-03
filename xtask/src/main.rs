@@ -448,6 +448,17 @@ fn build_app(project: &str, release: bool, device: bool) -> Result<PathBuf, DynE
     } else if project == "speculation_ucode" {
         status.args(["-p", "speculation_ucode"]);
         "speculation_ucode"
+    } else if project == "speculation_ucode_hypervisor" {
+        status.args([
+            "-p",
+            "fuzzer_device",
+            "--example",
+            "test_ucode_speculation",
+            "--features",
+            "device_bochs,mutation_all",
+            "--no-default-features",
+        ]);
+        "examples/test_ucode_speculation"
     } else {
         status.args(["-p", project]);
         project
