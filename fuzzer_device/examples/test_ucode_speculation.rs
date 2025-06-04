@@ -2,9 +2,12 @@
 #![no_std]
 
 use coverage::page_allocation::PageAllocation;
-use custom_processing_unit::{apply_hook_patch_func, apply_patch, hook, hooks_enabled, CustomProcessingUnit, HookGuard};
+use custom_processing_unit::{
+    apply_hook_patch_func, apply_patch, hook, hooks_enabled, CustomProcessingUnit, HookGuard,
+};
 use data_types::addresses::MSRAMHookIndex;
 use fuzzer_device::executor::hypervisor::Hypervisor;
+use hypervisor::hardware_vt::vmx::{adjust_vmx_control, VmxControl};
 use hypervisor::state::{StateDifference, VmState};
 use iced_x86::code_asm;
 use iced_x86::code_asm::CodeAssembler;
@@ -13,7 +16,6 @@ use uefi::{entry, println};
 use uefi_raw::{PhysicalAddress, Status};
 use x86::current::vmx::vmwrite;
 use x86::vmx::vmcs;
-use hypervisor::hardware_vt::vmx::{adjust_vmx_control, VmxControl};
 
 mod patches {
     use ucode_compiler_derive::patch;
@@ -171,9 +173,7 @@ unsafe fn main() -> Status {
             Ok(x) => x,
             Err(value) => {
                 if (value as u32 & vmcs::control::SecondaryControls::ENABLE_EPT.bits()) == 0 {
-                    error!(
-                        "Failed to adjust SECONDARY_PROCBASED_EXEC_CONTROLS. Enable EPT.",
-                    );
+                    error!("Failed to adjust SECONDARY_PROCBASED_EXEC_CONTROLS. Enable EPT.",);
                     return Status::ABORTED;
                 } else if (value as u32
                     & vmcs::control::SecondaryControls::UNRESTRICTED_GUEST.bits())

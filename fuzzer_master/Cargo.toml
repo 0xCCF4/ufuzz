@@ -28,6 +28,8 @@ data_types = { path = "../data_types" }
 performance_timing = { path = "../performance_timing" }
 ucode_compiler_dynamic = { path = "../ucode_compiler_dynamic" }
 x86_perf_counter = { path = "../x86_perf_counter" }
+libafl = { version = "0.15.2", features = ["std", "derive"] }
+libafl_bolts = "0.15.2"
 
 [[bin]]
 name = "fuzz_master"

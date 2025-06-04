@@ -9,10 +9,7 @@ use fuzzer_master::instruction_mutations::InstructionMutState;
 use fuzzer_master::manual_execution::ManualExecutionState;
 use fuzzer_master::net::{net_reboot_device, net_receive_performance_timing, ExecuteSampleResult};
 use fuzzer_master::spec_fuzz::SpecFuzzMutState;
-use fuzzer_master::{
-    genetic_breeding, instruction_mutations, manual_execution, net, spec_fuzz, wait_for_device,
-    CommandExitResult, WaitForDeviceResult, P0_FREQ,
-};
+use fuzzer_master::{afl_fuzzing, genetic_breeding, instruction_mutations, manual_execution, net, spec_fuzz, wait_for_device, CommandExitResult, WaitForDeviceResult, P0_FREQ};
 use hypervisor::state::StateDifference;
 use itertools::Itertools;
 use log::{error, info, trace, warn};
@@ -82,6 +79,16 @@ enum Cmd {
         overwrite: bool,
         #[arg(short, long)]
         bulk: bool,
+    },
+    AFL {
+        #[arg(short, long)]
+        solutions: Option<PathBuf>,
+        #[arg(short, long)]
+        corpus: Option<PathBuf>,
+        #[arg(short, long)]
+        timeout_hours: Option<u32>,
+        #[arg(short, long)]
+        disable_feedback: bool,
     },
 }
 
@@ -213,6 +220,24 @@ async fn main() {
         });
     }
     */
+
+    if let Cmd::AFL {
+        disable_feedback,
+        timeout_hours,
+        corpus,
+        solutions: solutions,
+    } = &args.cmd
+    {
+        return afl_fuzzing::afl_main(
+            &mut udp,
+            &interface,
+            &mut database,
+            corpus.as_ref().map(|v| v.clone()),
+            solutions.as_ref().map(|v| v.clone()),
+            *timeout_hours,
+            *disable_feedback,
+        );
+    }
 
     let mut state_breeding = BreedingState::default();
     let mut state_instructions = InstructionMutState::default();
@@ -508,6 +533,9 @@ async fn main() {
                         CommandExitResult::ExitProgram
                     }
                 }
+            }
+            Cmd::AFL { .. } => {
+                unreachable!()
             }
         };
 

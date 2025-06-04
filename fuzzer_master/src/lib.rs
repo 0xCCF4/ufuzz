@@ -10,6 +10,8 @@ pub mod device_connection;
 pub mod fuzzer_node_bridge;
 
 pub mod genetic_breeding;
+
+pub mod afl_fuzzing;
 pub mod instruction_mutations;
 
 pub mod manual_execution;
