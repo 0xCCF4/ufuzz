@@ -3,9 +3,9 @@ use crate::device_connection::DeviceConnection;
 use crate::fuzzer_node_bridge::FuzzerNodeInterface;
 use crate::net::{net_execute_sample, net_fuzzing_pretext, ExecuteSampleResult};
 use crate::{guarantee_initial_state, power_on, CommandExitResult};
-use fuzzer_data::{Code, ExecutionResult, ReportExecutionProblem};
+use fuzzer_data::{Code, ExecutionResult, OtaC2DTransport, ReportExecutionProblem};
 use hypervisor::state::VmExitReason;
-use libafl::corpus::{InMemoryCorpus, OnDiskCorpus};
+use libafl::corpus::{CachedOnDiskCorpus, InMemoryCorpus, OnDiskCorpus};
 use libafl::events::{SendExiting, SimpleEventManager};
 use libafl::executors::{Executor, ExitKind, HasObservers};
 use libafl::feedbacks::{CrashFeedback, MaxMapFeedback};
@@ -21,7 +21,7 @@ use libafl::{Fuzzer, StdFuzzer};
 use libafl_bolts::rands::StdRand;
 use libafl_bolts::tuples::{tuple_list, HasConstLen, RefIndexable};
 use libafl_bolts::{nonzero, ErrorBacktrace, HasLen, Named};
-use log::{error, info};
+use log::{error, info, trace, warn};
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::collections::BTreeMap;
@@ -32,8 +32,8 @@ use std::ops::Deref;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tokio::runtime::Handle;
 use tokio::task::JoinHandle;
+use tokio::time::sleep;
 
 static LAST_EXECUTION_RESULT: Mutex<Option<ExecutionResult>> = Mutex::new(None);
 static LAST_EXECUTION_PROBLEMS: Mutex<Vec<ReportExecutionProblem>> = Mutex::new(Vec::new());
@@ -78,7 +78,7 @@ struct ExecuteContext {
     input: Vec<u8>,
 
     udp: &'static mut DeviceConnection,
-    interface: Arc<FuzzerNodeInterface>,
+    interface: &'static Arc<FuzzerNodeInterface>,
     database: &'static mut Database,
     last_code_executed: &'static mut Option<Code>,
 }
@@ -97,18 +97,22 @@ where
         _mgr: &mut EM,
         input: &I,
     ) -> Result<ExitKind, libafl::Error> {
+        let first_run = *state.executions() == 0;
         *state.executions_mut() += 1;
 
-        let handle = Handle::current();
-        let _guard = handle.enter();
+        let iteration = *state.executions();
 
         let mut thread_context = unsafe {
             ExecuteContext {
                 input: input.target_bytes().to_vec(),
-                udp: transmute(&mut self.udp),
-                interface: Arc::clone(&self.interface),
-                database: transmute(&mut self.database),
-                last_code_executed: transmute(&mut self.last_code_executed),
+                udp: transmute::<&mut DeviceConnection, &'static mut DeviceConnection>(&mut *self.udp),
+                interface: transmute::<&Arc<FuzzerNodeInterface>, &'static Arc<FuzzerNodeInterface>>(
+                    &*self.interface,
+                ),
+                database: transmute::<&mut Database, &'static mut Database>(&mut *self.database),
+                last_code_executed: transmute::<&mut Option<Code>, &'static mut Option<Code>>(
+                    &mut self.last_code_executed,
+                ),
             }
         };
 
@@ -159,16 +163,18 @@ where
 
             let mut retry_counter = 0u64;
             loop {
-                let result = net_fuzzing_pretext(
-                    thread_context.udp,
-                    thread_context.database,
-                    &mut thread_context.last_code_executed,
-                    &mut None,
-                )
-                .await;
+                if first_run {
+                    let result = net_fuzzing_pretext(
+                        thread_context.udp,
+                        thread_context.database,
+                        &mut thread_context.last_code_executed,
+                        &mut None,
+                    )
+                        .await;
 
-                if force_reconnect(&mut thread_context, result, &mut retry_counter).await? {
-                    continue;
+                    if force_reconnect(&mut thread_context, result, &mut retry_counter).await? {
+                        continue;
+                    }
                 }
 
                 *thread_context.last_code_executed = Some(thread_context.input.clone());
@@ -191,12 +197,23 @@ where
                         continue;
                     }
                     ExecuteSampleResult::Rerun => {
-                        force_reconnect(
+                        if force_reconnect(
                             &mut thread_context,
                             CommandExitResult::RetryOrReconnect,
                             &mut retry_counter,
                         )
-                        .await?;
+                        .await? {
+                            let _ = thread_context.udp.send(OtaC2DTransport::AreYouThere);
+                            let result = net_fuzzing_pretext(
+                                thread_context.udp,
+                                thread_context.database,
+                                &mut thread_context.last_code_executed,
+                                &mut None,
+                            ).await;
+                            if matches!(result, CommandExitResult::RetryOrReconnect | CommandExitResult::ForceReconnect) {
+                                error!("Failed to reinitialize the device after rerun: {:?}", result);
+                            }
+                        }
                         continue;
                     }
                     ExecuteSampleResult::Success((exit, problems)) => {
@@ -206,6 +223,12 @@ where
                             &mut retry_counter,
                         )
                         .await?;
+
+                        thread_context.database.push_results(thread_context.input, exit.clone(), problems.clone(), iteration, 1234);
+
+                        if let Err(err) = thread_context.database.save().await {
+                            error!("Failed to save the database: {:?}", err);
+                        }
                         return Ok((exit, problems));
                     }
                 };
@@ -476,7 +499,7 @@ impl AsMut<Self> for DifferenceObserver {
     }
 }
 
-pub fn afl_main(
+pub async fn afl_main(
     udp: &mut DeviceConnection,
     interface: &Arc<FuzzerNodeInterface>,
     db: &mut Database,
@@ -485,59 +508,95 @@ pub fn afl_main(
     _timeout_hours: Option<u32>,
     _disable_feedback: bool,
 ) {
-    // The closure that we want to fuzz
-    let coverage_observer = CoverageObserver::default();
+    let udp_unsafe_ref =
+        unsafe { transmute::<&mut DeviceConnection, &'static mut DeviceConnection>(udp) };
+    let interface_ref = Arc::clone(interface);
 
-    // Feedback to rate the interestingness of an input
-    let mut feedback = MaxMapFeedback::new(&coverage_observer);
+    info!("Initializing fuzzer");
+    for _ in 0..10 {
+        match udp_unsafe_ref.send(OtaC2DTransport::AreYouThere).await {
+            Ok(_) => break,
+            Err(e) => {
+                warn!("Waking up device {:?}", e);
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+        }
+    }
+    info!("Guaranteeing initial state");
+    guarantee_initial_state(&interface_ref, udp).await;
+    info!("Fuzzer initialized");
 
-    // A feedback to choose if an input is a solution or not
-    let mut objective = CrashFeedback::new();
+    let db_unsafe_ref = unsafe { transmute::<&mut Database, &'static mut Database>(db) };
+    let interface_unsafe_ref = unsafe {
+        transmute::<&Arc<FuzzerNodeInterface>, &'static Arc<FuzzerNodeInterface>>(interface)
+    };
 
-    // create a State from scratch
-    let mut state = StdState::new(
-        // RNG
-        StdRand::new(),
-        // Corpus that will be evolved, we keep it in memory for performance
-        InMemoryCorpus::new(),
-        // Corpus in which we store solutions (crashes in this example),
-        // on disk so the user can get them after stopping the fuzzer
-        OnDiskCorpus::new(solution.unwrap_or(PathBuf::from("./findings")))
-            .expect("Corpus initialization failed"),
-        &mut feedback,
-        &mut objective,
-    )
-    .unwrap();
+    let result = tokio::task::spawn_blocking(move || {
+        let coverage_observer = CoverageObserver::default();
 
-    // The Monitor trait defines how the fuzzer stats are displayed to the user
-    let mon = SimpleMonitor::new(|s| println!("{s}"));
+        // Feedback to rate the interestingness of an input
+        let mut feedback = MaxMapFeedback::new(&coverage_observer);
 
-    // The event manager handles the various events generated during the fuzzing loop
-    // such as the notification of the addition of a new item to the corpus
-    let mut mgr = SimpleEventManager::new(mon);
+        // A feedback to choose if an input is a solution or not
+        let mut objective = CrashFeedback::new();
 
-    // A queue policy to get testcasess from the corpus
-    let scheduler = QueueScheduler::new();
+        // create a State from scratch
+        let mut state = StdState::new(
+            // RNG
+            StdRand::new(),
+            // Corpus that will be evolved, we keep it in memory for performance
+            CachedOnDiskCorpus::new(PathBuf::from("./corpus"), 2000).expect("Corpus initialization failed"),
+            // Corpus in which we store solutions (crashes in this example),
+            // on disk so the user can get them after stopping the fuzzer
+            OnDiskCorpus::new(solution.unwrap_or(PathBuf::from("./findings")))
+                .expect("Corpus initialization failed"),
+            &mut feedback,
+            &mut objective,
+        )
+        .unwrap();
 
-    // A fuzzer with feedbacks and a corpus scheduler
-    let mut fuzzer = StdFuzzer::new(scheduler, feedback, objective);
+        // The Monitor trait defines how the fuzzer stats are displayed to the user
+        let mon = SimpleMonitor::new(|s| println!("{s}"));
 
-    // Create the executor for an in-process function with just one observer
-    let mut executor = AFLExecutor::new(udp, interface, db, tuple_list!(coverage_observer));
+        // The event manager handles the various events generated during the fuzzing loop
+        // such as the notification of the addition of a new item to the corpus
+        let mut mgr = SimpleEventManager::new(mon);
 
-    // Generator of printable bytearrays of max size 32
-    let mut generator = RandPrintablesGenerator::new(nonzero!(32));
+        // A queue policy to get testcasess from the corpus
+        let scheduler = QueueScheduler::new();
 
-    // Generate 8 initial inputs
-    state
-        .generate_initial_inputs(&mut fuzzer, &mut executor, &mut generator, &mut mgr, 8)
-        .expect("Failed to generate the initial corpus");
+        // A fuzzer with feedbacks and a corpus scheduler
+        let mut fuzzer = StdFuzzer::new(scheduler, feedback, objective);
 
-    // Setup a mutational stage with a basic bytes mutator
-    let mutator = HavocScheduledMutator::new(havoc_mutations());
-    let mut stages = tuple_list!(StdMutationalStage::new(mutator));
+        // Create the executor for an in-process function with just one observer
+        let mut executor = AFLExecutor::new(
+            udp_unsafe_ref,
+            interface_unsafe_ref,
+            db_unsafe_ref,
+            tuple_list!(coverage_observer),
+        );
 
-    fuzzer
-        .fuzz_loop(&mut stages, &mut executor, &mut state, &mut mgr)
-        .expect("Error in the fuzzing loop");
+        // Generator of printable bytearrays of max size 32
+        let mut generator = RandPrintablesGenerator::new(nonzero!(32));
+
+        // Generate 8 initial inputs
+        state
+            .generate_initial_inputs(&mut fuzzer, &mut executor, &mut generator, &mut mgr, 8)
+            .expect("Failed to generate the initial corpus");
+
+        // Setup a mutational stage with a basic bytes mutator
+        let mutator = HavocScheduledMutator::new(havoc_mutations());
+        let mut stages = tuple_list!(StdMutationalStage::new(mutator));
+
+        fuzzer
+            .fuzz_loop(&mut stages, &mut executor, &mut state, &mut mgr)
+            .expect("Error in the fuzzing loop");
+    })
+    .await;
+
+    info!("Stopped fuzzer with result: {:?}", result);
+
+    if let Err(e) = db.save().await {
+        error!("Failed to save the database: {:?}", e);
+    }
 }

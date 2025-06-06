@@ -34,6 +34,8 @@ use performance_timing::track_time;
 use rand_core::RngCore;
 #[cfg(feature = "__debug_print_progress_print")]
 use uefi::print;
+#[cfg(feature = "__debug_print_progress_print")]
+use uefi::println;
 
 struct CoverageCollectorData {
     pub collector: CoverageCollector,

@@ -239,7 +239,8 @@ async fn main() {
             solutions.as_ref().map(|v| v.clone()),
             *timeout_hours,
             *disable_feedback,
-        );
+        )
+        .await;
     }
 
     let mut state_breeding = BreedingState::default();

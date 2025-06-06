@@ -21,7 +21,7 @@
         description = "Fuzzer Master Service";
         after = [ "network.target" ];
         wantedBy = [ "multi-user.target" ];
-        conflicts = ["fuzzer_master_corpus.service" "spec_fuzz.service"];
+        conflicts = [ "fuzzer_master_corpus.service" "spec_fuzz.service" "fuzzer_afl.service" ];
 
         enable = false;
 
@@ -40,7 +40,7 @@
         description = "Fuzzer Master Service with corpus";
         after = [ "network.target" ];
         wantedBy = [ "multi-user.target" ];
-        conflicts = ["fuzzer_master.service" "spec_fuzz.service"];
+        conflicts = [ "fuzzer_master.service" "spec_fuzz.service" "fuzzer_afl.service" ];
 
         enable = false;
 
@@ -59,12 +59,31 @@
         description = "Spec Fuzz Service";
         after = [ "network.target" ];
         wantedBy = [ "multi-user.target" ];
-        conflicts = ["fuzzer_master.service" "fuzzer_master_corpus.service"];
+        conflicts = [ "fuzzer_master.service" "fuzzer_master_corpus.service" "fuzzer_afl.service" ];
 
         enable = false;
 
         serviceConfig = {
           ExecStart = "${packages."${system}".fuzzer_master}/bin/fuzz_master spec /home/thesis/spec_fuzz.json";
+          WorkingDirectory = "/home/thesis";
+          Restart = "always";
+          RestartSec = 5;
+        };
+        environment = {
+          RUST_LOG = "trace";
+        };
+      };
+
+      systemd.services.fuzzer_afl = {
+        description = "AFL Fuzzer Service";
+        after = [ "network.target" ];
+        wantedBy = [ "multi-user.target" ];
+        conflicts = [ "fuzzer_master.service" "fuzzer_master_corpus.service" "spec_fuzz.service" ];
+
+        enable = false;
+
+        serviceConfig = {
+          ExecStart = "${packages."${system}".fuzzer_master}/bin/fuzz_master afl -s /home/thesis/afl_solutions/";
           WorkingDirectory = "/home/thesis";
           Restart = "always";
           RestartSec = 5;

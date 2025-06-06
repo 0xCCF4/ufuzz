@@ -6,12 +6,13 @@
     crate2nix.url = "github:nix-community/crate2nix";
     deploy-rs.url = "github:serokell/deploy-rs";
     deploy-rs.inputs.nixpkgs.follows = "nixpkgs";
+    rust-overlay.url = "github:oxalica/rust-overlay";
+    rust-overlay.inputs.nixpkgs.follows = "nixpkgs";
   };
-  outputs = { self, nixpkgs, nixos-hardware, crate2nix, deploy-rs }:
+  outputs = { self, nixpkgs, nixos-hardware, crate2nix, deploy-rs, rust-overlay, ... }:
     let
       supportedSystems = [ "x86_64-linux" "aarch64-linux" ];
       forAllSystems = nixpkgs.lib.genAttrs supportedSystems;
-      pkgsFor = nixpkgs.legacyPackages;
     in
     rec {
       # Build fuzzer node system
@@ -55,12 +56,21 @@
         let
           pkgs = import nixpkgs {
             inherit system;
+            overlays = [ rust-overlay.overlays.default ];
           };
           deploy = deploy-rs.packages.${system}.deploy-rs;
+          buildRustCrateForPkgs = crate: pkgs.buildRustCrate.override {
+            rustc = pkgs.rust-bin.stable.latest.default;
+            cargo = pkgs.rust-bin.stable.latest.default;
+          };
+          project = import ../Cargo.nix {
+            inherit pkgs;
+            inherit buildRustCrateForPkgs;
+          };
         in
         {
-          fuzzer_node = pkgsFor.${system}.callPackage ./fuzzer_node/package.nix { inherit nixpkgs system crate2nix; };
-          fuzzer_master = pkgsFor.${system}.callPackage ./fuzzer_master/package.nix { inherit nixpkgs system crate2nix; };
+          fuzzer_node = project.workspaceMembers.fuzzer_node.build;
+          fuzzer_master = project.workspaceMembers.fuzzer_master.build;
           default = deploy;
         });
 
@@ -88,7 +98,7 @@
       # use "nix run" to deploy systems
       deploy.nodes.master = {
         hostname = "127.0.0.1";
-        sshOpts = ["-p" "4445"];
+        sshOpts = [ "-p" "4445" ];
         profiles.system = {
           sshUser = "thesis";
           user = "root";
@@ -97,7 +107,7 @@
       };
       deploy.nodes.node = {
         hostname = "127.0.0.1";
-        sshOpts = ["-p" "4444"];
+        sshOpts = [ "-p" "4444" ];
         profiles.system = {
           sshUser = "thesis";
           user = "root";

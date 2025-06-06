@@ -15,6 +15,7 @@ use performance_timing::measurements::MeasureValues;
 use rand::random;
 use std::collections::BTreeMap;
 use std::time::Duration;
+use tokio::time::sleep;
 use ucode_compiler_dynamic::instruction::Instruction;
 use ucode_compiler_dynamic::sequence_word::SequenceWord;
 use x86_perf_counter::PerfEventSpecifier;
