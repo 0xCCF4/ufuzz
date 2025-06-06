@@ -1,16 +1,16 @@
-use std::borrow::Cow;
-use std::collections::BTreeMap;
-use std::hash::Hash;
-use std::marker::PhantomData;
-use std::ops::Deref;
 use crate::database::Database;
 use crate::device_connection::DeviceConnection;
 use crate::fuzzer_node_bridge::FuzzerNodeInterface;
+use crate::net::{net_execute_sample, net_fuzzing_pretext, ExecuteSampleResult};
+use crate::{guarantee_initial_state, power_on, CommandExitResult};
+use fuzzer_data::{Code, ExecutionResult, ReportExecutionProblem};
+use hypervisor::state::VmExitReason;
 use libafl::corpus::{InMemoryCorpus, OnDiskCorpus};
 use libafl::events::{SendExiting, SimpleEventManager};
 use libafl::executors::{Executor, ExitKind, HasObservers};
 use libafl::feedbacks::{CrashFeedback, MaxMapFeedback};
 use libafl::generators::RandPrintablesGenerator;
+use libafl::inputs::HasTargetBytes;
 use libafl::monitors::SimpleMonitor;
 use libafl::mutators::{havoc_mutations, HavocScheduledMutator};
 use libafl::observers::{MapObserver, Observer, ObserversTuple};
@@ -19,19 +19,21 @@ use libafl::stages::StdMutationalStage;
 use libafl::state::{HasExecutions, StdState};
 use libafl::{Fuzzer, StdFuzzer};
 use libafl_bolts::rands::StdRand;
-use libafl_bolts::tuples::{tuple_list, HasConstLen, MatchNameRef, RefIndexable};
-use libafl_bolts::{nonzero, Error, ErrorBacktrace, HasLen, Named};
+use libafl_bolts::tuples::{tuple_list, HasConstLen, RefIndexable};
+use libafl_bolts::{nonzero, ErrorBacktrace, HasLen, Named};
+use log::{error, info};
+use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
+use std::collections::BTreeMap;
+use std::hash::Hash;
+use std::marker::PhantomData;
+use std::mem::transmute;
+use std::ops::Deref;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use libafl::inputs::{HasTargetBytes, InputToBytes};
-use log::error;
-use serde::{Deserialize, Serialize};
-use tokio::runtime::Runtime;
-use fuzzer_data::{Code, ExecutionResult, ReportExecutionProblem};
-use crate::CommandExitResult;
-use crate::net::{net_execute_sample, net_fuzzing_pretext, ExecuteSampleResult};
-
+use tokio::runtime::Handle;
+use tokio::task::JoinHandle;
 
 static LAST_EXECUTION_RESULT: Mutex<Option<ExecutionResult>> = Mutex::new(None);
 static LAST_EXECUTION_PROBLEMS: Mutex<Vec<ReportExecutionProblem>> = Mutex::new(Vec::new());
@@ -39,27 +41,32 @@ static LAST_EXECUTION_PROBLEMS: Mutex<Vec<ReportExecutionProblem>> = Mutex::new(
 const HANDLE_UCOVERAGE: Cow<'static, str> = Cow::Borrowed("uCoverage");
 const HANDLE_STATE_DIFFERENCE: Cow<'static, str> = Cow::Borrowed("stateDifference");
 
-
-pub struct AFLExecutor<'a, OT, I, S> where OT: ObserversTuple<I, S> {
+pub struct AFLExecutor<'a, OT, I, S> {
     udp: &'a mut DeviceConnection,
     interface: &'a Arc<FuzzerNodeInterface>,
     database: &'a mut Database,
     observers: OT,
     phantom: PhantomData<(I, S)>,
-    runtime: Runtime,
-    
+
     last_code_executed: Option<Code>,
     last_reported_exclusion: Option<(Option<u16>, u16)>, // address, times
 }
 
-impl<'a, OT, I, S> AFLExecutor<'a, OT, I, S> where OT: ObserversTuple<I, S> {
-    fn new(udp: &'a mut DeviceConnection, interface: &'a Arc<FuzzerNodeInterface>, database: &mut Database, observers: OT) -> Self {
+impl<'a, OT, I, S> AFLExecutor<'a, OT, I, S>
+where
+    OT: ObserversTuple<I, S>,
+{
+    fn new(
+        udp: &'a mut DeviceConnection,
+        interface: &'a Arc<FuzzerNodeInterface>,
+        database: &'a mut Database,
+        observers: OT,
+    ) -> Self {
         AFLExecutor {
             udp,
             interface,
             observers,
             phantom: PhantomData,
-            runtime: tokio::runtime::Runtime::new().expect("create tokio runtime"),
             database,
             last_code_executed: None,
             last_reported_exclusion: None,
@@ -67,92 +74,208 @@ impl<'a, OT, I, S> AFLExecutor<'a, OT, I, S> where OT: ObserversTuple<I, S> {
     }
 }
 
-impl<'a, EM, I, S, Z, OT> Executor<EM, I, S, Z> for AFLExecutor<'a, OT, I, S> where
-    S: HasExecutions, OT: ObserversTuple<I, S>, EM: SendExiting, I: HasTargetBytes {
-    fn run_target(&mut self, fuzzer: &mut Z, state: &mut S, mgr: &mut EM, input: &I) -> Result<ExitKind, Error> {
+struct ExecuteContext {
+    input: Vec<u8>,
+
+    udp: &'static mut DeviceConnection,
+    interface: Arc<FuzzerNodeInterface>,
+    database: &'static mut Database,
+    last_code_executed: &'static mut Option<Code>,
+}
+
+impl<'a, EM, I, S, Z, OT> Executor<EM, I, S, Z> for AFLExecutor<'a, OT, I, S>
+where
+    S: HasExecutions,
+    OT: ObserversTuple<I, S>,
+    EM: SendExiting,
+    I: HasTargetBytes,
+{
+    fn run_target(
+        &mut self,
+        _fuzzer: &mut Z,
+        state: &mut S,
+        _mgr: &mut EM,
+        input: &I,
+    ) -> Result<ExitKind, libafl::Error> {
         *state.executions_mut() += 1;
 
-        let _guard = self.runtime.enter();
-        let task = tokio::spawn(async {
-            async fn force_reconnect() {
-                
+        let handle = Handle::current();
+        let _guard = handle.enter();
+
+        let mut thread_context = unsafe {
+            ExecuteContext {
+                input: input.target_bytes().to_vec(),
+                udp: transmute(&mut self.udp),
+                interface: Arc::clone(&self.interface),
+                database: transmute(&mut self.database),
+                last_code_executed: transmute(&mut self.last_code_executed),
             }
-            
+        };
+
+        let task: JoinHandle<
+            Result<(ExecutionResult, Vec<ReportExecutionProblem>), libafl::Error>,
+        > = tokio::spawn(async move {
+            async fn force_reconnect(
+                thread_context: &mut ExecuteContext,
+                result: CommandExitResult,
+                continue_count: &mut u64,
+            ) -> Result<bool, libafl::Error> {
+                let connection_lost = match result {
+                    CommandExitResult::ForceReconnect => {
+                        *continue_count = 0;
+                        true
+                    }
+                    CommandExitResult::RetryOrReconnect => {
+                        *continue_count += 1;
+                        *continue_count > 3
+                    }
+                    CommandExitResult::Operational => {
+                        *continue_count = 0;
+                        false
+                    }
+                    CommandExitResult::ExitProgram => {
+                        info!("Exiting");
+                        return Err(libafl::Error::ShuttingDown);
+                    }
+                };
+
+                if connection_lost {
+                    info!("Connection lost");
+
+                    let _ = thread_context.interface.power_button_long().await;
+
+                    // wait for pi reboot
+
+                    let _ = power_on(&thread_context.interface).await;
+
+                    tokio::time::sleep(Duration::from_secs(5)).await;
+
+                    guarantee_initial_state(&thread_context.interface, thread_context.udp).await;
+                    Ok(true)
+                } else {
+                    Ok(false)
+                }
+            }
+
             let mut retry_counter = 0u64;
             loop {
                 let result = net_fuzzing_pretext(
-                    self.udp,
-                    self.database,
-                    &mut self.last_code_executed,
-                    &mut self.last_reported_exclusion,
-                ).await;
-                
-                match result {
-                    CommandExitResult::ExitProgram => {
-                        error!("Exiting program as requested net_fuzzing_pretext");
-                        let _ = mgr.send_exiting();
-                        return Result::Err(libafl::Error::Runtime("stop".into(), ErrorBacktrace::new()));
-                    }
-                    CommandExitResult::Operational => {},
-                    CommandExitResult::RetryOrReconnect => {
-                        retry_counter += 1;
-                        continue;
-                    }
-                    CommandExitResult::ForceReconnect => {
-                        force_reconnect().await;
-                        continue;
-                    }
+                    thread_context.udp,
+                    thread_context.database,
+                    &mut thread_context.last_code_executed,
+                    &mut None,
+                )
+                .await;
+
+                if force_reconnect(&mut thread_context, result, &mut retry_counter).await? {
+                    continue;
                 }
 
-                self.last_code_executed = Some(input.target_bytes().to_vec());
-                
-                let result = net_execute_sample(
-                    self.udp,
-                    self.interface,
-                    self.database,
-                    input.target_bytes().as_ref(),
-                ).await;
+                *thread_context.last_code_executed = Some(thread_context.input.clone());
 
-                match net_execute_sample(self.udp, self.interface, self.database, input.target_bytes().as_ref()).await {
-                    ExecuteSampleResult::Timeout => { 
-                        force_reconnect().await;
+                match net_execute_sample(
+                    thread_context.udp,
+                    &thread_context.interface,
+                    thread_context.database,
+                    thread_context.input.as_ref(),
+                )
+                .await
+                {
+                    ExecuteSampleResult::Timeout => {
+                        force_reconnect(
+                            &mut thread_context,
+                            CommandExitResult::ForceReconnect,
+                            &mut retry_counter,
+                        )
+                        .await?;
                         continue;
                     }
-                    ExecuteSampleResult::Rerun => { 
-                        retry_counter += 1;
+                    ExecuteSampleResult::Rerun => {
+                        force_reconnect(
+                            &mut thread_context,
+                            CommandExitResult::RetryOrReconnect,
+                            &mut retry_counter,
+                        )
+                        .await?;
                         continue;
-                    },
-                    ExecuteSampleResult::Success((exit, problems)) => { 
-                        return Result::Ok((exit, problems));
-                    },
+                    }
+                    ExecuteSampleResult::Success((exit, problems)) => {
+                        let _ = force_reconnect(
+                            &mut thread_context,
+                            CommandExitResult::Operational,
+                            &mut retry_counter,
+                        )
+                        .await?;
+                        return Ok((exit, problems));
+                    }
                 };
             }
         });
-        let result = self.runtime.block_on(task);
+        let result = futures::executor::block_on(task); // block, here, afterwards unsafe ref not used
 
         match result {
             Result::Err(e) => {
                 error!("Error executing target: {:?}", e);
-                return Err(libafl::Error::Runtime("Error in tokio asyn task".into(), ErrorBacktrace::new()));
+                return Err(libafl::Error::Runtime(
+                    "Error in tokio asyn task".into(),
+                    ErrorBacktrace::new(),
+                ));
             }
             Result::Ok(result) => {
                 let (exit, problems) = result?;
+
+                let mut afl_exit = match exit.exit {
+                    VmExitReason::Exception(_)
+                    | VmExitReason::Cpuid
+                    | VmExitReason::Hlt
+                    | VmExitReason::Io
+                    | VmExitReason::Rdmsr
+                    | VmExitReason::Wrmsr
+                    | VmExitReason::Rdrand
+                    | VmExitReason::Rdseed
+                    | VmExitReason::Rdtsc
+                    | VmExitReason::Rdpmc
+                    | VmExitReason::Cr8Write
+                    | VmExitReason::IoWrite
+                    | VmExitReason::MsrUse
+                    | VmExitReason::Shutdown(_)
+                    | VmExitReason::MonitorTrap
+                    | VmExitReason::EPTPageFault(_) => ExitKind::Ok,
+                    VmExitReason::VMEntryFailure(_, _)
+                    | VmExitReason::Unexpected(_)
+                    | VmExitReason::ExternalInterrupt => ExitKind::Crash,
+                    VmExitReason::TimerExpiration => ExitKind::Timeout,
+                };
+                if afl_exit != ExitKind::Timeout {
+                    if problems.iter().any(|x| {
+                        matches!(
+                            x,
+                            ReportExecutionProblem::SerializedMismatch { .. }
+                                | ReportExecutionProblem::VeryLikelyBug
+                        )
+                    }) {
+                        afl_exit = ExitKind::Crash;
+                    }
+                }
+
                 if let Ok(mut data) = LAST_EXECUTION_RESULT.lock() {
-                    *data = Some(exit.clone());
+                    *data = Some(exit);
                 }
                 if let Ok(mut data) = LAST_EXECUTION_PROBLEMS.lock() {
                     data.clear();
                     data.extend(problems);
                 }
-                if exit.exit // todo
+
+                Ok(afl_exit)
             }
         }
-
-        Ok(ExitKind::Ok)
     }
 }
 
-impl<'a, OT, I, S> HasObservers for AFLExecutor<'a, OT, I, S> where OT: ObserversTuple<I, S> {
+impl<'a, OT, I, S> HasObservers for AFLExecutor<'a, OT, I, S>
+where
+    OT: ObserversTuple<I, S>,
+{
     type Observers = OT;
 
     #[inline]
@@ -169,7 +292,7 @@ impl<'a, OT, I, S> HasObservers for AFLExecutor<'a, OT, I, S> where OT: Observer
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct CoverageObserver {
     coverage: BTreeMap<u16, u16>,
-    #[serde(skip, default="default_array")]
+    #[serde(skip, default = "default_array")]
     slice: [u8; 0x7c00],
 }
 
@@ -186,8 +309,8 @@ impl Default for CoverageObserver {
     }
 }
 
-impl<I, S> Observer<I, S> for CoverageObserver  {
-    fn pre_exec(&mut self, _state: &mut S, _input: &I) -> Result<(), Error> {
+impl<I, S> Observer<I, S> for CoverageObserver {
+    fn pre_exec(&mut self, _state: &mut S, _input: &I) -> Result<(), libafl::Error> {
         if let Ok(mut data) = LAST_EXECUTION_RESULT.lock() {
             if data.is_some() {
                 *data = None;
@@ -196,7 +319,12 @@ impl<I, S> Observer<I, S> for CoverageObserver  {
         self.reset_map()?;
         Ok(())
     }
-    fn post_exec(&mut self, _state: &mut S, _input: &I, _exit_kind: &ExitKind) -> Result<(), Error> {
+    fn post_exec(
+        &mut self,
+        _state: &mut S,
+        _input: &I,
+        _exit_kind: &ExitKind,
+    ) -> Result<(), libafl::Error> {
         if let Ok(data) = LAST_EXECUTION_RESULT.lock() {
             if let Some(execution_result) = data.as_ref() {
                 self.coverage.clone_from(&execution_result.coverage);
@@ -237,12 +365,16 @@ impl Hash for CoverageObserver {
 impl MapObserver for CoverageObserver {
     type Entry = u8;
 
-   fn count_bytes(&self) -> u64 {
+    fn count_bytes(&self) -> u64 {
         self.coverage.values().filter(|&&count| count > 0).count() as u64
     }
 
     fn get(&self, idx: usize) -> Self::Entry {
-        self.coverage.get(&(idx as u16)).unwrap_or(&0).clone().max(u8::MAX as u16) as u8
+        self.coverage
+            .get(&(idx as u16))
+            .unwrap_or(&0)
+            .clone()
+            .max(u8::MAX as u16) as u8
     }
 
     fn usable_count(&self) -> usize {
@@ -260,7 +392,7 @@ impl MapObserver for CoverageObserver {
         0
     }
 
-    fn reset_map(&mut self) -> Result<(), Error> {
+    fn reset_map(&mut self) -> Result<(), libafl::Error> {
         self.coverage.clear();
         self.slice.fill(0);
         Ok(())
@@ -296,18 +428,23 @@ impl Deref for CoverageObserver {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct DifferenceObserver {
-    problems: Vec<ReportExecutionProblem>
+    problems: Vec<ReportExecutionProblem>,
 }
 
 impl<I, S> Observer<I, S> for DifferenceObserver {
-    fn pre_exec(&mut self, _state: &mut S, _input: &I) -> Result<(), Error> {
+    fn pre_exec(&mut self, _state: &mut S, _input: &I) -> Result<(), libafl::Error> {
         if let Ok(mut data) = LAST_EXECUTION_PROBLEMS.lock() {
             data.clear();
         }
         Ok(())
     }
 
-    fn post_exec(&mut self, _state: &mut S, _input: &I, _exit_kind: &ExitKind) -> Result<(), Error> {
+    fn post_exec(
+        &mut self,
+        _state: &mut S,
+        _input: &I,
+        _exit_kind: &ExitKind,
+    ) -> Result<(), libafl::Error> {
         if let Ok(data) = LAST_EXECUTION_PROBLEMS.lock() {
             self.problems.clone_from(&data);
         }
@@ -339,17 +476,15 @@ impl AsMut<Self> for DifferenceObserver {
     }
 }
 
-
 pub fn afl_main(
     udp: &mut DeviceConnection,
     interface: &Arc<FuzzerNodeInterface>,
-    _db: &mut Database,
-    corpus: Option<PathBuf>,
+    db: &mut Database,
+    _corpus: Option<PathBuf>,
     solution: Option<PathBuf>,
-    timeout_hours: Option<u32>,
-    disable_feedback: bool,
+    _timeout_hours: Option<u32>,
+    _disable_feedback: bool,
 ) {
-
     // The closure that we want to fuzz
     let coverage_observer = CoverageObserver::default();
 
@@ -367,7 +502,8 @@ pub fn afl_main(
         InMemoryCorpus::new(),
         // Corpus in which we store solutions (crashes in this example),
         // on disk so the user can get them after stopping the fuzzer
-        OnDiskCorpus::new(solution.unwrap_or(PathBuf::from("./findings"))).expect("Corpus initialization failed"),
+        OnDiskCorpus::new(solution.unwrap_or(PathBuf::from("./findings")))
+            .expect("Corpus initialization failed"),
         &mut feedback,
         &mut objective,
     )
@@ -387,7 +523,7 @@ pub fn afl_main(
     let mut fuzzer = StdFuzzer::new(scheduler, feedback, objective);
 
     // Create the executor for an in-process function with just one observer
-    let mut executor = AFLExecutor::new(udp, interface, tuple_list!(coverage_observer));
+    let mut executor = AFLExecutor::new(udp, interface, db, tuple_list!(coverage_observer));
 
     // Generator of printable bytearrays of max size 32
     let mut generator = RandPrintablesGenerator::new(nonzero!(32));

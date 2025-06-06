@@ -20,8 +20,8 @@ use ucode_compiler_dynamic::sequence_word::SequenceWord;
 use x86_perf_counter::PerfEventSpecifier;
 
 pub async fn net_blacklist(net: &mut DeviceConnection, database: &mut Database) -> bool {
-    for blacklist in &database
-        .blacklisted()
+    let vector = database.blacklisted().collect_vec();
+    for blacklist in vector
         /*.chain(
             database
                 .data
@@ -42,7 +42,7 @@ pub async fn net_blacklist(net: &mut DeviceConnection, database: &mut Database) 
     {
         if let Err(err) = net
             .send(OtaC2DTransport::Blacklist {
-                address: blacklist.collect_vec(),
+                address: blacklist.to_vec(),
             })
             .await
         {

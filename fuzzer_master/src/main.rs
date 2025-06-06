@@ -9,11 +9,14 @@ use fuzzer_master::instruction_mutations::InstructionMutState;
 use fuzzer_master::manual_execution::ManualExecutionState;
 use fuzzer_master::net::{net_reboot_device, net_receive_performance_timing, ExecuteSampleResult};
 use fuzzer_master::spec_fuzz::SpecFuzzMutState;
-use fuzzer_master::{afl_fuzzing, genetic_breeding, instruction_mutations, manual_execution, net, spec_fuzz, wait_for_device, CommandExitResult, WaitForDeviceResult, P0_FREQ};
+use fuzzer_master::{
+    afl_fuzzing, genetic_breeding, guarantee_initial_state, instruction_mutations,
+    manual_execution, net, power_on, spec_fuzz, CommandExitResult, P0_FREQ,
+};
 use hypervisor::state::StateDifference;
 use itertools::Itertools;
-use log::{error, info, trace, warn};
-use performance_timing::{track_time, TimeMeasurement};
+use log::{error, info, trace};
+use performance_timing::TimeMeasurement;
 use std::io;
 use std::io::Write;
 use std::path::PathBuf;
@@ -225,7 +228,7 @@ async fn main() {
         disable_feedback,
         timeout_hours,
         corpus,
-        solutions: solutions,
+        solutions,
     } = &args.cmd
     {
         return afl_fuzzing::afl_main(
@@ -588,63 +591,4 @@ async fn main() {
     let _ = database.save().await.map_err(|e| {
         error!("Failed to save the database: {:?}", e);
     });
-}
-
-#[track_time("host::guarantee_state")]
-async fn guarantee_initial_state(interface: &Arc<FuzzerNodeInterface>, udp: &mut DeviceConnection) {
-    // guarantee initial state
-    let mut iteration = 0;
-    loop {
-        match wait_for_device(udp).await {
-            WaitForDeviceResult::NoResponse => {
-                power_on(&interface).await;
-                iteration += 1;
-
-                if (iteration % 2) == 0 {
-                    warn!("Device did not boot after 2 attempts, trying a long press");
-                    let _ = interface.power_button_long().await;
-                }
-            }
-            WaitForDeviceResult::SocketError(err) => {
-                eprintln!("Failed to communicate with the device: {:?}", err);
-                continue;
-            }
-            WaitForDeviceResult::DeviceFound => {
-                // device is already on
-                break;
-            }
-        }
-    }
-}
-
-#[track_time("host::guarantee_state")]
-async fn power_on(interface: &FuzzerNodeInterface) -> bool {
-    // device is off
-
-    trace!("Powering on the device");
-    if let Err(err) = interface.power_button_short().await {
-        error!("Failed to power on the device: {:?}", err);
-        if let Err(err) = interface.power_button_short().await {
-            error!("Failed to power on the device: {:?}", err);
-            return false;
-        }
-    }
-
-    // device is on
-
-    trace!("Waiting for the device to boot");
-    tokio::time::sleep(Duration::from_secs(50)).await;
-
-    // bios screen is shown
-
-    trace!("Skipping the BIOS");
-    if let Err(err) = interface.skip_bios().await {
-        error!("Failed to skip the BIOS: {:?}", err);
-        return false;
-    }
-
-    trace!("Waiting for the device to boot UEFI");
-    tokio::time::sleep(Duration::from_secs(40)).await;
-
-    true
 }

@@ -1,7 +1,9 @@
 use crate::device_connection::{DeviceConnection, DeviceConnectionError};
 use crate::fuzzer_node_bridge::FuzzerNodeInterface;
 use fuzzer_data::OtaC2DTransport;
-use log::{debug, error, info, trace};
+use log::{debug, error, info, trace, warn};
+use performance_timing::track_time;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::Instant;
 
@@ -92,6 +94,68 @@ pub async fn wait_for_device(net: &mut DeviceConnection) -> WaitForDeviceResult 
             }
             Err(e) => {
                 return WaitForDeviceResult::SocketError(e);
+            }
+        }
+    }
+}
+
+#[track_time("host::guarantee_state")]
+pub async fn power_on(interface: &FuzzerNodeInterface) -> bool {
+    // device is off
+
+    trace!("Powering on the device");
+    if let Err(err) = interface.power_button_short().await {
+        error!("Failed to power on the device: {:?}", err);
+        if let Err(err) = interface.power_button_short().await {
+            error!("Failed to power on the device: {:?}", err);
+            return false;
+        }
+    }
+
+    // device is on
+
+    trace!("Waiting for the device to boot");
+    tokio::time::sleep(Duration::from_secs(50)).await;
+
+    // bios screen is shown
+
+    trace!("Skipping the BIOS");
+    if let Err(err) = interface.skip_bios().await {
+        error!("Failed to skip the BIOS: {:?}", err);
+        return false;
+    }
+
+    trace!("Waiting for the device to boot UEFI");
+    tokio::time::sleep(Duration::from_secs(40)).await;
+
+    true
+}
+
+#[track_time("host::guarantee_state")]
+pub async fn guarantee_initial_state(
+    interface: &Arc<FuzzerNodeInterface>,
+    udp: &mut DeviceConnection,
+) {
+    // guarantee initial state
+    let mut iteration = 0;
+    loop {
+        match wait_for_device(udp).await {
+            WaitForDeviceResult::NoResponse => {
+                power_on(&interface).await;
+                iteration += 1;
+
+                if (iteration % 2) == 0 {
+                    warn!("Device did not boot after 2 attempts, trying a long press");
+                    let _ = interface.power_button_long().await;
+                }
+            }
+            WaitForDeviceResult::SocketError(err) => {
+                eprintln!("Failed to communicate with the device: {:?}", err);
+                continue;
+            }
+            WaitForDeviceResult::DeviceFound => {
+                // device is already on
+                break;
             }
         }
     }
