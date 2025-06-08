@@ -1003,6 +1003,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
  "ucode_compiler_dynamic",
  "ucode_dump",

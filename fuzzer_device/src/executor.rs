@@ -17,6 +17,7 @@ use crate::{cmos, PersistentApplicationData, PersistentApplicationState, StateTr
 use ::hypervisor::error::HypervisorError;
 use ::hypervisor::state::{VmExitReason, VmState};
 use alloc::collections::{btree_map, BTreeMap, BTreeSet};
+use alloc::format;
 use alloc::rc::Rc;
 use alloc::vec::Vec;
 use core::cell::RefCell;
@@ -27,8 +28,10 @@ use coverage::interface_definition::CoverageCount;
 use custom_processing_unit::lmfence;
 use data_types::addresses::{Address, UCInstructionAddress};
 use fuzzer_data::ReportExecutionProblem;
+use log::error;
 use log::trace;
-use log::{error, warn};
+#[cfg(feature = "__debug_print_progress_net")]
+use log::{warn, Level};
 #[cfg(feature = "__debug_performance_trace")]
 use performance_timing::track_time;
 use rand_core::RngCore;

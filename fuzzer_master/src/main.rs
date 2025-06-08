@@ -15,6 +15,7 @@ use fuzzer_master::{
 };
 use hypervisor::state::StateDifference;
 use itertools::Itertools;
+use libafl_bolts::rands::random_seed;
 use log::{error, info, trace};
 use performance_timing::TimeMeasurement;
 use std::io;
@@ -236,9 +237,11 @@ async fn main() {
             &interface,
             &mut database,
             corpus.as_ref().map(|v| v.clone()),
+            corpus_vec,
             solutions.as_ref().map(|v| v.clone()),
             *timeout_hours,
             *disable_feedback,
+            random_seed(),
         )
         .await;
     }
