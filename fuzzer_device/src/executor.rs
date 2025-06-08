@@ -28,10 +28,10 @@ use coverage::interface_definition::CoverageCount;
 use custom_processing_unit::lmfence;
 use data_types::addresses::{Address, UCInstructionAddress};
 use fuzzer_data::ReportExecutionProblem;
-use log::error;
+use log::{error, warn};
 use log::trace;
 #[cfg(feature = "__debug_print_progress_net")]
-use log::{warn, Level};
+use log::{Level};
 #[cfg(feature = "__debug_performance_trace")]
 use performance_timing::track_time;
 use rand_core::RngCore;
