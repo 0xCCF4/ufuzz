@@ -93,6 +93,8 @@ enum Cmd {
         timeout_hours: Option<u32>,
         #[arg(short, long)]
         disable_feedback: bool,
+        #[arg(short, long)]
+        printable_input_generation: bool,
     },
 }
 
@@ -230,6 +232,7 @@ async fn main() {
         timeout_hours,
         corpus,
         solutions,
+        printable_input_generation,
     } = &args.cmd
     {
         return afl_fuzzing::afl_main(
@@ -242,6 +245,7 @@ async fn main() {
             *timeout_hours,
             *disable_feedback,
             random_seed(),
+            *printable_input_generation,
         )
         .await;
     }

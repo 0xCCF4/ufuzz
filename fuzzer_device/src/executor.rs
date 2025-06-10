@@ -17,21 +17,20 @@ use crate::{cmos, PersistentApplicationData, PersistentApplicationState, StateTr
 use ::hypervisor::error::HypervisorError;
 use ::hypervisor::state::{VmExitReason, VmState};
 use alloc::collections::{btree_map, BTreeMap, BTreeSet};
-use alloc::format;
 use alloc::rc::Rc;
 use alloc::vec::Vec;
 use core::cell::RefCell;
 use core::fmt::Debug;
 use coverage::harness::coverage_harness::{CoverageExecutionResult, ExecutionResultEntry};
 use coverage::harness::iteration_harness::IterationHarness;
-use coverage::interface_definition::CoverageCount;
+use coverage::interface_definition::{ComInterfaceDescription, CoverageCount};
 use custom_processing_unit::lmfence;
 use data_types::addresses::{Address, UCInstructionAddress};
 use fuzzer_data::ReportExecutionProblem;
-use log::{error, warn};
 use log::trace;
 #[cfg(feature = "__debug_print_progress_net")]
-use log::{Level};
+use log::Level;
+use log::{error, info, warn};
 #[cfg(feature = "__debug_performance_trace")]
 use performance_timing::track_time;
 use rand_core::RngCore;
@@ -49,6 +48,7 @@ pub struct SampleExecutor {
     hypervisor: Hypervisor,
     coverage: Option<CoverageCollectorData>,
     serializer: Serializer,
+    coverage_interface: &'static ComInterfaceDescription,
 }
 
 fn disable_all_hooks() {
@@ -113,7 +113,7 @@ impl SampleExecutor {
                 iteration += 1;
 
                 self.hypervisor.prepare_vm_state();
-                let no_coverage_vm_exit = self.hypervisor.run_vm();
+                let no_coverage_vm_exit = self.hypervisor.run_vm(false);
 
                 if iteration < 100 && no_coverage_vm_exit == VmExitReason::ExternalInterrupt {
                     #[cfg(feature = "__debug_print_external_interrupt_notification")]
@@ -129,10 +129,26 @@ impl SampleExecutor {
         };
 
         self.hypervisor.capture_state(&mut execution_result.state);
-
         execution_result.exit = no_coverage_vm_exit;
-        let _no_coverage_execution_result = &execution_result.state;
-        let _no_coverage_execution_exit = &execution_result.exit;
+
+        if let VmExitReason::EPTPageFault(fault) = &execution_result.exit {
+            if ((fault.data_read && !fault.was_readable)
+                || (fault.data_write && !fault.was_writable))
+                && fault.gpa >= self.coverage_interface.base as usize
+                && fault.gpa < self.coverage_interface.base as usize + 4096
+            {
+                // read, write to coverage collection region
+                info!("read or write to coverage collection region");
+
+                execution_result
+                    .events
+                    .push(ExecutionEvent::AccessCoverageArea);
+
+                return ExecutionSampleResult {
+                    serialized_sample: None,
+                };
+            }
+        }
 
         if let Some(coverage) = self.coverage.as_mut() {
             // plan the following executions to collect coverage
@@ -163,7 +179,7 @@ impl SampleExecutor {
                                 .execute_coverage_collection(addresses, || {
                                     // execute the sample within the hypervisor
                                     let vm_exit =
-                                        self.hypervisor.run_with_callback(disable_all_hooks);
+                                        self.hypervisor.run_with_callback(true, disable_all_hooks);
                                     // hooks are now disabled, so coverage collection stopped
 
                                     if addresses.len() == 1 {
@@ -292,7 +308,7 @@ impl SampleExecutor {
                     iteration += 1;
 
                     self.hypervisor.prepare_vm_state();
-                    let serialized_vm_exit = self.hypervisor.run_vm();
+                    let serialized_vm_exit = self.hypervisor.run_vm(false);
 
                     if iteration < 100 && serialized_vm_exit == VmExitReason::ExternalInterrupt {
                         #[cfg(feature = "__debug_print_external_interrupt_notification")]
@@ -344,6 +360,7 @@ impl SampleExecutor {
 
     pub fn new(
         excluded_addresses: Rc<RefCell<BTreeSet<u16>>>,
+        coverage_interface: &'static ComInterfaceDescription,
     ) -> Result<SampleExecutor, HypervisorError> {
         trace!("Initializing coverage collection");
 
@@ -370,13 +387,14 @@ impl SampleExecutor {
         trace!("Coverage collection initialized");
 
         trace!("Initializing hypervisor");
-        let hypervisor = Hypervisor::new()?;
+        let hypervisor = Hypervisor::new(coverage_interface)?;
         trace!("Hypervisor initialized");
 
         Ok(Self {
             hypervisor,
             coverage: coverage_collector,
             serializer: Serializer::default(),
+            coverage_interface,
         })
     }
 
@@ -442,6 +460,7 @@ pub enum ExecutionEvent {
         normal: Option<VmState>,
         serialized: Option<VmState>,
     },
+    AccessCoverageArea,
 }
 
 impl From<ExecutionEvent> for Option<ReportExecutionProblem> {
@@ -474,6 +493,7 @@ impl From<ExecutionEvent> for Option<ReportExecutionProblem> {
                 serialized,
             }),
             ExecutionEvent::VeryLikelyBug => Some(ReportExecutionProblem::VeryLikelyBug),
+            ExecutionEvent::AccessCoverageArea => Some(ReportExecutionProblem::AccessCoverageArea),
         }
     }
 }

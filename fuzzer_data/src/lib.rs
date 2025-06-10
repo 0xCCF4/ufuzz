@@ -37,6 +37,7 @@ pub enum ReportExecutionProblem {
         serialized: Option<VmState>,
     },
     VeryLikelyBug,
+    AccessCoverageArea,
 }
 
 impl ReportExecutionProblem {

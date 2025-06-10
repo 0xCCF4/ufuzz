@@ -244,7 +244,9 @@ impl Serializer {
                     // point to an NOP instruction after the end of the code segment
                     target_end_ip.max(address)
                 } else {
-                    unreachable!("Address points to inside of code segment, but not mapped to an existing instruction: {:X}", address);
+                    return Err(SerializeError::Unknown(
+                        "Address maps to an existing instruction, but is misaligned. todo",
+                    ));
                 }
             }
         })

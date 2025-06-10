@@ -11,7 +11,7 @@ use libafl::corpus::{CachedOnDiskCorpus, OnDiskCorpus};
 use libafl::events::{SendExiting, SimpleEventManager};
 use libafl::executors::{Executor, ExitKind, HasObservers};
 use libafl::feedbacks::{CrashFeedback, MaxMapFeedback};
-use libafl::generators::RandBytesGenerator;
+use libafl::generators::{RandBytesGenerator, RandPrintablesGenerator};
 use libafl::inputs::HasTargetBytes;
 use libafl::monitors::SimpleMonitor;
 use libafl::mutators::{havoc_mutations, HavocScheduledMutator};
@@ -544,6 +544,7 @@ pub async fn afl_main(
     timeout_hours: Option<u32>,
     disable_feedback: bool,
     seed: u64,
+    printable_input_generation: bool,
 ) {
     let initial_corpus_files = initial_corpus.map(|instructions| {
         let mut population = Vec::with_capacity(8);
@@ -591,6 +592,9 @@ pub async fn afl_main(
     let result = tokio::task::spawn_blocking(move || {
         let coverage_observer = CoverageObserver::default();
 
+        let mut generator_rand = RandBytesGenerator::new(nonzero!(32));
+        let mut generator_printable = RandPrintablesGenerator::new(nonzero!(32));
+
         if disable_feedback {
             // No coverage feedback
             let mut const_feedback = ();
@@ -623,8 +627,6 @@ pub async fn afl_main(
                 timeout_hours,
             );
 
-            let mut generator = RandBytesGenerator::new(nonzero!(32));
-
             if let Some(initial) = initial_corpus_files {
                 state
                     .load_initial_inputs(
@@ -640,15 +642,27 @@ pub async fn afl_main(
                     .expect("Failed to load initial corpus from files");
                 drop(initial);
             } else {
-                state
-                    .generate_initial_inputs(
-                        &mut fuzzer,
-                        &mut executor,
-                        &mut generator,
-                        &mut mgr,
-                        8,
-                    )
-                    .expect("Failed to generate the initial corpus");
+                if printable_input_generation {
+                    state
+                        .generate_initial_inputs(
+                            &mut fuzzer,
+                            &mut executor,
+                            &mut generator_printable,
+                            &mut mgr,
+                            8,
+                        )
+                        .expect("Failed to generate the initial corpus");
+                } else {
+                    state
+                        .generate_initial_inputs(
+                            &mut fuzzer,
+                            &mut executor,
+                            &mut generator_rand,
+                            &mut mgr,
+                            8,
+                        )
+                        .expect("Failed to generate the initial corpus");
+                }
             }
 
             let mutator = HavocScheduledMutator::new(havoc_mutations());
@@ -689,8 +703,6 @@ pub async fn afl_main(
                 timeout_hours,
             );
 
-            let mut generator = RandBytesGenerator::new(nonzero!(32));
-
             if let Some(initial) = initial_corpus_files {
                 state
                     .load_initial_inputs(
@@ -706,15 +718,27 @@ pub async fn afl_main(
                     .expect("Failed to load initial corpus from files");
                 drop(initial);
             } else {
-                state
-                    .generate_initial_inputs(
-                        &mut fuzzer,
-                        &mut executor,
-                        &mut generator,
-                        &mut mgr,
-                        8,
-                    )
-                    .expect("Failed to generate the initial corpus");
+                if printable_input_generation {
+                    state
+                        .generate_initial_inputs(
+                            &mut fuzzer,
+                            &mut executor,
+                            &mut generator_printable,
+                            &mut mgr,
+                            8,
+                        )
+                        .expect("Failed to generate the initial corpus");
+                } else {
+                    state
+                        .generate_initial_inputs(
+                            &mut fuzzer,
+                            &mut executor,
+                            &mut generator_rand,
+                            &mut mgr,
+                            8,
+                        )
+                        .expect("Failed to generate the initial corpus");
+                }
             }
 
             let mutator = HavocScheduledMutator::new(havoc_mutations());

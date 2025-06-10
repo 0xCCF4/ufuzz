@@ -14,7 +14,7 @@ use alloc::vec::Vec;
 use alloc::{format, vec};
 use core::cell::RefCell;
 use core::ops::DerefMut;
-use coverage::interface_definition::CoverageCount;
+use coverage::interface_definition::{CoverageCount, COM_INTERFACE_DESCRIPTION};
 use data_types::addresses::{Address, UCInstructionAddress};
 use fuzzer_data::decoder::InstructionDecoder;
 use fuzzer_data::genetic_pool::{GeneticPool, GeneticPoolSettings, GeneticSampleRating};
@@ -68,7 +68,7 @@ unsafe fn main() -> Status {
 
     uefi::boot::stall(1000000);
 
-    let mut perf_monitor = match PerfMonitor::new("perf.json") {
+    let perf_monitor = match PerfMonitor::new("perf.json") {
         Ok(x) => x,
         Err(e) => {
             error!("Failed to create perf monitor: {:?}", e);
@@ -135,13 +135,14 @@ unsafe fn main() -> Status {
     let excluded_addresses = Rc::new(RefCell::new(excluded_addresses.addresses));
 
     trace!("Starting executor...");
-    let mut executor = match SampleExecutor::new(Rc::clone(&excluded_addresses)) {
-        Ok(executor) => executor,
-        Err(e) => {
-            println!("Failed to create executor: {:?}", e);
-            return Status::ABORTED;
-        }
-    };
+    let mut executor =
+        match SampleExecutor::new(Rc::clone(&excluded_addresses), &COM_INTERFACE_DESCRIPTION) {
+            Ok(executor) => executor,
+            Err(e) => {
+                println!("Failed to create executor: {:?}", e);
+                return Status::ABORTED;
+            }
+        };
     info!("Doing hypervisor selfcheck");
     if !executor.selfcheck() {
         println!("Executor selfcheck failed");

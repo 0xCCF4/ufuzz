@@ -174,8 +174,8 @@ bitfield! {
     #[derive(Clone, Copy)]
     pub struct NestedPagingStructureEntry(u64);
     impl Debug;
-    permission, set_permission: 2, 0;
-    memory_type, set_memory_type: 5, 3;
+    pub permission, set_permission: 2, 0;
+    pub memory_type, set_memory_type: 5, 3;
     flags1, _: 11, 6;
     pub pfn, set_pfn: 58, 12;
     flags2, _: 63, 59;

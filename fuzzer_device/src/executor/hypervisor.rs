@@ -2,6 +2,7 @@ use crate::{StateTrace, Trace};
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 use core::pin::Pin;
+use coverage::interface_definition::ComInterfaceDescription;
 use hypervisor::error::HypervisorError;
 use hypervisor::hardware_vt::NestedPagingStructureEntryType;
 use hypervisor::state::{ExceptionQualification, GuestException, GuestRegisters, VmExitReason};
@@ -44,27 +45,29 @@ pub struct Hypervisor {
     pub initial_state: VmState,
 }
 
+// MEMORY LAYOUT IN PAGES
+//
+// 0: code
+// 1: stack
+// 2: global descriptor table
+// 3: TSS
+// 4-5: page tables
+// 6: code entry page, execution starts here
+
+const CODE_PAGE_INDEX: usize = 0;
+const COVERAGE_PAGE_INDEX: usize = 1;
+const STACK_PAGE_INDEX: usize = 2;
+const GDT_PAGE_INDEX: usize = 3;
+const TSS_PAGE_INDEX: usize = 4;
+const PAGE_TABLE_4_INDEX: usize = 5;
+const PAGE_TABLE_3_INDEX: usize = 6;
+const CODE_ENTRY_PAGE_INDEX: usize = 7;
+
 #[cfg_attr(feature = "__debug_performance_trace", track_time)]
 impl Hypervisor {
-    pub fn new() -> Result<Self, HypervisorError> {
-        // MEMORY LAYOUT IN PAGES
-        //
-        // 0: code
-        // 1: stack
-        // 2: global descriptor table
-        // 3: TSS
-        // 4-5: page tables
-        // 6: code entry page, execution starts here
-
-        const CODE_PAGE_INDEX: usize = 0;
-        const COVERAGE_PAGE_INDEX: usize = 1;
-        const STACK_PAGE_INDEX: usize = 2;
-        const GDT_PAGE_INDEX: usize = 3;
-        const TSS_PAGE_INDEX: usize = 4;
-        const PAGE_TABLE_4_INDEX: usize = 5;
-        const PAGE_TABLE_3_INDEX: usize = 6;
-        const CODE_ENTRY_PAGE_INDEX: usize = 7;
-
+    pub fn new(
+        coverage_interface: &'static ComInterfaceDescription,
+    ) -> Result<Self, HypervisorError> {
         let code_page = Page::alloc_zeroed();
         let mut code_entry_page = Page::alloc_zeroed();
         let stack_page = Page::alloc_zeroed();
@@ -227,8 +230,8 @@ impl Hypervisor {
             ),
             vm.build_translation(
                 COVERAGE_PAGE_INDEX << BASE_PAGE_SHIFT,
-                0x1000 as *const Page,              // todo!
-                NestedPagingStructureEntryType::Rw, // todo!
+                coverage_interface.base as *const Page,
+                NestedPagingStructureEntryType::Rw,
             ),
             vm.build_translation(
                 STACK_PAGE_INDEX << BASE_PAGE_SHIFT,
@@ -304,7 +307,8 @@ impl Hypervisor {
         // unsafe { (*(0x1000 as *const Page as *mut Page)).zero(); } // todo!
     }
 
-    pub fn run_vm(&mut self) -> VmExitReason {
+    pub fn run_vm(&mut self, coverage_collection: bool) -> VmExitReason {
+        self.switch_coverage_mode(coverage_collection);
         self.vm.vt.run()
     }
 
@@ -386,7 +390,12 @@ impl Hypervisor {
         last_exit
     }
 
-    pub fn run_with_callback(&mut self, after_execution: fn()) -> VmExitReason {
+    pub fn run_with_callback(
+        &mut self,
+        coverage_collection: bool,
+        after_execution: fn(),
+    ) -> VmExitReason {
+        self.switch_coverage_mode(coverage_collection);
         self.vm.vt.run_with_callback(after_execution)
     }
 
@@ -468,6 +477,36 @@ impl Hypervisor {
         assembler
             .assemble(current_rip)
             .expect("failed to assemble code entry")
+    }
+
+    pub fn switch_coverage_mode(&mut self, coverage_collection: bool) {
+        let rw = self
+            .vm
+            .vt
+            .nps_entry_flags(NestedPagingStructureEntryType::Rw);
+        let none = self
+            .vm
+            .vt
+            .nps_entry_flags(NestedPagingStructureEntryType::None);
+
+        let translation = match self
+            .vm
+            .get_translation(COVERAGE_PAGE_INDEX << BASE_PAGE_SHIFT)
+        {
+            Ok(x) => x,
+            Err(err) => {
+                error!("Error while getting translation: {err:?}");
+                return;
+            }
+        };
+
+        if translation.permission() as u8 == rw.permission && !coverage_collection {
+            translation.set_permission(none.permission as u64);
+            self.vm.vt.invalidate_caches();
+        } else if translation.permission() as u8 == none.permission && coverage_collection {
+            translation.set_permission(rw.permission as u64);
+            self.vm.vt.invalidate_caches();
+        }
     }
 }
 

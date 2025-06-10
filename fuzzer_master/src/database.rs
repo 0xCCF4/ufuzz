@@ -40,6 +40,7 @@ pub enum CodeEvent {
     VeryLikelyBug {
         code: Code,
     },
+    AccessCoverageArea,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -370,6 +371,9 @@ impl Database {
                     entry.events.push(CodeEvent::VeryLikelyBug {
                         code: result.serialized.clone().unwrap_or_default(),
                     });
+                }
+                ReportExecutionProblem::AccessCoverageArea => {
+                    entry.events.push(CodeEvent::AccessCoverageArea);
                 }
             }
         }

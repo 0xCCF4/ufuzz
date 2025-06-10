@@ -130,7 +130,7 @@ impl Vm {
         // Locate PT, index it, build PTe as needed
         let pt = pde.next_table_mut();
         let pte = &mut pt.entries[pti];
-        assert_eq!(pte.0, 0);
+        // assert_eq!(pte.0, 0);
 
         Ok(pte)
     }
