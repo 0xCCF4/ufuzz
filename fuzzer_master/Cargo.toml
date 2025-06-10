@@ -56,3 +56,7 @@ path = "src/main_spec_compare.rs"
 [[bin]]
 name = "spec_new_database"
 path = "src/main_spec_new_database.rs"
+
+[[bin]]
+name = "afl_convert"
+path = "src/main_afl_convert.rs"

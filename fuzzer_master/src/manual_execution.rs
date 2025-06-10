@@ -169,17 +169,23 @@ pub async fn main<A: AsRef<Path>, B: AsRef<Path>>(
                     )
                 })
                 .count();
+            let count_mem_override = events
+                .iter()
+                .filter(|e| matches!(e, fuzzer_data::ReportExecutionProblem::AccessCoverageArea))
+                .count();
             let other = events.len()
                 - count_very_like_bug
                 - count_serialized_mismatch
                 - count_trace_mismatch
-                - count_coverage_mismatch;
+                - count_coverage_mismatch
+                - count_mem_override;
 
             println!("\nEvent summary:");
             println!("  - Very likely bug: {}", count_very_like_bug);
             println!("  - Serialized mismatch: {}", count_serialized_mismatch);
             println!("  - State trace mismatch: {}", count_trace_mismatch);
             println!("  - Coverage mismatch: {}", count_coverage_mismatch);
+            println!("  - Memory override: {}", count_mem_override);
             println!("  - Other: {}", other);
 
             output_text.push_str("\n\nExit result:\n");

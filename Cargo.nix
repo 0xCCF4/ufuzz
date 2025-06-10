@@ -3119,6 +3119,11 @@ rec {
         edition = "2021";
         crateBin = [
           {
+            name = "afl_convert";
+            path = "src/main_afl_convert.rs";
+            requiredFeatures = [ ];
+          }
+          {
             name = "fuzz_combine";
             path = "src/main_combine.rs";
             requiredFeatures = [ ];
