@@ -90,6 +90,8 @@ enum Cmd {
         #[arg(short, long)]
         corpus: Option<PathBuf>,
         #[arg(short, long)]
+        afl_corpus: Option<PathBuf>,
+        #[arg(short, long)]
         timeout_hours: Option<u32>,
         #[arg(short, long)]
         disable_feedback: bool,
@@ -141,12 +143,7 @@ async fn main() {
     let interface = Arc::new(FuzzerNodeInterface::new("http://10.83.3.198:8000"));
     let mut udp = DeviceConnection::new("10.83.3.6:4444").await.unwrap();
 
-    let corpus_vec = if let Cmd::Genetic {
-        corpus,
-        timeout_hours: _,
-        disable_feedback: _,
-    } = &args.cmd
-    {
+    let corpus_vec = if let Cmd::Genetic { corpus, .. } | Cmd::AFL { corpus, .. } = &args.cmd {
         if let Some(corpus) = corpus {
             let file_reader = match std::fs::File::open(&corpus) {
                 Ok(f) => f,
@@ -233,13 +230,14 @@ async fn main() {
         corpus,
         solutions,
         printable_input_generation,
+        afl_corpus,
     } = &args.cmd
     {
         return afl_fuzzing::afl_main(
             &mut udp,
             &interface,
             &mut database,
-            corpus.as_ref().map(|v| v.clone()),
+            afl_corpus.as_ref().map(|v| v.clone()),
             corpus_vec,
             solutions.as_ref().map(|v| v.clone()),
             *timeout_hours,
