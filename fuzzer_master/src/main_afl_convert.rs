@@ -1,8 +1,8 @@
-use std::fs;
-use std::path::PathBuf;
 use clap::Parser;
 use itertools::Itertools;
 use log::error;
+use std::fs;
+use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -41,17 +41,24 @@ pub fn main() {
         error!("Output path is not a directory: {:?}", args.output_path);
         return;
     }
-    
+
     for entry in fs::read_dir(&args.findings_path).expect("Failed to read findings directory") {
         let entry = entry.expect("Failed to read entry");
-        if entry.file_type().expect("Failed to get file type").is_file() {
+        if entry
+            .file_type()
+            .expect("Failed to get file type")
+            .is_file()
+        {
             let contents = fs::read(&entry.path()).expect("Failed to read file");
             let output_file = args.output_path.join(entry.file_name());
-            
+
             let text = contents.into_iter().map(|x| format!("{x:02x}")).join(" ");
-            
+
             if let Err(err) = fs::write(&output_file, text) {
-                error!("Failed to write to output file {:?}: {:?}", output_file, err);
+                error!(
+                    "Failed to write to output file {:?}: {:?}",
+                    output_file, err
+                );
             } else {
                 println!("Converted: {:?} -> {:?}", entry.path(), output_file);
             }

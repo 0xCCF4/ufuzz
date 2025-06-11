@@ -232,7 +232,7 @@ impl SampleExecutor {
                             .push(ExecutionEvent::CoverageCollectionError { error });
                     }
                     Ok(CoverageExecutionResult {
-                        result: (hooked_addresses, current_vm_exit, current_vm_state),
+                        result: (hooked_addresses, mut current_vm_exit, current_vm_state),
                         hooks: coverage_information,
                     }) => {
                         #[cfg(feature = "__debug_print_progress_net")]
@@ -244,6 +244,16 @@ impl SampleExecutor {
                                     hooked_addresses, coverage_information
                                 ),
                             );
+                        }
+
+                        if let VmExitReason::EPTPageFault(fault) = &mut current_vm_exit {
+                            if fault.gpa >= self.coverage_interface.base as usize
+                                && fault.gpa < (self.coverage_interface.base as usize + 4096)
+                            {
+                                // since in normal execution this is the setting
+                                fault.was_writable = false;
+                                fault.was_readable = false;
+                            }
                         }
 
                         // first check if the result of the execution is the same for the current iteration

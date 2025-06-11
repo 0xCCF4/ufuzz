@@ -112,6 +112,7 @@ where
         if let Some(at) = self.timeout_at {
             if Instant::now() > at {
                 let _ = mgr.send_exiting();
+                return Err(libafl::Error::ShuttingDown);
             }
         }
 
@@ -668,9 +669,7 @@ pub async fn afl_main(
             let mutator = HavocScheduledMutator::new(havoc_mutations());
             let mut stages = tuple_list!(StdMutationalStage::new(mutator));
 
-            fuzzer
-                .fuzz_loop(&mut stages, &mut executor, &mut state, &mut mgr)
-                .expect("Error in the fuzzing loop");
+            fuzzer.fuzz_loop(&mut stages, &mut executor, &mut state, &mut mgr)
         } else {
             // With coverage feedback
             let mut feedback = MaxMapFeedback::new(&coverage_observer);
@@ -744,9 +743,7 @@ pub async fn afl_main(
             let mutator = HavocScheduledMutator::new(havoc_mutations());
             let mut stages = tuple_list!(StdMutationalStage::new(mutator));
 
-            fuzzer
-                .fuzz_loop(&mut stages, &mut executor, &mut state, &mut mgr)
-                .expect("Error in the fuzzing loop");
+            fuzzer.fuzz_loop(&mut stages, &mut executor, &mut state, &mut mgr)
         }
     })
     .await;
