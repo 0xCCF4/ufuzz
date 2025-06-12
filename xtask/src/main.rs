@@ -11,7 +11,7 @@ use clap::{Parser, Subcommand};
 use std::io::Write;
 use std::process::Stdio;
 use std::{
-    env,
+    env, fs, io,
     path::{Path, PathBuf},
     process::Command,
 };
@@ -43,6 +43,8 @@ enum Cli {
     },
     /// Update the node's software, systemd service, etc
     UpdateNode,
+    /// Generate documentation
+    Doc,
 }
 
 #[derive(Parser)]
@@ -85,6 +87,7 @@ fn main() {
             release,
         } => main_put_remote(&name, startup, release),
         Cli::ControlRemote { args } => main_control_remote(args),
+        Cli::Doc => main_generate_doc(),
     }
 }
 
@@ -491,5 +494,116 @@ fn build_app(project: &str, release: bool, device: bool) -> Result<PathBuf, DynE
         Ok(_) => Ok(target_folder
             .join(if release { "release" } else { "debug" })
             .join(format!("{}.efi", executable_name))),
+    }
+}
+
+fn main_generate_doc() {
+    let project_root = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
+
+    let projects_uefi = [
+        "coverage",
+        "custom_processing_unit",
+        "fuzzer_device",
+        "hypervisor",
+        "spec_fuzz",
+        "speculation_x86",
+        "speculation_ucode",
+        "uefi_udp4",
+    ];
+    let projects_x86 = [
+        "corpus-gen",
+        "data_types",
+        "fuzzer_data",
+        "fuzzer_master",
+        "fuzzer_node",
+        "literature_search",
+        "performance_timing",
+        "performance_timing_macros",
+        "ucode_compiler_bridge",
+        "ucode_compiler_derive",
+        "ucode_compiler_dynamic",
+        "ucode_dump",
+        "x86_perf_counter",
+    ];
+
+    fn cmd(target: Option<&str>, safe: bool) -> Command {
+        let mut cmd = Command::new("cargo");
+        cmd.arg("doc")
+            .arg("--no-deps")
+            .arg("--document-private-items");
+        if let Some(target) = target {
+            cmd.arg("--target").arg(target);
+        }
+        if safe {
+            cmd.arg("-j2");
+        }
+        cmd
+    }
+
+    for target in ["x86_64-unknown-uefi", "x86_64-unknown-linux-gnu"] {
+        // Create a symlink from target/x86_64-unknown-linux-gnu/doc to target/doc
+        let target_doc = project_root
+            .parent()
+            .unwrap()
+            .join("target")
+            .join(target)
+            .join("doc");
+        let common_doc = project_root.parent().unwrap().join("target").join("doc");
+        if target_doc.exists() {
+            if target_doc.is_dir() {
+                fs::remove_dir_all(&target_doc).expect("Failed to remove existing doc directory");
+            } else {
+                fs::remove_file(&target_doc).expect("Failed to remove existing doc symlink/file");
+            }
+        }
+        if !common_doc.exists() {
+            fs::create_dir(&common_doc).expect("Failed to create doc symlink directory");
+        }
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&common_doc, &target_doc)
+            .expect("Failed to create symlink for doc");
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_dir(&common_doc, &target_doc)
+            .expect("Failed to create symlink for doc");
+    }
+
+    for project in projects_uefi {
+        let status = cmd(Some("x86_64-unknown-uefi"), false)
+            .arg("-p")
+            .arg(project)
+            .current_dir(&project_root)
+            .status()
+            .expect("Failed to generate documentation");
+        if !status.success() {
+            eprintln!("Failed to generate documentation for {project}");
+            std::process::exit(-1);
+        }
+    }
+
+    for project in projects_x86 {
+        let status = cmd(
+            Some("x86_64-unknown-linux-gnu"),
+            ["fuzzer_master"].contains(&project),
+        )
+        .arg("-p")
+        .arg(project)
+        .current_dir(&project_root)
+        .status()
+        .expect("Failed to generate documentation");
+        if !status.success() {
+            eprintln!("Failed to generate documentation for {project}");
+            std::process::exit(-1);
+        }
+    }
+
+    if !cmd(None, false)
+        .args(["-p", "xtask"])
+        .current_dir(&project_root)
+        .status()
+        .expect("Failed to generate documentation for xtask")
+        .success()
+    {
+        eprintln!("Failed to generate documentation for xtask");
+        std::process::exit(-1);
     }
 }
