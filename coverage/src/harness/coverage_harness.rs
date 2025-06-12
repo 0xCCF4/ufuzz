@@ -1,3 +1,9 @@
+//! This module provides the a coverage collection harness.
+//! It manages hook installation, coverage data collection, and result processing.
+//! 
+//! The harness supports both standard and no_std environments.
+//!
+
 pub mod hookable_address_iterator;
 pub mod modification_engine;
 
@@ -29,26 +35,45 @@ use ucode_compiler_dynamic::sequence_word::DisassembleError;
 use ucode_compiler_dynamic::Triad;
 // const COVERAGE_ENTRIES: usize = UCInstructionAddress::MAX.to_const();
 
+/// Errors that can occur during coverage collection
 #[cfg(feature = "ucode")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CoverageError {
+    /// Too many hooks were requested for installation
     TooManyHooks,
+    /// Setup of coverage collection failed
     SetupFailed(FunctionResult),
+    /// The specified address cannot be hooked
     AddressNotHookable(UCInstructionAddress, NotHookableReason),
+    /// Failed to disassemble sequence word
     SequenceWordDissembleError(DisassembleError),
 }
 
+/// Main harness for collecting coverage information
 #[cfg(feature = "ucode")]
 pub struct CoverageHarness<'a, 'b, 'c> {
+    /// Interface for communicating with coverage collection system
     interface: &'a mut ComInterface<'b>,
-    // coverage: [CoverageEntry; COVERAGE_ENTRIES], // every forth entry, beginning at 3 is zero
+    /// Previous hook settings to restore on drop
     previous_hook_settings: Option<HookGuard>,
+    /// Reference to the custom processing unit
     custom_processing_unit: &'c CustomProcessingUnit,
+    /// Settings for the modification engine
     compile_mode: ModificationEngineSettings,
 }
 
 #[cfg(feature = "ucode")]
 impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
+    /// Creates a new coverage harness
+    /// 
+    /// # Arguments
+    /// 
+    /// * `interface` - Communication interface for coverage data
+    /// * `cpu` - Custom processing unit reference
+    /// 
+    /// # Returns
+    /// 
+    /// A new harness instance or a patch error if initialization fails
     pub fn new(
         interface: &'a mut ComInterface<'b>,
         cpu: &'c CustomProcessingUnit,
@@ -65,6 +90,17 @@ impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
         })
     }
 
+    /// Prepares the harness for execution
+    /// 
+    /// Sets up hooks and initializes coverage collection.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `hooks` - List of addresses to hook
+    /// 
+    /// # Returns
+    /// 
+    /// Ok(()) if setup succeeds, or a CoverageError if it fails
     #[inline(always)]
     fn pre_execution(&mut self, hooks: &[UCInstructionAddress]) -> Result<(), CoverageError> {
         #[cfg(feature = "timing_measurement")]
@@ -131,6 +167,17 @@ impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
         Ok(())
     }
 
+    /// Processes coverage data after execution
+    /// 
+    /// Collects and maps 
+    /// 
+    /// # Arguments
+    /// 
+    /// * `hooks` - List of hooked addresses
+    /// 
+    /// # Returns
+    /// 
+    /// List of coverage collection results
     #[inline(always)]
     fn post_execution(&mut self, hooks: &[UCInstructionAddress]) -> Vec<ExecutionResultEntry> {
         #[cfg(feature = "timing_measurement")]
@@ -170,10 +217,12 @@ impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
         result
     }
 
+    /// Sets up coverage collection without executing
     pub fn setup(&mut self, hooks: &[UCInstructionAddress]) -> Result<(), CoverageError> {
         self.pre_execution(hooks)
     }
 
+    /// Checks if an address can be hooked
     pub fn is_hookable(&self, address: UCInstructionAddress) -> Result<(), NotHookableReason> {
         modification_engine::is_hookable(
             address,
@@ -182,6 +231,7 @@ impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
         )
     }
 
+    /// Generates the modified microcode triad when hooking an address pair
     fn modify_triad_for_hooking(
         &self,
         hooked_address: UCInstructionAddress,
@@ -201,6 +251,16 @@ impl<'a, 'b, 'c> CoverageHarness<'a, 'b, 'c> {
         ])
     }
 
+    /// Executes a function while collecting coverage information
+    /// 
+    /// # Arguments
+    /// 
+    /// * `hooks` - List of addresses to hook
+    /// * `func` - Function to execute
+    /// 
+    /// # Returns
+    /// 
+    /// Coverage execution results and the function's return value
     pub fn execute<FuncResult, F: FnOnce() -> FuncResult>(
         &mut self,
         hooks: &[UCInstructionAddress],
@@ -243,19 +303,27 @@ impl Drop for CoverageHarness<'_, '_, '_> {
     }
 }
 
+/// Coverage collection results for a hooked microcode address
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExecutionResultEntry {
+    /// Address was not covered during execution
     NotCovered {
+        /// The uncovered address
         address: UCInstructionAddress,
     },
+    /// Address was covered during execution
     Covered {
+        /// The covered address
         address: UCInstructionAddress,
+        /// Number of times the address was hit
         count: CoverageCount,
+        /// Last instruction pointer value when this address was hit
         last_rip: u64,
     },
 }
 
 impl ExecutionResultEntry {
+    /// Gets the address associated with this entry
     pub fn address(&self) -> UCInstructionAddress {
         match self {
             ExecutionResultEntry::Covered { address, .. } => *address,
@@ -263,6 +331,7 @@ impl ExecutionResultEntry {
         }
     }
 
+    /// Gets the coverage count for this entry
     pub fn coverage(&self) -> u16 {
         match self {
             ExecutionResultEntry::Covered { count, .. } => *count,
@@ -270,13 +339,17 @@ impl ExecutionResultEntry {
         }
     }
 
+    /// Checks if this entry represents covered code
     pub fn is_covered(&self) -> bool {
         self.coverage() > 0
     }
 }
 
+/// Results of a coverage collection execution
 pub struct CoverageExecutionResult<R> {
+    /// Return value from the executed function
     pub result: R,
+    /// Coverage information for each hook present at the time of execution
     pub hooks: Vec<ExecutionResultEntry>,
 }
 

@@ -11,7 +11,7 @@ use clap::{Parser, Subcommand};
 use std::io::Write;
 use std::process::Stdio;
 use std::{
-    env, fs, io,
+    env, fs,
     path::{Path, PathBuf},
     process::Command,
 };

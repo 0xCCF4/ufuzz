@@ -1,3 +1,13 @@
+//! Helper functions and types for microcode operations
+//! 
+//! This module provides low-level functionality for:
+//! - CPU instruction execution
+//! - Memory barriers and fences
+//! - Microcode reading and writing
+//! - Hook management
+//! - Staging buffer operations
+//! - Array operations (LDAT)
+
 use crate::Error;
 use crate::StagingBufferAddress::{RegTmp0, RegTmp1, RegTmp2};
 #[cfg(feature = "nostd")]
@@ -18,16 +28,22 @@ use std::format;
 #[cfg(not(feature = "nostd"))]
 use std::string::ToString;
 
+/// Represents addresses in the staging buffer
 #[derive(Copy, Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum StagingBufferAddress {
+    /// Temporary register 0
     RegTmp0,
+    /// Temporary register 1
     RegTmp1,
+    /// Temporary register 2
     RegTmp2,
+    /// Raw address value
     Raw(u16),
     // todo: check further values
 }
 
 impl StagingBufferAddress {
+    /// Converts the staging buffer address to its numeric representation
     pub fn to_address(self) -> usize {
         match self {
             StagingBufferAddress::RegTmp0 => 0xb800,
@@ -50,29 +66,34 @@ impl Display for StagingBufferAddress {
     }
 }
 
+/// Executes the mfence instruction
 #[inline(always)]
 #[allow(unused)]
 pub fn mfence() {
     unsafe { asm!("mfence", options(nostack)) }
 }
 
+/// Executes the lfence instruction
 #[inline(always)]
 #[allow(unused)]
 pub fn lfence() {
     unsafe { asm!("lfence", options(nostack)) }
 }
 
+/// Executes lfence then mfence instructions
 #[inline(always)]
 pub fn lmfence() {
     unsafe { asm!("lfence; mfence", options(nostack)) }
 }
 
+/// Executes a write-back and invalidate cache instruction
 #[inline(always)]
 #[allow(unused)]
 fn wbinvd() {
     unsafe { asm!("wbinvd", options(nostack, preserves_flags)) }
 }
 
+/// Creates a serializing barrier using CPUID instruction
 #[inline(always)]
 #[allow(unused)]
 fn barrier() {
@@ -89,7 +110,19 @@ fn barrier() {
     }
 }
 
-// #[inline(always)]
+/// Reads from the microcode debug interface
+/// 
+/// # Arguments
+/// 
+/// * `command` - The debug command to execute
+/// * `address` - The address to read from
+/// 
+/// # Returns
+/// 
+/// The value read from the debug interface
+///
+/// # Literature
+/// [1] https://doi.org/10.1007/s11416-022-00438-x
 fn udebug_read(command: usize, address: usize) -> usize {
     if cfg!(feature = "emulation") {
         let res_high: usize = 0;
@@ -125,7 +158,16 @@ fn udebug_read(command: usize, address: usize) -> usize {
     (res_high << 32) | res_low
 }
 
-// #[inline(always)]
+/// Writes to the microcode debug interface
+/// 
+/// # Arguments
+/// 
+/// * `command` - The debug command to execute
+/// * `address` - The address to write to
+/// * `value` - The value to write
+///
+/// # Literature
+/// [1] https://doi.org/10.1007/s11416-022-00438-x
 fn udebug_write(command: usize, address: usize, value: usize) {
     if cfg!(feature = "emulation") {
         let val_low = value as u32;
@@ -161,7 +203,18 @@ fn udebug_write(command: usize, address: usize, value: usize) {
     lmfence();
 }
 
-// #[inline(always)]
+/// Invokes a microcode function and returns its results
+/// 
+/// # Arguments
+/// 
+/// * `address` - The address of the function to invoke
+/// * `res_a` - Mutable reference to store RAX result
+/// * `res_b` - Mutable reference to store RBX result
+/// * `res_c` - Mutable reference to store RCX result
+/// * `res_d` - Mutable reference to store RDX result
+///
+/// # Literature
+/// [1] https://doi.org/10.1007/s11416-022-00438-x
 pub fn udebug_invoke(
     address: UCInstructionAddress,
     res_a: &mut usize,
@@ -204,6 +257,12 @@ pub fn udebug_invoke(
     lmfence();
 }
 
+/// Writes to a Model Specific Register (MSR)
+/// 
+/// # Arguments
+/// 
+/// * `msr` - The MSR number to write to
+/// * `value` - The value to write
 #[inline(always)]
 fn wrmsr(msr: u32, value: u64) {
     if cfg!(feature = "emulation") {
@@ -234,15 +293,21 @@ fn wrmsr(msr: u32, value: u64) {
     }
 }
 
+/// Result of a CPUID instruction
 #[derive(Copy, Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct CpuidResult {
+    /// EAX register value
     pub eax: u32,
+    /// EBX register value
     pub ebx: u32,
+    /// ECX register value
     pub ecx: u32,
+    /// EDX register value
     pub edx: u32,
 }
 
 impl CpuidResult {
+    /// Executes CPUID instruction with given leaf and sub-leaf
     pub fn query(leaf: u32, sub_leaf: u32) -> CpuidResult {
         let eax;
         let ebx;
@@ -266,12 +331,12 @@ impl CpuidResult {
     }
 }
 
-// #[inline(always)]
+/// Activates microcode debug instructions
 pub fn activate_udebug_insts() {
     wrmsr(0x1e6, 0x200);
 }
 
-// #[inline(always)]
+/// Reads from the CRBUS at the specified address
 pub fn crbus_read(address: usize) -> usize {
     if cfg!(feature = "emulation") {
         // trace!("read CRBUS[{:08x}]", address);
@@ -281,7 +346,7 @@ pub fn crbus_read(address: usize) -> usize {
     core::hint::black_box(udebug_read(0, address))
 }
 
-// #[inline(always)]
+/// Writes to the CRBUS at the specified address
 pub fn crbus_write(address: usize, value: usize) -> usize {
     if cfg!(feature = "emulation") {
         // trace!("CRBUS[{:08x}] = {:08x}", address, value);
@@ -291,26 +356,27 @@ pub fn crbus_write(address: usize, value: usize) -> usize {
     core::hint::black_box(udebug_read)(0, address)
 }
 
-#[inline(always)]
+/// Writes to the staging buffer at a raw address
 pub fn stgbuf_write_raw(address: usize, value: usize) {
     core::hint::black_box(udebug_write)(0x80, address, value)
 }
 
-#[inline(always)]
+/// Writes to the staging buffer using a [`StagingBufferAddress`]
 pub fn stgbuf_write(address: StagingBufferAddress, value: usize) {
     stgbuf_write_raw(address.to_address(), value)
 }
 
-#[inline(always)]
+/// Reads from the staging buffer at a raw address
 pub fn stgbuf_read_raw(address: usize) -> usize {
     core::hint::black_box(udebug_read(0x80, address))
 }
 
-#[inline(always)]
+/// Reads from the staging buffer using a [`StagingBufferAddress`]
 pub fn stgbuf_read(address: StagingBufferAddress) -> usize {
     stgbuf_read_raw(address.to_address())
 }
 
+/// Writes to the LDAT array
 fn ldat_array_write(
     pdat_reg: usize,
     array_sel: usize,
@@ -335,18 +401,29 @@ fn ldat_array_write(
     crbus_write(0x692, prev);
 }
 
+/// Result of a microcode function call
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct FunctionResult {
+    /// RAX register value
     pub rax: usize,
+    /// RBX register value
     pub rbx: usize,
+    /// RCX register value
     pub rcx: usize,
+    /// RDX register value
     pub rdx: usize,
 }
 
-/// Calls to ucode. The target ucode is expected to take 3 arguments.
-/// Provided to it in the registers `TMP0...TMP2`.
-/// Output has to be stored in the registers `rax...rdx`.
-/// The ucode function signals termination by SEQW LFNCEWAIT, UEND0
+/// Calls a custom microcode function
+/// 
+/// # Arguments
+/// 
+/// * `func_address` - Address of the function to call
+/// * `args` - Array of 3 arguments to pass to the function
+/// 
+/// # Returns
+/// 
+/// The function's result in the [`FunctionResult`] struct
 pub fn call_custom_ucode_function(
     func_address: UCInstructionAddress,
     args: [usize; 3],
@@ -372,6 +449,7 @@ pub fn call_custom_ucode_function(
     result
 }
 
+/// Reads from the LDAT array
 fn ldat_array_read(
     ucode_read_function: UCInstructionAddress,
     pdat_reg: usize,
@@ -404,6 +482,7 @@ fn ldat_array_read(
     call_custom_ucode_function(ucode_read_function, [pdat_reg, array_bank_sel, array_addr]).rax
 }
 
+/// Writes to the MS array
 fn ms_array_write<A: MSRAMAddress>(
     array_sel: usize,
     bank_sel: usize,
@@ -421,6 +500,7 @@ fn ms_array_write<A: MSRAMAddress>(
     )
 }
 
+/// Reads from the MS array
 fn ms_array_read<A: MSRAMAddress>(
     ucode_read_function: UCInstructionAddress,
     array_sel: usize,
@@ -438,6 +518,7 @@ fn ms_array_read<A: MSRAMAddress>(
     )
 }
 
+/// Writes an instruction to the MS patch array
 pub fn ms_patch_instruction_write<A: Into<MSRAMInstructionPartWriteAddress>>(addr: A, val: usize) {
     let addr = addr.into();
     if cfg!(feature = "emulation") {
@@ -446,6 +527,7 @@ pub fn ms_patch_instruction_write<A: Into<MSRAMInstructionPartWriteAddress>>(add
     ms_array_write(4, 0, 0, addr, val)
 }
 
+/// Reads an instruction from the MS patch array
 pub fn ms_patch_instruction_read<A: Into<MSRAMInstructionPartReadAddress>>(
     ucode_read_function: UCInstructionAddress,
     addr: A,
@@ -457,6 +539,7 @@ pub fn ms_patch_instruction_read<A: Into<MSRAMInstructionPartReadAddress>>(
     ms_array_read(ucode_read_function, 4, 0, 0, addr)
 }
 
+/// Writes to a hook in the MS array
 pub fn ms_hook_write<A: Into<MSRAMHookIndex>>(addr: A, val: usize) {
     let addr = addr.into();
     if cfg!(feature = "emulation") {
@@ -465,6 +548,7 @@ pub fn ms_hook_write<A: Into<MSRAMHookIndex>>(addr: A, val: usize) {
     ms_array_write(3, 0, 0, addr, val)
 }
 
+/// Reads from a hook in the MS array
 pub fn ms_hook_read<A: Into<MSRAMHookIndex>>(
     ucode_read_function: UCInstructionAddress,
     addr: A,
@@ -476,6 +560,7 @@ pub fn ms_hook_read<A: Into<MSRAMHookIndex>>(
     ms_array_read(ucode_read_function, 3, 0, 0, addr)
 }
 
+/// Writes to a sequence word in the MS array
 pub fn ms_seqw_write<A: Into<MSRAMSequenceWordAddress>>(addr: A, val: usize) {
     let addr = addr.into();
     if cfg!(feature = "emulation") {
@@ -484,6 +569,7 @@ pub fn ms_seqw_write<A: Into<MSRAMSequenceWordAddress>>(addr: A, val: usize) {
     ms_array_write(2, 0, 0, addr, val)
 }
 
+/// Reads from a sequence word in the MS array
 pub fn ms_seqw_read<A: Into<MSRAMSequenceWordAddress>>(
     ucode_read_function: UCInstructionAddress,
     addr: A,
@@ -495,15 +581,29 @@ pub fn ms_seqw_read<A: Into<MSRAMSequenceWordAddress>>(
     ms_array_read(ucode_read_function, 2, 0, 0, addr)
 }
 
+/// Detects the GLM processor version
 pub fn detect_glm_version() -> u32 {
     CpuidResult::query(0x1, 0).eax
 }
 
+/// Error type for patch operations
 #[derive(Debug)]
 pub enum PatchError {
+    /// The patch is too large for the target location
     PatchToLarge,
 }
 
+/// Applies a microcode patch at the specified address
+/// 
+/// # Arguments
+/// 
+/// * `addr` - The address to apply the patch at
+/// * `ucode_patch` - The patch data to apply
+/// 
+/// # Returns
+/// 
+/// - `Ok(())` if the patch was applied successfully
+/// - `Err(PatchError)` if the patch could not be applied
 pub fn patch_ucode<A: Into<UCInstructionAddress>>(
     addr: A,
     ucode_patch: &UcodePatchBlob,
@@ -536,6 +636,13 @@ pub fn patch_ucode<A: Into<UCInstructionAddress>>(
     Ok(())
 }
 
+/// Reads a patch from the specified address
+/// 
+/// # Arguments
+/// 
+/// * `ucode_read_function` - Function to use for reading
+/// * `addr` - Address to read from
+/// * `ucode_patch` - Buffer to store the read patch
 pub fn read_patch(
     ucode_read_function: UCInstructionAddress,
     addr: UCInstructionAddress,
@@ -555,6 +662,18 @@ pub fn read_patch(
     }
 }
 
+/// Calculates the value for a hook
+/// 
+/// # Arguments
+/// 
+/// * `to_hook_ucode_addr` - Address to hook
+/// * `redirect_to_addr` - Address to redirect to
+/// * `enabled` - Whether the hook should be enabled
+/// 
+/// # Returns
+/// 
+/// - `Ok(usize)` with the calculated hook value
+/// - `Err(Error)` if the calculation fails
 pub fn calculate_hook_value(
     to_hook_ucode_addr: UCInstructionAddress,
     redirect_to_addr: UCInstructionAddress,
@@ -579,6 +698,20 @@ pub fn calculate_hook_value(
     Ok(patch_value)
 }
 
+/// Sets up a hook in the microcode
+/// 
+/// # Arguments
+/// 
+/// * `apply_hook_func` - Function to use for applying the hook
+/// * `hook_idx` - Index of the hook to set up
+/// * `to_hook_ucode_addr` - Address to hook
+/// * `redirect_to_addr` - Address to redirect to
+/// * `enabled` - Whether the hook should be enabled
+/// 
+/// # Returns
+/// 
+/// - `Ok(())` if the hook was set up successfully
+/// - `Err(Error)` if the hook setup fails
 pub fn hook<A: Into<UCInstructionAddress>, B: Into<UCInstructionAddress>>(
     apply_hook_func: UCInstructionAddress,
     hook_idx: MSRAMHookIndex,
@@ -601,22 +734,26 @@ pub fn hook<A: Into<UCInstructionAddress>, B: Into<UCInstructionAddress>>(
     Ok(())
 }
 
+/// Applies a patch to the microcode
 pub fn apply_patch(patch: &Patch) -> Result<(), PatchError> {
     patch_ucode(patch.addr, patch.ucode_patch)
 }
 
+/// Returns the address of the hook patch function, that is uploaded to microcode RAM
 pub fn apply_hook_patch_func() -> UCInstructionAddress {
     let patch = crate::patches::func_hook::PATCH;
     apply_patch(&patch).unwrap();
     patch.addr
 }
 
+/// Returns the address of the LDAT read function, that is uploaded to microcode RAM
 pub fn apply_ldat_read_func() -> UCInstructionAddress {
     let patch = crate::patches::func_ldat_read::PATCH;
     apply_patch(&patch).unwrap();
     patch.addr
 }
 
+/// Hooks a patch using the specified function
 pub fn hook_patch(apply_hook_func: UCInstructionAddress, patch: &Patch) -> crate::Result<()> {
     if let Some(hook_address) = patch.hook_address {
         let hook_index = patch.hook_index.unwrap_or(MSRAMHookIndex::ZERO);
@@ -629,44 +766,52 @@ pub fn hook_patch(apply_hook_func: UCInstructionAddress, patch: &Patch) -> crate
     }
 }
 
+/// Enables all hooks globally
 pub fn enable_hooks() -> usize {
     let mp = crbus_read(0x692);
     crbus_write(0x692, mp & !1usize);
     mp
 }
 
+/// Disables all hooks globally
 pub fn disable_all_hooks() -> usize {
     let mp = crbus_read(0x692);
     crbus_write(0x692, mp | 1usize);
     mp
 }
 
+/// Restores hooks to a previous state
 pub fn restore_hooks(previous_value: usize) -> usize {
     let mp = crbus_read(0x692);
     crbus_write(0x692, (mp & !1) | (previous_value & 1));
     mp
 }
 
+/// Checks if hooks are currently enabled
 pub fn hooks_enabled() -> bool {
     let mp = crbus_read(0x692);
     mp & 1 == 0
 }
 
+/// RAII guard for managing hook state
 pub struct HookGuard {
     previous_value: usize,
 }
 
 impl HookGuard {
+    /// Creates a new guard that disables all hooks
     pub fn disable_all() -> Self {
         let previous_value = disable_all_hooks();
         HookGuard { previous_value }
     }
 
+    /// Creates a new guard that enables all hooks
     pub fn enable_all() -> Self {
         let previous_value = enable_hooks();
         HookGuard { previous_value }
     }
 
+    /// Explicitly restores the previous hook state
     pub fn restore(self) {
         drop(self)
     }
@@ -678,18 +823,22 @@ impl Drop for HookGuard {
     }
 }
 
+/// Reads the current hook status
 pub fn read_hook_status() -> usize {
     crbus_read(0x692)
 }
 
+/// Reads the raw ucode clock value
 fn read_ucode_clock() -> u64 {
     crbus_read(0x22d7) as u64
 }
 
+/// Unwraps a raw ucode clock value
 pub fn unwrap_ucode_clock(value: u64) -> u64 {
     (value & 0xffffffffffffff) * 0x39 + (value >> 0x37)
 }
 
+/// Reads and unwraps the current ucode clock value
 pub fn read_unwrap_ucode_clock() -> u64 {
     unwrap_ucode_clock(read_ucode_clock())
 }

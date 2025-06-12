@@ -1,4 +1,17 @@
 #![cfg_attr(feature = "nostd", no_std)]
+//! # Custom Processing Unit
+//! 
+//! A crate for managing and interacting with GLM (Goldmont) processor microcode.
+//! This crate provides functionality for patching, hooking, and manipulating the processor's
+//! microcode at runtime.
+//! 
+//! ## Features
+//! 
+//! - `nostd`: Enables no_std compatibility for embedded/kernel environments
+//! - `emulation`: Enables emulation mode for testing purposes
+//! 
+//! ## Acknowledgements
+//! This crate is based on the work of [@pietroborrello](https://github.com/pietroborrello/CustomProcessingUnit)
 
 use data_types::patch::UcodePatchEntry;
 
@@ -14,12 +27,18 @@ use ucode_dump::{dump, RomDump};
 
 pub mod patches;
 
+/// Errors that can occur during microcode operations
 #[derive(Debug)]
 pub enum Error {
+    /// The processor model is not supported
     InvalidProcessor(String),
+    /// Failed to initialize match and patch functionality
     InitMatchAndPatchFailed(String),
+    /// Failed to set up microcode hook
     HookFailed(String),
+    /// Error during microcode patching operation
     PatchError(PatchError),
+    /// Other unspecified errors
     Other(String),
 }
 
@@ -39,17 +58,32 @@ impl core::fmt::Display for Error {
 
 impl core::error::Error for Error {}
 
+/// Result type for operations that can fail with a [`Error`]
 pub type Result<T> = core::result::Result<T, Error>;
 
+/// GLM processor version identifier for the old model
 pub const GLM_OLD: u32 = 0x506c9;
+/// GLM processor version identifier for the new model
 pub const GLM_NEW: u32 = 0x506ca;
 
-// Will zero out all hooks on dropping
+/// Main struct for managing processor microcode operations.
+/// 
+/// This struct provides functionality functions that are processor version specific.
 pub struct CustomProcessingUnit {
+    /// The current GLM processor version
     pub current_glm_version: u32,
 }
 
 impl CustomProcessingUnit {
+    /// Creates a new instance of [`CustomProcessingUnit`].
+    /// 
+    /// This function detects the current GLM processor version and validates
+    /// that it's supported. In emulation mode, it defaults to [`GLM_OLD`].
+    /// 
+    /// # Returns
+    /// 
+    /// - `Ok(CustomProcessingUnit)` if the processor is supported
+    /// - `Err(Error::InvalidProcessor)` if the processor is not supported
     pub fn new() -> Result<CustomProcessingUnit> {
         let current_glm_version = detect_glm_version();
 
@@ -71,6 +105,12 @@ impl CustomProcessingUnit {
         }
     }
 
+    /// Initializes the microcode operations.
+    /// 
+    /// This function:
+    /// 1. Activates debug instructions
+    /// 2. Zeros out all hooks
+    /// 3. Enables hooks globally
     pub fn init(&mut self) -> Result<()> {
         activate_udebug_insts();
         self.zero_hooks()?;
@@ -78,6 +118,9 @@ impl CustomProcessingUnit {
         Ok(())
     }
 
+    /// Applies existing microcode patches specific to the processor version.
+    /// 
+    /// For [`GLM_OLD`], this moves a patch from U7c5c to U7dfc.
     pub fn apply_existing_patches(&mut self) -> Result<()> {
         if self.current_glm_version == GLM_OLD {
             // Move the patch at U7c5c to U7dfc, since it seems important for the CPU
@@ -90,6 +133,12 @@ impl CustomProcessingUnit {
         Ok(())
     }
 
+    /// Uploads the zero hook function patch and returns its address.
+    /// 
+    /// # Returns
+    /// 
+    /// - `Ok(UCInstructionAddress)` with the address of the applied patch
+    /// - `Err(Error)` if the patch application fails
     pub fn apply_zero_hook_func(&mut self) -> Result<UCInstructionAddress> {
         if self.current_glm_version == GLM_OLD {
             self.apply_existing_patches()?;
@@ -114,7 +163,16 @@ impl CustomProcessingUnit {
         }
     }
 
-    /// Zeros all hook registers.
+    /// Executes the zero hooks function at the given address.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `zero_hooks_func` - The address of the zero hooks function to execute
+    /// 
+    /// # Returns
+    /// 
+    /// - `Ok(())` if the function executes successfully
+    /// - `Err(Error::InitMatchAndPatchFailed)` if the function fails
     pub fn zero_hooks_func(&mut self, zero_hooks_func: UCInstructionAddress) -> Result<()> {
         let result = call_custom_ucode_function(zero_hooks_func, [0; 3]);
 
@@ -128,15 +186,20 @@ impl CustomProcessingUnit {
         Ok(())
     }
 
+    /// Zeros out all hook registers by first uploading then executing the zero hook function.
     pub fn zero_hooks(&mut self) -> Result<()> {
         let zero_func = self.apply_zero_hook_func()?;
         self.zero_hooks_func(zero_func)
     }
 
+    /// Explicitly cleans up resources.
+    /// 
+    /// This is equivalent to dropping the instance, which will zero out all hooks.
     pub fn cleanup(self) {
         drop(self)
     }
 
+    /// Returns a reference to the ROM dump for the current processor version.
     pub const fn rom(&self) -> &'static RomDump<'static, 'static> {
         match self.current_glm_version {
             GLM_OLD => &dump::ROM_cpu_000506C9,

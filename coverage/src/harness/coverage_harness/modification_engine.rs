@@ -1,3 +1,7 @@
+//! This module provides functionality for modifying microcode triads to enable coverage collection.
+//! It handles validation of hookable addresses and modification of instruction sequences while
+//! maintaining proper execution semantics.
+
 use data_types::addresses::UCInstructionAddress;
 use ucode_compiler_dynamic::instruction::Instruction;
 use ucode_compiler_dynamic::opcodes::Opcode;
@@ -7,17 +11,30 @@ use ucode_compiler_dynamic::sequence_word::{
 use ucode_compiler_dynamic::Triad;
 use ucode_dump::RomDump;
 
+/// Settings for controlling microcode modifications
+/// 
+/// These flags control what types of instructions and sequence words can be modified
+/// for coverage collection.
 bitflags::bitflags! {
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
     pub struct ModificationEngineSettings: u64 {
+        /// Disallow modification of GOTO instructions
         const NoGotos = 1 << 0;
+        /// Disallow modification of SaveupIP sequence words
         const NoSaveupIPSequenceWords = 1 << 1;
+        /// Disallow modification of SaveupIP register override instructions
         const NoSaveupIPRegOVRInstructions = 1 << 2;
+        /// Disallow modification of SUBR instructions
         const NoSUBR = 1 << 3;
+        /// Disallow modification of control operations
         const NoControl = 1 << 4;
+        /// Disallow modification of sync operations
         const NoSync = 1 << 5;
+        /// Disallow modification of conditional jumps
         const NoConditionalJumps = 1 << 6;
+        /// Disallow modification of unknown instructions
         const NoUnknownInstructions = 1 << 7;
+        /// Disallow modification of MOVEFROMCREG instructions
         const NoMoveFromCREG = 1 << 8;
     }
 }
@@ -28,24 +45,50 @@ impl Default for ModificationEngineSettings {
     }
 }
 
+/// Reasons why an address cannot be hooked
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum NotHookableReason {
+    /// The triad is already hooked
     TriadAlreadyHooked,
+    /// The address is not in ROM
     AddressNotInRom,
+    /// The address is not in the ROM dump
     AddressNotInDump,
+    /// Failed to parse the sequence word
     ModificationFailedSequenceWordParse(DisassembleError),
+    /// Failed to build the modified sequence word
     ModificationFailedSequenceWordBuild(AssembleError),
+    /// Contains an unsupported control operation
     ControlOpPresent(SequenceWordControl),
+    /// Contains an unsupported control operation (to be implemented)
     TodoControlOp,
+    /// Contains an unsupported sync operation (to be implemented)
     TodoSyncOp,
+    /// Contains an unsupported index (to be implemented)
     TodoIndexNotZero,
+    /// Contains an unsupported jump (to be implemented)
     TodoJump,
+    /// Contains a blacklisted instruction
     BlacklistedInstruction(Opcode),
+    /// Address is blacklisted (to be implemented)
     TodoBlacklisted(UCInstructionAddress),
+    /// Feature is disabled in settings
     FeatureDisabled(ModificationEngineSettings),
+    /// Contains unsupported conditional moves (to be implemented)
     TodoNoConditionalMoves,
 }
 
+/// Checks if an address can be hooked for coverage collection
+/// 
+/// # Arguments
+/// 
+/// * `address` - The address to check
+/// * `rom` - Reference to the ROM dump
+/// * `mode` - Modification engine settings
+/// 
+/// # Returns
+/// 
+/// Ok(()) if the address can be hooked, or a NotHookableReason if it cannot
 pub fn is_hookable(
     address: UCInstructionAddress,
     rom: &RomDump,
@@ -176,6 +219,17 @@ pub fn is_hookable(
     Ok(())
 }
 
+/// Modifies a triad to put it into the microcode after calling instrumentation
+/// 
+/// # Arguments
+/// 
+/// * `address` - The address to modify
+/// * `rom` - Reference to the ROM dump
+/// * `mode` - Modification engine settings
+/// 
+/// # Returns
+/// 
+/// The modified triad if successful, or a NotHookableReason if modification fails
 pub fn modify_triad_for_hooking(
     address: UCInstructionAddress,
     rom: &RomDump,
