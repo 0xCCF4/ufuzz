@@ -1,3 +1,16 @@
+//! # Fuzzer Data Types
+//! 
+//! This crate provides shared data types, used by both the fuzzer agent and the fuzzer controller.
+//! It includes support for:
+//! 
+//! - Genetic algorithm-based fuzzing
+//! - Instruction corpus management
+//! - Over-the-air (OTA) communication protocols
+//! - Execution result tracking
+//! - Performance measurements
+//! 
+//! The crate is designed to work in a no_std environment and uses serialization
+//! for communication between components.
 #![no_std]
 
 use crate::genetic_pool::GeneticSampleRating;
@@ -19,156 +32,252 @@ pub mod decoder;
 pub mod genetic_pool;
 pub mod instruction_corpus;
 
+/// Problems that can occur during execution of fuzzing operations
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[repr(C)]
 pub enum ReportExecutionProblem {
+    /// Problem with coverage measurement
     CoverageProblem {
+        /// Address where the problem occurred
         address: u16,
+        /// Exit reason from coverage measurement, if different to normal exit
         coverage_exit: Option<VmExitReason>,
+        /// VM state from coverage measurement, if different to normal exit
         coverage_state: Option<VmState>,
     },
+    /// Mismatch in serialized execution results
     SerializedMismatch {
+        /// Exit reason from serialized execution, if different to normal exit
         serialized_exit: Option<VmExitReason>,
+        /// VM state from serialized execution, if different to normal exit
         serialized_state: Option<VmState>,
     },
+    /// Mismatch in state trace
     StateTraceMismatch {
+        /// Index where the mismatch occurred
         index: u64,
+        /// Normal execution state
         normal: Option<VmState>,
+        /// Serialized execution state
         serialized: Option<VmState>,
     },
+    /// High probability of a bug being found
     VeryLikelyBug,
+    /// Access to coverage measurement area
     AccessCoverageArea,
 }
 
 impl ReportExecutionProblem {
+    /// Maximum number of problems that can be reported in a single packet
     pub const MAX_PER_PACKET: usize = 3;
 }
 
+/// Result of executing a fuzzing operation
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ExecutionResult {
+    /// Coverage map (address -> count)
     pub coverage: BTreeMap<u16, u16>,
+    /// Exit reason from execution
     pub exit: VmExitReason,
+    /// Final VM state
     pub state: VmState,
+    /// Serialized code (if available)
     pub serialized: Option<Code>,
+    /// Genetic algorithm fitness rating
     pub fitness: GeneticSampleRating,
 }
 
+/// Unreliable device-to-controller messages
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum OtaD2CUnreliable {
+    /// Acknowledgment of a message
     Ack(u64),
+    /// Log message with level
     LogMessage { level: log::Level, message: String },
 }
 
+/// Reliable device-to-controller transport messages
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum OtaD2CTransport {
+    /// Last run was blacklisted at an address
     LastRunBlacklisted {
+        /// Address that was blacklisted
         address: Option<u16>,
     },
+    /// List of blacklisted addresses
     BlacklistedAddresses {
+        /// Blacklisted addresses
         addresses: Vec<u16>,
     },
+    /// Execution problems encountered
     ExecutionEvents(Vec<ReportExecutionProblem>),
+    /// Result of execution
     ExecutionResult {
+        /// Exit reason
         exit: VmExitReason,
+        /// Final VM state
         state: VmState,
+        /// Genetic algorithm fitness
         fitness: GeneticSampleRating,
     },
+    /// Device capabilities
     Capabilities {
+        /// Whether coverage collection is supported
         coverage_collection: bool,
+        /// CPU manufacturer string
         manufacturer: String,
+        /// Number of performance counters
         pmc_number: u8,
-        processor_version_eax: u32, // cpuid 1:eax
-        processor_version_ebx: u32, // cpuid 1:ebx
-        processor_version_ecx: u32, // cpuid 1:ecx
-        processor_version_edx: u32, // cpuid 1:edx
+        /// CPUID 1:EAX (version information)
+        processor_version_eax: u32,
+        /// CPUID 1:EBX (additional info)
+        processor_version_ebx: u32,
+        /// CPUID 1:ECX (feature flags)
+        processor_version_ecx: u32,
+        /// CPUID 1:EDX (feature flags)
+        processor_version_edx: u32,
     },
+    /// Coverage information
     Coverage {
+        /// Coverage map entries
         coverage: Vec<(u16, u16)>,
     },
+    /// Serialized code
     Serialized {
+        /// Serialized code (if available)
         serialized: Option<Code>,
     },
+    /// Log message
     LogMessage {
+        /// Log level
         level: log::Level,
+        /// Message content
         message: String,
     },
+    /// Performance timing measurements
     PerformanceTiming {
+        /// Map of measurement name to values
         measurements: BTreeMap<String, MeasureValues<f64>>,
     },
+    /// Request to reset session
     ResetSession,
+    /// Results of PMC stability check
     PMCStableCheckResults {
-        pmc_stable: Vec<bool>, // index -> stable?
+        /// Vector of stability flags
+        pmc_stable: Vec<bool>,
     },
+    /// Result of microcode speculation test
     UCodeSpeculationResult(SpeculationResult),
 }
 
+/// Result of a speculation test
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SpeculationResult {
+    /// Register state before speculation
     pub arch_before: GuestRegisters,
+    /// Register state after speculation
     pub arch_after: GuestRegisters,
+    /// Performance counter values
     pub perf_counters: Vec<u64>,
 }
 
+/// Type alias for code bytes
 pub type Code = Vec<u8>;
 
+/// Unreliable controller-to-device messages
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum OtaC2DUnreliable {
+    /// No operation
     NOP,
+    /// Acknowledgment of a message
     Ack(u64),
 }
 
+/// Reliable controller-to-device transport messages
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum OtaC2DTransport {
+    /// Check if device is responsive
     AreYouThere,
+    /// Request device capabilities
     GetCapabilities,
+    /// Blacklist addresses
     Blacklist {
+        /// Addresses to blacklist
         address: Vec<u16>,
     },
+    /// Query if address was excluded in last run
     DidYouExcludeAnAddressLastRun,
+    /// Request list of blacklisted addresses
     GiveMeYourBlacklistedAddresses,
+    /// Request performance timing report
     ReportPerformanceTiming,
-
+    /// Set random number generator seed
     SetRandomSeed {
+        /// Random seed value
         seed: u64,
     },
+    /// Execute a code sample
     ExecuteSample {
+        /// Code to execute
         code: Code,
     },
-
+    /// Test microcode speculation
     UCodeSpeculation {
+        /// Triad to test
         triad: [Instruction; 3],
+        /// Sequence word for the triad
         sequence_word: SequenceWord,
+        /// Performance counter configuration
         perf_counter_setup: Vec<PerfEventSpecifier>,
     },
+    /// Test PMC stability
     TestIfPMCStable {
+        /// Performance counter configuration
         perf_counter_setup: Vec<PerfEventSpecifier>,
     },
-
+    /// Request device reboot
     Reboot,
 }
 
+/// Maximum size of a message fragment
 pub const MAX_FRAGMENT_SIZE: u64 = 1200;
+/// Maximum size of a complete payload
 pub const MAX_PAYLOAD_SIZE: u64 = 4_000_000; // ~4MB
 
+/// Over-the-air message container
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum Ota<Unreliable, Transport> {
+    /// Unreliable message
     Unreliable(Unreliable),
+    /// Reliable transport message
     Transport {
+        /// Session identifier
         session: u16,
+        /// Message identifier
         id: u64,
+        /// Message content
         content: Transport,
     },
+    /// Chunked transport message
     ChunkedTransport {
+        /// Session identifier
         session: u16,
+        /// Message identifier
         id: u64,
+        /// Fragment number
         fragment: u64,
+        /// Total number of fragments
         total_fragments: u64,
+        /// Fragment content
         content: Vec<u8>,
     },
 }
 
+/// Trait for OTA packet types
 pub trait OtaPacket<A, B>: Debug {
+    /// Whether the packet requires reliable transport
     fn reliable_transport(&self) -> bool;
+    /// Convert to an OTA packet
     fn to_packet(self, sequence_number: u64, session: u16) -> Ota<A, B>;
 }
 

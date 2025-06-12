@@ -1,3 +1,7 @@
+//! # Performance Timing
+//! 
+//! This crate provides tools for measuring and analyzing performance timing
+//! in both std and no_std environments using the `rdtsc` instruction.
 #![cfg_attr(all(not(test), not(target_arch = "aarch64")), no_std)]
 
 pub mod measurements;
@@ -22,6 +26,7 @@ pub use arch::*;
 use core::ops::{Add, AddAssign, Sub};
 use core::sync::atomic::{AtomicBool, Ordering};
 
+/// Availability level of timing measurement functionality
 #[derive(Copy, Clone, PartialEq, Hash, Debug, Default, Eq)]
 pub enum Availability {
     /// Global invariant clock is available
@@ -33,11 +38,13 @@ pub enum Availability {
     None,
 }
 
+/// A point in time
 #[repr(transparent)]
 #[derive(Copy, Clone, Default, Debug)]
 pub struct Instant(TimeStamp);
 
 impl Instant {
+    /// Create a new instant from a timestamp
     pub fn new(time: TimeStamp) -> Self {
         Self(time)
     }
@@ -56,6 +63,7 @@ impl Sub for Instant {
     }
 }
 
+/// A duration between two instants
 #[repr(transparent)]
 #[derive(Copy, Clone, Debug)]
 pub struct Duration(TimeStamp);
@@ -82,10 +90,12 @@ impl From<Duration> for f64 {
 static INITIALIZED: AtomicBool = AtomicBool::new(false);
 static mut INSTANCE: Option<TimeKeeper> = None;
 
+/// Check if timing functionality is available
 pub fn is_available() -> bool {
     INITIALIZED.load(Ordering::Relaxed)
 }
 
+/// Get the global timekeeper instance
 #[allow(static_mut_refs)]
 pub fn instance() -> &'static TimeKeeper {
     if !INITIALIZED.load(Ordering::Relaxed) {
@@ -95,14 +105,20 @@ pub fn instance() -> &'static TimeKeeper {
     }
 }
 
+/// A measurement of execution time
 pub struct TimeMeasurement {
+    /// Name of the measurement
     pub name: &'static str,
+    /// Start time
     pub start: Instant,
+    /// Guard for exclusive time measurement
     pub exclusive: Option<ExclusiveMeasurementGuard>,
+    /// Guard for stack-based measurement
     pub stack_guard: Option<MeasureStackGuard>,
 }
 
 impl TimeMeasurement {
+    /// Begin a new time measurement
     pub fn begin(name: &'static str) -> Self {
         let mut guard = mm_instance().borrow_mut();
         Self {
@@ -113,14 +129,17 @@ impl TimeMeasurement {
         }
     }
 
+    /// Stop measurement and return exclusive time
     pub fn stop_exclusive(mut self) -> Duration {
         self.__drop().1
     }
 
+    /// Stop measurement and return total time
     pub fn stop_total(mut self) -> Duration {
         self.__drop().0
     }
 
+    /// Stop measurement and return both total and exclusive time
     pub fn stop(mut self) -> (Duration, Duration) {
         self.__drop()
     }

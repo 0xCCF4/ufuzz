@@ -1,3 +1,10 @@
+//! Build script for the coverage crate
+//! 
+//! This script is responsible for compiling microcode patches during the build process.
+//! It uses the `ucode_compiler_bridge` to compile microcode source files into Rust
+//! modules that can be used by the crate.
+//! 
+
 #[cfg(feature = "ucode")]
 use crate::build::ucode_scripts;
 

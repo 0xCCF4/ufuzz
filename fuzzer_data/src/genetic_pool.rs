@@ -1,3 +1,8 @@
+//! Genetic algorithm implementation for fuzzing
+//! 
+//! This module provides types and functionality for running a genetic algorithm
+//! to evolve and optimize fuzzing samples.
+
 use crate::instruction_corpus::CorpusInstruction;
 use alloc::vec::Vec;
 use core::cmp::Ordering;
@@ -6,13 +11,18 @@ use rand::prelude::SliceRandom;
 use rand_core::RngCore;
 use serde::{Deserialize, Serialize};
 
+/// Settings for the genetic algorithm pool
 #[derive(Clone)]
 pub struct GeneticPoolSettings {
+    /// Size of the population to maintain
     pub population_size: usize,
+    /// Size of each code sample in bytes
     pub code_size: usize,
-
+    /// Number of random solutions to add each generation
     pub random_solutions_each_generation: usize,
+    /// Number of best solutions to keep each generation
     pub keep_best_x_solutions: usize,
+    /// Probability of random mutation (0.0 to 1.0)
     pub random_mutation_chance: f64,
 }
 
@@ -28,13 +38,17 @@ impl Default for GeneticPoolSettings {
     }
 }
 
+/// A pool of samples for fuzzing
 #[derive(Clone, Default)]
 pub struct GeneticPool {
+    /// Current population of samples
     population: Vec<Sample>,
+    /// Settings for the genetic algorithm
     settings: GeneticPoolSettings,
 }
 
 impl GeneticPool {
+    /// Create a new pool with random population
     pub fn new_random_population<R: RngCore>(
         settings: GeneticPoolSettings,
         random: &mut R,
@@ -48,6 +62,8 @@ impl GeneticPool {
             settings,
         }
     }
+
+    /// Create a new pool with random population from an instruction corpus
     pub fn new_random_population_from_corpus<R: RngCore>(
         settings: GeneticPoolSettings,
         random: &mut R,
@@ -69,12 +85,18 @@ impl GeneticPool {
             settings,
         }
     }
+
+    /// Get all samples in the pool
     pub fn all_samples(&self) -> &[Sample] {
         &self.population
     }
+
+    /// Get mutable access to all samples
     pub fn all_samples_mut(&mut self) -> &mut [Sample] {
         &mut self.population
     }
+
+    /// Evolve the population by one generation
     pub fn evolution<R: RngCore>(&mut self, random: &mut R, fuzzing_feedback: bool) {
         if fuzzing_feedback {
             self.population.sort();
@@ -119,6 +141,8 @@ impl GeneticPool {
             self.population.push(child);
         }
     }
+
+    /// Get the final sorted (by fitness) population
     pub fn result(mut self) -> Vec<Sample> {
         self.population.sort();
         self.population.reverse();
@@ -126,19 +150,25 @@ impl GeneticPool {
     }
 }
 
+/// A single sample in the genetic pool
 #[derive(Clone, PartialEq, Eq)]
 pub struct Sample {
+    /// Raw code bytes
     code_blob: Vec<u8>,
+    /// Rating from execution (if available)
     pub rating: Option<GeneticSampleRating>,
 }
 
 impl Sample {
+    /// Create a new sample with given code
     pub fn new(code_blob: Vec<u8>) -> Self {
         Self {
             code_blob,
             rating: None,
         }
     }
+
+    /// Create a random sample of given size
     pub fn random<R: RngCore>(code_size: usize, random: &mut R) -> Self {
         let mut code_blob = Vec::with_capacity(code_size);
         for _ in 0..code_size {
@@ -149,6 +179,8 @@ impl Sample {
             rating: None,
         }
     }
+
+    /// Get the code bytes
     pub fn code(&self) -> &[u8] {
         &self.code_blob
     }
@@ -166,15 +198,21 @@ impl PartialOrd for Sample {
     }
 }
 
+/// Rating for a genetic sample based on execution results
 #[derive(Clone, PartialEq, Eq, Debug, Hash, Serialize, Deserialize, Default)]
 pub struct GeneticSampleRating {
+    /// Number of unique addresses covered
     pub unique_address_coverage: u16,
+    /// Total number of address hits
     pub total_address_coverage: u32,
-    pub program_utilization: u8, // in range 0 = 0% to 100 = 100%
+    /// Program utilization percentage (0-100)
+    pub program_utilization: u8,
+    /// Number of loops executed
     pub loop_count: u64,
 }
 
 impl GeneticSampleRating {
+    /// Minimum possible rating
     pub const MIN: Self = Self {
         unique_address_coverage: 0,
         total_address_coverage: 0,

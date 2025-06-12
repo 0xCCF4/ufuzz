@@ -1,8 +1,33 @@
+//! # Performance Timing Macros
+//! 
+//! This crate provides procedural macros for performance timing annotations.
+//! It works in conjunction with the `performance_timing` crate to provide
+//! easy-to-use timing measurements through attributes.
+//! 
+//! ## Usage
+//! 
+//! ```rust
+//! use performance_timing_macros::track_time;
+//! 
+//! #[track_time]
+//! fn my_function() {
+//!     // Function execution will be timed
+//! }
+//! ```
+//! 
+//! The macros support:
+//! - Functions
+//! - Impl blocks
+//! - Code blocks
+//! - Loops
+//! - Function calls
+
 extern crate proc_macro;
 
 use proc_macro::TokenStream;
 use quote::{format_ident, ToTokens};
 
+/// Implementation of the track_time macro
 fn track_time_impl(attr: TokenStream, item: TokenStream, exclusive: bool) -> TokenStream {
     let input = syn::parse::<syn::Item>(item.clone());
     let block = syn::parse::<syn::Expr>(item.clone());
@@ -193,6 +218,28 @@ fn track_time_impl(attr: TokenStream, item: TokenStream, exclusive: bool) -> Tok
     .into()
 }
 
+/// Attribute macro for timing code execution
+/// 
+/// This macro can be applied to:
+/// - Functions
+/// - Impl blocks
+/// - Code blocks
+/// - Loops
+/// - Function calls
+/// 
+/// It will measure the execution time of the annotated item and record
+/// the measurements using the performance_timing crate.
+/// 
+/// # Examples
+/// 
+/// ```rust
+/// use performance_timing_macros::track_time;
+/// 
+/// #[track_time]
+/// fn my_function() {
+///     // Function execution will be timed
+/// }
+/// ```
 #[proc_macro_attribute]
 pub fn track_time(attr: TokenStream, item: TokenStream) -> TokenStream {
     let t = track_time_impl(attr, item, true);

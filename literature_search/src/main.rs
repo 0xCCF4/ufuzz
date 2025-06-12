@@ -1,3 +1,14 @@
+//! Literature search and management tool
+//! 
+//! This tool helps manage academic literature by:
+//! - Searching papers using the Semantic Scholar API
+//! - Filtering and categorizing papers
+//! - Managing citations and references
+//! - Exporting to BibTeX format
+//! 
+//! The tool provides an interactive terminal UI for reviewing papers and
+//! maintains a local database of papers and their metadata.
+
 use crossterm::event;
 use crossterm::event::{KeyCode, KeyEventKind};
 use error_chain::error_chain;
@@ -28,77 +39,115 @@ error_chain! {
     }
 }
 
+/// Basic author information
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct AuthorWeak {
+    /// Semantic Scholar author ID
     #[serde(alias = "authorId")]
     author_id: Option<String>,
+    /// Author's name
     name: Option<String>,
 }
 
+/// TL;DR summary of a paper
 #[derive(Deserialize, Serialize, Clone, Debug, Default)]
 pub struct Tldr {
+    /// Model used to generate the summary
     model: Option<String>,
+    /// Summary text
     text: Option<String>,
 }
 
+/// Basic paper information
 #[derive(Deserialize, Serialize, Clone, Debug, PartialEq)]
 pub struct RelevancePaperWeak {
+    /// Semantic Scholar paper ID
     #[serde(alias = "paperId")]
     paper_id: Option<String>,
+    /// Paper title
     title: Option<String>,
 }
 
+/// Detailed paper information
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct RelevancePaper {
+    /// Basic paper information
     #[serde(flatten)]
     paper: RelevancePaperWeak,
+    /// Publication year
     year: Option<u32>,
+    /// Paper URL
     url: Option<String>,
+    /// Paper abstract
     #[serde(alias = "abstract")]
     abstract_text: Option<String>,
+    /// Paper authors
     authors: Vec<AuthorWeak>,
+    /// Number of references
     #[serde(alias = "referenceCount")]
     reference_count: u32,
+    /// Number of citations
     #[serde(alias = "citationCount")]
     citation_count: u32,
+    /// Number of influential citations
     #[serde(alias = "influentialCitationCount")]
     influential_citation_count: u32,
+    /// Papers that cite this paper
     citations: Vec<RelevancePaperWeak>,
+    /// Papers referenced by this paper
     references: Vec<RelevancePaperWeak>,
+    /// Citation styles
     #[serde(alias = "citationStyles")]
     citation_styles: Option<HashMap<String, String>>,
+    /// External identifiers
     #[serde(alias = "externalIds")]
     external_ids: Option<HashMap<String, serde_json::Value>>,
+    /// TL;DR summary
     tldr: Option<Tldr>,
 }
 
+/// Response from a paper search query
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct RelevanceResponse {
+    /// Total number of results
     total: u32,
+    /// Current offset in results
     offset: u32,
+    /// Next offset to query
     next: u32,
+    /// Papers in this response
     data: Vec<RelevancePaper>,
 }
 
+/// Status of a paper in the literature review
 #[derive(Deserialize, Serialize, Clone, Debug, Copy, PartialEq, Eq)]
 pub enum IncludedPaperStatus {
+    /// Core paper for the research topic
     CoreLiterature,
+    /// Related but not central paper
     SideInformation,
 }
 
+/// A paper included in the literature review
 #[derive(Deserialize, Serialize, Clone, Debug, PartialEq)]
 pub struct IncludedPaper {
+    /// Basic paper information
     paper: RelevancePaperWeak,
+    /// Paper's status in the review
     status: IncludedPaperStatus,
+    /// Optional comment about the paper
     message: Option<String>,
 }
 
 lazy_static::lazy_static! {
+    /// API key for Semantic Scholar
     static ref SEMANTIC_SCHOLAR_API_KEY: Mutex<Option<String>> = Mutex::new(None);
 }
 
+/// Fields to request from the API
 const PAPER_FIELD_QUERY: &str = "paperId,title,url,year,abstract,authors,citations,references,tldr,referenceCount,citationCount,influentialCitationCount,externalIds,citationStyles";
 
+/// Query the Semantic Scholar API with retries
 async fn query_api_raw<Response>(url: &str, method: Method) -> Result<Response>
 where
     Response: DeserializeOwned,
@@ -153,6 +202,7 @@ where
     }
 }
 
+/// Query papers by relevance with pagination
 async fn query_paper_relevance_raw(
     query: &str,
     offset: u32,
@@ -165,6 +215,7 @@ async fn query_paper_relevance_raw(
     query_api_raw(&url, Method::GET).await
 }
 
+/// Query all papers matching a search term
 async fn query_paper_relevance(query: &str) -> Result<Vec<RelevancePaper>> {
     let mut papers = Vec::new();
     let mut offset = 0;
@@ -184,6 +235,7 @@ async fn query_paper_relevance(query: &str) -> Result<Vec<RelevancePaper>> {
     Ok(papers)
 }
 
+/// Query detailed information about a specific paper
 async fn query_paper_data<Id: AsRef<str>>(paper_id: Id) -> Result<RelevancePaper> {
     let url = format!(
         "graph/v1/paper/{paper_id}?fields={PAPER_FIELD_QUERY}",
@@ -193,6 +245,7 @@ async fn query_paper_data<Id: AsRef<str>>(paper_id: Id) -> Result<RelevancePaper
     query_api_raw(&url, Method::GET).await
 }
 
+/// Read the local paper database
 fn read_paper_database(sort_by_relevance: bool) -> Result<Vec<RelevancePaper>> {
     let ok_papers = std::fs::read_to_string("ok_papers.json")
         .map(|data| serde_json::from_str::<Vec<IncludedPaper>>(&data).unwrap_or_default())

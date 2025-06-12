@@ -1,3 +1,8 @@
+//! Performance measurement management
+//! 
+//! This module provides types and functionality for managing performance
+//! measurements.
+
 use crate::{instance, Duration};
 use alloc::collections::{BTreeMap, VecDeque};
 use alloc::string::{String, ToString};
@@ -13,6 +18,7 @@ use serde::{Deserialize, Serialize};
 static MM_INITIALIZED: AtomicBool = AtomicBool::new(false);
 static mut MM_INSTANCE: Option<RefCell<MeasurementManager>> = None;
 
+/// Get the global measurement manager instance
 #[allow(static_mut_refs)]
 pub fn mm_instance() -> &'static RefCell<MeasurementManager> {
     if !MM_INITIALIZED.load(Ordering::Relaxed) {
@@ -22,6 +28,7 @@ pub fn mm_instance() -> &'static RefCell<MeasurementManager> {
     }
 }
 
+/// Initialize the global measurement manager
 pub fn mm_initialize() -> &'static RefCell<MeasurementManager> {
     if MM_INITIALIZED.load(Ordering::Relaxed) {
         return mm_instance();
@@ -33,14 +40,22 @@ pub fn mm_initialize() -> &'static RefCell<MeasurementManager> {
     mm_instance()
 }
 
+/// Statistical values for a measurement
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 pub struct MeasureValues<T> {
+    /// Average of exclusive time measurements
     pub exclusive_cumulative_average: f64,
+    /// Sum of squares of exclusive time measurements
     pub exclusive_cumulative_sum_of_squares: f64,
+    /// Total exclusive time
     pub exclusive_time: T,
+    /// Average of total time measurements
     pub total_cumulative_average: f64,
+    /// Sum of squares of total time measurements
     pub total_cumulative_sum_of_squares: f64,
+    /// Total time
     pub total_time: T,
+    /// Number of measurements taken
     pub number_of_measurements: u64,
 }
 
@@ -59,34 +74,45 @@ impl From<&MeasureValues<u64>> for MeasureValues<f64> {
 }
 
 impl<T: AsPrimitive<f64> + Copy> MeasureValues<T> {
+    /// Calculate variance of exclusive time measurements
     pub fn variance_exclusive(&self) -> f64 {
         if self.number_of_measurements == 0 {
             return 0.0;
         }
         self.exclusive_cumulative_sum_of_squares / (self.number_of_measurements as f64)
     }
+
+    /// Calculate standard deviation of exclusive time measurements
     pub fn std_derivation_exclusive(&self) -> f64 {
         libm::sqrt(self.variance_exclusive())
     }
+
+    /// Calculate variance of total time measurements
     pub fn variance_total(&self) -> f64 {
         if self.number_of_measurements == 0 {
             return 0.0;
         }
         self.total_cumulative_sum_of_squares / (self.number_of_measurements as f64)
     }
+
+    /// Calculate standard deviation of total time measurements
     pub fn std_derivation_total(&self) -> f64 {
         libm::sqrt(self.variance_total())
     }
 }
 
+/// Map of measurement names to their values
 pub type MeasurementData<T> = BTreeMap<String, MeasureValues<T>>;
 
+/// Collection of measurement data sets
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct MeasurementCollection<T> {
+    /// Vector of measurement data sets
     pub data: Vec<MeasurementData<T>>,
 }
 
 impl MeasurementCollection<u64> {
+    /// Convert raw measurements to normalized values
     pub fn normalize(&self) -> MeasurementCollection<f64> {
         let mut result = MeasurementCollection::default();
         for entry in self.data.iter() {
@@ -106,7 +132,9 @@ impl<T> From<BTreeMap<String, MeasureValues<T>>> for MeasurementCollection<T> {
     }
 }
 
+/// Trait for saturating addition of floating point values
 pub trait SaturationFloatAdd {
+    /// Add two values with saturation
     fn sat_add(&self, other: &Self) -> Self;
 }
 
@@ -123,6 +151,7 @@ impl SaturationFloatAdd for u64 {
 }
 
 impl<T: AddAssign + Copy + Default + SaturationFloatAdd> MeasurementCollection<T> {
+    /// Accumulate all measurements into a single data set
     pub fn accumulate(&self) -> BTreeMap<String, MeasureValues<T>> {
         let mut result = BTreeMap::new();
 
@@ -209,15 +238,20 @@ impl Display for MeasurementCollection<f64> {
     }
 }
 
+/// Manager for collecting and analyzing measurements
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct MeasurementManager {
+    /// Measurement data by name
     pub data: BTreeMap<String, MeasureValues<u64>>,
+    /// Active exclusive time measurements
     #[serde(skip)]
     pub exclusive_time_keeping: BTreeMap<u64, (&'static str, Duration)>,
+    /// Stack of active measurements
     #[serde(skip)]
     pub stack: VecDeque<(&'static str, bool)>,
 }
 
+/// Guard for stack-based measurement tracking
 pub struct MeasureStackGuard(usize);
 
 impl Drop for MeasureStackGuard {
@@ -237,6 +271,7 @@ impl Drop for MeasureStackGuard {
 }
 
 impl MeasurementManager {
+    /// Create a new measurement manager
     pub fn new() -> Self {
         Self {
             data: BTreeMap::new(),
@@ -245,6 +280,7 @@ impl MeasurementManager {
         }
     }
 
+    /// Begin a new stack frame for measurement
     pub fn begin_stack_frame(&mut self, name: &'static str) -> MeasureStackGuard {
         self.stack.push_back((name, false));
         let index = self.stack.len() - 1;
