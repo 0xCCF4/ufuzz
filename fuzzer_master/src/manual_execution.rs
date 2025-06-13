@@ -1,3 +1,8 @@
+//! Manual Execution Module
+//!
+//! This module provides functionality for manually executing code samples and analyzing
+//! their results.
+
 use crate::database::Database;
 use crate::device_connection::DeviceConnection;
 use crate::fuzzer_node_bridge::FuzzerNodeInterface;
@@ -10,16 +15,26 @@ use std::io;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+/// State of manual execution process
 #[derive(Debug, Default)]
 pub enum ManualExecutionState {
+    /// Execution has not started
     #[default]
     NotStarted,
+    /// Execution is in progress
     Started {
+        /// Optional output file path
         output: Option<PathBuf>,
+        /// Queue of samples to execute
         samples: VecDeque<Vec<u8>>,
     },
 }
 
+/// Main entry point for manual execution
+///
+/// # Returns
+///
+/// * `CommandExitResult` indicating the outcome of execution
 pub async fn main<A: AsRef<Path>, B: AsRef<Path>>(
     udp: &mut DeviceConnection,
     interface: &FuzzerNodeInterface,
@@ -217,6 +232,15 @@ pub async fn main<A: AsRef<Path>, B: AsRef<Path>>(
     CommandExitResult::ExitProgram
 }
 
+/// Disassembles code and formats it for analysis
+///
+/// This function takes a code sample and generates a formatted disassembly
+/// with instruction addresses, bytes, and mnemonics.
+///
+/// # Arguments
+///
+/// * `code` - Code sample to disassemble
+/// * `out` - String buffer to write disassembly to
 pub fn disassemble_code(code: &[u8], out: &mut String) {
     let mut decoder = Decoder::with_ip(64, code, 0, DecoderOptions::NONE);
     let mut formatter = NasmFormatter::new();

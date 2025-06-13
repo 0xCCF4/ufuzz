@@ -1,18 +1,26 @@
+//! Main AFL Converter Module
+//!
+//! This module provides functionality for converting AFL fuzzing findings to inputs usable with the manual execution fuzzing tool
+
 use clap::Parser;
 use itertools::Itertools;
 use log::error;
 use std::fs;
 use std::path::PathBuf;
 
+/// Command-line arguments for the AFL conversion tool
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
+    /// Path to the AFL findings directory
     #[arg(short, long)]
     findings_path: PathBuf,
+    /// Path for the output converted files
     #[arg(short, long)]
     output_path: PathBuf,
 }
 
+/// Main entry point for converting AFL findings
 pub fn main() {
     env_logger::init();
 

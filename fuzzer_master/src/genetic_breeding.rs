@@ -1,3 +1,5 @@
+//! This module implements genetic algorithm-based breeding of code samples for fuzzing.
+
 use crate::database::Database;
 use crate::device_connection::DeviceConnection;
 use crate::fuzzer_node_bridge::FuzzerNodeInterface;
@@ -9,31 +11,57 @@ use fuzzer_data::Code;
 use log::{error, info};
 use rand::{random, SeedableRng};
 
+/// Finite state machine states for breeding process
 #[derive(Debug, Default, PartialEq)]
 enum FSM {
+    /// Initial state before breeding starts
     #[default]
     Uninitialized,
+    /// Breeding is in progress
     Running,
 }
 
+/// State management for genetic breeding process
 #[derive(Default)]
 pub struct BreedingState {
+    /// Current state of the breeding process
     fsm: FSM,
-
+    /// Pool of genetic samples
     genetic_pool: GeneticPool,
+    /// Random number generator for mutations
     random_source: Option<rand_isaac::Isaac64Rng>,
-
+    /// Last reported address exclusion
     last_reported_exclusion: Option<(Option<u16>, u16)>, // address, times
-
+    /// Current evolution number
     evolution: u64,
+    /// Seed for random number generation
     seed: u64,
-
+    /// Last code sample that was executed
     last_code_executed: Option<Code>,
 }
 
+/// Timeout for sample execution in seconds
 pub const SAMPLE_TIMEOUT: u64 = 60;
+/// Maximum number of evolutions to perform
 pub const MAX_EVOLUTIONS: u64 = 8;
 
+/// Main entry point for genetic breeding
+///
+/// This function manages the genetic breeding process, including initialization,
+/// evolution, and sample execution.
+///
+/// # Arguments
+///
+/// * `net` - Network connection to the device
+/// * `interface` - Interface to the fuzzing node
+/// * `database` - Database for storing results
+/// * `state` - Current breeding state
+/// * `corpus` - Optional corpus of instructions for initialization
+/// * `fuzzing_feedback` - Whether to use fuzzing feedback for evolution
+///
+/// # Returns
+///
+/// * `CommandExitResult` indicating the requests program state change
 pub async fn main(
     net: &mut DeviceConnection,
     interface: &FuzzerNodeInterface,

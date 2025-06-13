@@ -1,3 +1,7 @@
+//! Module to analyze results from speculative execution fuzzing
+//!
+//! This module provides functionality for comparing speculative execution results from different fuzzing campaigns.
+
 use clap::Parser;
 use fuzzer_master::spec_fuzz::{SpecReport, SpecResult};
 use itertools::Itertools;
@@ -10,21 +14,31 @@ use std::io::Write;
 use std::path::PathBuf;
 use ucode_compiler_dynamic::instruction::Instruction;
 
+/// Command-line arguments for the speculative execution comparison tool
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
+    /// Path for outputting unstable microcode operations to exclude from future runs
     #[arg(short, long)]
     output_unstable: Option<PathBuf>,
+    /// Source files containing execution results of fuzzing campaigns
     sources: Vec<PathBuf>,
 }
 
+/// Classification of execution result stability
 #[derive(Debug, PartialEq)]
 pub enum ResultFlag {
+    /// Result consistently timed out
     StableTimeout,
+    /// Result consistently executed successfully
     StableRuns,
+    /// Result showed inconsistent behavior
     Unstable,
 }
 
+/// Main entry point for comparing speculative execution results
+///
+/// This function loads and compares speculative execution results.
 pub fn main() {
     env_logger::init();
 
@@ -211,6 +225,15 @@ pub fn main() {
     }
 }
 
+/// Disassembles an microcode operation using the UASM tool
+///
+/// # Arguments
+///
+/// * `instruction` - microcode operation to disassemble
+///
+/// # Returns
+///
+/// A string containing the disassembled instruction
 fn disassemble(instruction: Instruction) -> String {
     let env_uasm_dis = env::var("UASM");
 

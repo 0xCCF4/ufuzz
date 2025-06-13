@@ -1,16 +1,27 @@
+//! Tools to combine fuzzing databases
+//!
+//! This module provides functionality for combining multiple fuzzing databases.
+
 use clap::Parser;
 use fuzzer_master::database::Database;
 use log::error;
 use std::path::PathBuf;
 
+/// Command-line arguments for the database combination tool
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
+    /// Input database files to combine
     inputs: Vec<PathBuf>,
+    /// Path for the output combined database
     #[clap(long, short)]
     output: PathBuf,
 }
 
+/// Main entry point for combining fuzzing databases
+///
+/// This function combines multiple input databases into a single output database,
+/// handling validation and error cases.
 #[tokio::main]
 async fn main() {
     env_logger::init();

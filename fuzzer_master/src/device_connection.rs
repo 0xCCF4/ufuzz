@@ -1,3 +1,12 @@
+//! Device Connection Module
+//!
+//! This module provides functionality for establishing and managing network connections
+//! with fuzzing devices. It implements a reliable UDP-based communication protocol
+//!
+//! The module provides a high-level interface for sending and receiving messages
+//! between the fuzzer master and devices, handling all the low-level details
+//! of network communication and protocol management.
+
 use fuzzer_data::{
     Ota, OtaC2D, OtaC2DTransport, OtaC2DUnreliable, OtaD2C, OtaD2CTransport, OtaD2CUnreliable,
     OtaPacket, MAX_FRAGMENT_SIZE, MAX_PAYLOAD_SIZE,
@@ -17,16 +26,23 @@ use tokio::sync::mpsc::Receiver;
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
 
+/// Errors that can occur during device connection operations
 #[derive(Debug)]
 pub enum DeviceConnectionError {
+    /// I/O error during network operations
     Io(io::Error),
+    /// Error during message serialization/deserialization
     Serde(String),
+    /// End of file/connection
     Eof,
+    /// Message exceeds maximum allowed size
     MessageTooLong(usize),
+    /// No acknowledgment received for reliable message
     NoAckReceived,
 }
 
 impl DeviceConnectionError {
+    /// Checks if the error is a timeout error
     pub fn is_timeout(&self) -> bool {
         matches!(self, DeviceConnectionError::NoAckReceived)
     }
@@ -58,22 +74,45 @@ impl From<String> for DeviceConnectionError {
     }
 }
 
+/// Manages the connection to the fuzzing agent
+///
+/// This structure handles all aspects of communication with a device,
+/// including connection management, message sending and receiving, and
+/// protocol state tracking.
 pub struct DeviceConnection {
+    /// UDP socket for communication
     socket: Arc<UdpSocket>,
+    /// Channel receiver for incoming messages
     receiver: Receiver<OtaD2C>,
+    /// Handle to the receiver thread
     receiver_thread: Option<JoinHandle<()>>,
 
+    /// Number of retransmission attempts
     resent_attempts: u8,
+    /// Timeout for acknowledgment in milliseconds
     ack_timeout: Duration,
+    /// Timeout for fragment reception in milliseconds
     fragment_timeout: Duration,
 
+    /// Queue for received messages
     virtual_receive_queue: VecDeque<OtaD2C>,
 
+    /// Next sequence number for transmitted messages
     sequence_number_tx: u64,
+    /// Current session identifier
     session: u16,
 }
 
 impl DeviceConnection {
+    /// Creates a new connection to a fuzzing agent
+    ///
+    /// # Arguments
+    ///
+    /// * `target` - Socket address of the target device
+    ///
+    /// # Returns
+    ///
+    /// * `Result<DeviceConnection, DeviceConnectionError>` - New connection or error
     pub async fn new<A: ToSocketAddrs>(
         target: A,
     ) -> Result<DeviceConnection, DeviceConnectionError> {
@@ -228,6 +267,15 @@ impl DeviceConnection {
         })
     }
 
+    /// Sends a packet to the device
+    ///
+    /// # Arguments
+    ///
+    /// * `data` - The packet to send
+    ///
+    /// # Returns
+    ///
+    /// * `Result<(), DeviceConnectionError>` - Success or error
     #[allow(unreachable_code)]
     #[track_time("host::net::send")]
     pub async fn send<Packet: OtaPacket<OtaC2DUnreliable, OtaC2DTransport>>(
@@ -280,6 +328,16 @@ impl DeviceConnection {
         }
     }
 
+    /// Sends raw data to the device
+    ///
+    /// # Arguments
+    ///
+    /// * `data` - The data to send
+    /// * `requires_ack` - Whether to wait for acknowledgment
+    ///
+    /// # Returns
+    ///
+    /// * `Result<(), DeviceConnectionError>` - Success or error
     async fn send_native(
         &mut self,
         data: &[u8],
@@ -342,6 +400,15 @@ impl DeviceConnection {
         status.unwrap_or(Err(DeviceConnectionError::NoAckReceived))
     }
 
+    /// Receives raw data from the device
+    ///
+    /// # Arguments
+    ///
+    /// * `timeout` - Optional timeout duration
+    ///
+    /// # Returns
+    ///
+    /// * `Option<OtaD2C>` - Received packet or None
     async fn receive_native(&mut self, timeout: Option<Duration>) -> Option<OtaD2C> {
         let now = Instant::now();
         loop {
@@ -362,6 +429,15 @@ impl DeviceConnection {
         }
     }
 
+    /// Receives a packet from the device
+    ///
+    /// # Arguments
+    ///
+    /// * `timeout` - Optional timeout duration
+    ///
+    /// # Returns
+    ///
+    /// * `Option<OtaD2C>` - Received packet or None
     #[allow(unreachable_code)]
     #[allow(unused_variables)]
     #[track_time("host::net::receive::raw")]
@@ -451,6 +527,16 @@ impl DeviceConnection {
         }
     }
 
+    /// Receives a packet matching a filter condition. Buffers all other packets received while waiting for a match.
+    ///
+    /// # Arguments
+    ///
+    /// * `filter` - Function to filter received packets
+    /// * `timeout` - Optional timeout duration
+    ///
+    /// # Returns
+    ///
+    /// * `Result<Option<OtaD2C>, DeviceConnectionError>` - Matching packet or error
     #[track_time("host::net::receive")]
     pub async fn receive_packet<F: Fn(&OtaD2C) -> bool>(
         &mut self,
@@ -488,6 +574,11 @@ impl DeviceConnection {
         Ok(result)
     }
 
+    /// Flushes all pending received packets
+    ///
+    /// # Arguments
+    ///
+    /// * `timeout` - Optional timeout duration
     #[track_time("host::net::flush")]
     pub async fn flush_read(&mut self, timeout: Option<Duration>) {
         let timing = TimeMeasurement::begin("net");
@@ -511,6 +602,7 @@ impl DeviceConnection {
 }
 
 impl Drop for DeviceConnection {
+    /// Cleans up resources when the connection is dropped
     fn drop(&mut self) {
         self.receiver.close();
         if let Some(thread) = self.receiver_thread.take() {

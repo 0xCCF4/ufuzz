@@ -1,3 +1,7 @@
+//! Speculative Execution Fuzzing Module
+//!
+//! This module provides functionality for fuzzing speculative execution behavior, e.g. the main fuzzing loop
+
 use crate::database::Database;
 use crate::device_connection::DeviceConnection;
 use crate::net::{net_speculative_sample, ExecuteSampleResult};
@@ -16,16 +20,22 @@ use ucode_compiler_dynamic::opcodes::Opcode;
 use ucode_compiler_dynamic::sequence_word::SequenceWord;
 use x86_perf_counter::PerfEventSpecifier;
 
+/// Results of speculative execution
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum SpecResult {
+    /// Execution timed out
     Timeout,
+    /// Execution completed with PMC and architectural state changes
     Executed {
-        pmc_delta: BTreeMap<StringBox<PerfEventSpecifier>, i64>, // pmc setup -> delta
+        /// Map of PMC event specifiers to their delta values
+        pmc_delta: BTreeMap<StringBox<PerfEventSpecifier>, i64>,
+        /// Set of architectural state differences
         arch_delta: BTreeSet<String>,
     },
 }
 
 impl SpecResult {
+    /// Checks if two results are of the same kind (both timeout or both executed)
     pub fn is_same_kind(&self, other: &Self) -> bool {
         match (self, other) {
             (SpecResult::Timeout, SpecResult::Timeout) => true,
@@ -35,6 +45,7 @@ impl SpecResult {
     }
 }
 
+/// Wrapper for types that need string-based serialization
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]
 pub struct StringBox<T>(pub T);
 
@@ -94,16 +105,21 @@ impl<T> From<T> for StringBox<T> {
     }
 }
 
+/// Report of speculative execution findings
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SpecReport {
+    /// Map of instructions to their speculative execution results
     pub opcodes: BTreeMap<StringBox<Instruction>, SpecResult>,
+    /// Set of blacklisted PMC event select values
     #[serde(default)]
     pub pmc_blacklist_event_select: BTreeSet<u8>,
+    /// Map of PMC event specifiers to their baseline values
     #[serde(default)]
     pub pmc_baseline: BTreeMap<StringBox<PerfEventSpecifier>, u64>,
 }
 
 impl SpecReport {
+    /// Creates a new empty spec report
     pub fn new() -> Self {
         Self {
             opcodes: BTreeMap::new(),
@@ -112,6 +128,7 @@ impl SpecReport {
         }
     }
 
+    /// Loads a spec report from a file
     pub fn load_file<P: AsRef<Path>>(path: P) -> Result<Self, String> {
         serde_json::from_reader(BufReader::new(
             std::fs::File::open(&path)
@@ -120,6 +137,7 @@ impl SpecReport {
         .map_err(|e| format!("Failed to deserialize JSON: {:?}", e))
     }
 
+    /// Saves the spec report to a file
     pub fn save_file<P: AsRef<Path>>(&self, path: P) -> Result<(), String> {
         serde_json::to_writer_pretty(
             BufWriter::new(
@@ -131,6 +149,7 @@ impl SpecReport {
         .map_err(|e| format!("Failed to serialize JSON: {:?}", e))
     }
 
+    /// Adds a result for an instruction to the report
     pub fn add_result(&mut self, instruction: Instruction, result: SpecResult) {
         let value = self
             .opcodes
@@ -175,34 +194,49 @@ impl SpecReport {
     }
 }
 
+/// Finite state machine states for fuzzing process
 #[derive(Debug, Default, PartialEq)]
 enum FSM {
+    /// Initial state before fuzzing starts
     #[default]
     Uninitialized,
+    /// Acquiring baseline measurements
     AcquireBaseline,
+    /// Fuzzing is in progress
     Running,
 }
 
+/// State management for speculative execution fuzzing
 #[derive(Default)]
 pub struct SpecFuzzMutState {
+    /// Current state of the fuzzing process
     fsm: FSM,
-
+    /// Random number generator for mutations
     random_source: Option<rand_isaac::Isaac64Rng>,
-
+    /// List of all microcode instructions
     all_ucodes: Vec<Instruction>,
+    /// List of all PMC event specifiers
     all_pmcs: Vec<PerfEventSpecifier>,
+    /// List of PMC event specifier groups
     all_pmc_groups: Vec<Vec<PerfEventSpecifier>>,
-
+    /// Current spec report
     report: SpecReport,
-
+    /// Baseline PMC measurements
     baseline: BTreeMap<PerfEventSpecifier, u64>,
-
+    /// Queue of PMC groups to test
     pmc_queue: VecDeque<Vec<PerfEventSpecifier>>,
+    /// Queue of microcode instructions to test
     ucode_queue: VecDeque<Instruction>,
-
+    /// Expected RFLAGS value
     expected_rflags: u64,
 }
 
+/// Copies a database template to a new location
+///
+/// # Arguments
+///
+/// * `source_path` - Path to the source template database
+/// * `target_path` - Path for the new database
 pub fn copy_database_template<A: AsRef<Path>, B: AsRef<Path>>(source_path: A, target_path: B) {
     let mut report = SpecReport::load_file(source_path.as_ref()).unwrap_or_else(|e| {
         error!("Failed to load database: {}", e);
@@ -223,6 +257,7 @@ pub fn copy_database_template<A: AsRef<Path>, B: AsRef<Path>>(source_path: A, ta
     }
 }
 
+/// Main entry point for microcode speculative execution fuzzing
 pub async fn main<A: AsRef<Path>, B: AsRef<Path>>(
     net: &mut DeviceConnection,
     database: &mut Database,

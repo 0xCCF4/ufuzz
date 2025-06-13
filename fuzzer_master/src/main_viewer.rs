@@ -1,3 +1,7 @@
+//! Fuzzing database viewer module
+//!
+//! This module provides functionality for viewing and analyzing fuzzing results.
+
 use clap::Parser;
 use coverage::harness::coverage_harness::modification_engine::{
     modify_triad_for_hooking, ModificationEngineSettings,
@@ -12,13 +16,19 @@ use std::io::BufWriter;
 use std::io::Write;
 use std::path::PathBuf;
 
+/// Command-line arguments for the viewer tool
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
+    /// Path to the database file
     database: Option<PathBuf>,
+    /// Path for plotting output, if not provided, no plotting will be done
     plot_path: Option<PathBuf>,
 }
 
+/// Main entry point for viewing fuzzing results
+///
+/// This function loads and analyzes fuzzing results from a database.
 pub fn main() {
     env_logger::init();
 
@@ -408,6 +418,15 @@ pub fn main() {
     }
 }
 
+/// Converts a byte slice to a hexadecimal string representation
+///
+/// # Arguments
+///
+/// * `code` - Byte slice to convert
+///
+/// # Returns
+///
+/// A string containing the hexadecimal representation of the code
 fn code_to_hex_string(code: &[u8]) -> String {
     code.iter().map(|x| format!("{:02x}", x)).join(" ")
 }

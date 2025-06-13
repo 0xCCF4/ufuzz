@@ -1,3 +1,7 @@
+//! AFL-style Fuzzing Module
+//!
+//! This module implements integration with the libafl framework.
+
 use crate::database::Database;
 use crate::device_connection::DeviceConnection;
 use crate::fuzzer_node_bridge::FuzzerNodeInterface;
@@ -35,25 +39,38 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::task::JoinHandle;
 
+/// Global state for tracking execution results
 static LAST_EXECUTION_RESULT: Mutex<Option<ExecutionResult>> = Mutex::new(None);
 static LAST_EXECUTION_PROBLEMS: Mutex<Vec<ReportExecutionProblem>> = Mutex::new(Vec::new());
 
+/// Observer handle for coverage tracking
 const HANDLE_UCOVERAGE: Cow<'static, str> = Cow::Borrowed("uCoverage");
+/// Observer handle for state difference tracking
 const HANDLE_STATE_DIFFERENCE: Cow<'static, str> = Cow::Borrowed("stateDifference");
 
+/// Executor for AFL-style fuzzing operations
+///
+/// This struct manages the execution of code samples and tracks fuzzing state
+/// during AFL-style fuzzing operations.
 #[allow(dead_code)]
 pub struct AFLExecutor<'a, OT, I, S> {
+    /// UDP connection to the fuzzing device
     udp: &'a mut DeviceConnection,
+    /// Interface to the fuzzing node
     interface: &'a Arc<FuzzerNodeInterface>,
+    /// Database for storing results
     database: &'a mut Database,
+    /// Observers for tracking execution state
     observers: OT,
+    /// Phantom data for type parameters
     phantom: PhantomData<(I, S)>,
-
+    /// Seed for random number generation
     seed: u64,
-
+    /// Last code sample that was executed
     last_code_executed: Option<Code>,
+    /// Last reported address exclusion
     last_reported_exclusion: Option<(Option<u16>, u16)>, // address, times
-
+    /// Timeout for fuzzing operations
     timeout_at: Option<Instant>,
 }
 
@@ -346,9 +363,15 @@ where
     }
 }
 
+/// Observer for tracking code coverage during execution
+///
+/// This struct maintains a map of covered addresses and their hit counts
+/// during code execution.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct CoverageObserver {
+    /// Map of covered addresses and hit count
     coverage: BTreeMap<u16, u16>,
+    /// Raw coverage data slice
     #[serde(skip, default = "default_array")]
     slice: [u8; 0x7c00],
 }
@@ -483,8 +506,13 @@ impl Deref for CoverageObserver {
     }
 }
 
+/// Observer for tracking state differences between executions
+///
+/// This struct maintains a list of execution problems that indicate
+/// differences between normal and serialized execution.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct DifferenceObserver {
+    /// List of execution problems
     problems: Vec<ReportExecutionProblem>,
 }
 
@@ -533,7 +561,12 @@ impl AsMut<Self> for DifferenceObserver {
     }
 }
 
+/// Generator for creating input samples from a corpus
+///
+/// This struct generates input samples by selecting instructions from
+/// a predefined corpus.
 struct CorpusGenerator {
+    /// Corpus of instructions to generate from
     corpus: Vec<CorpusInstruction>,
 }
 
@@ -560,6 +593,10 @@ where
     }
 }
 
+/// Main entry point for AFL-style fuzzing
+///
+/// This function sets up and runs the AFL fuzzing process with the given
+/// configuration.
 pub async fn afl_main(
     udp: &mut DeviceConnection,
     interface: &Arc<FuzzerNodeInterface>,

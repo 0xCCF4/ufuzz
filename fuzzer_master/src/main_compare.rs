@@ -1,15 +1,25 @@
+//! Main fuzzing output comapre module
+//!
+//! This module provides functionality for comparing execution results from different manual fuzzing input execution.
+
 use clap::Parser;
 use fuzzer_data::ExecutionResult;
 use hypervisor::state::StateDifference;
 use itertools::Itertools;
 use std::path::PathBuf;
 
+/// Arguments for the compare tool
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
+    /// Source files containing fuzzing input results to compare
     sources: Vec<PathBuf>,
 }
 
+/// Main entry point for comparing execution results
+///
+/// This function reads and compares execution results from two source files,
+/// analyzing differences in exit codes, coverage, and state.
 pub fn main() {
     env_logger::init();
 

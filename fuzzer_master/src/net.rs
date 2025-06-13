@@ -1,3 +1,7 @@
+//! Network Communication Module
+//!
+//! This module provides utility functions to command a fuzzing agent via network communication
+
 use crate::database::{Database, ExcludeType};
 use crate::device_connection::DeviceConnection;
 use crate::fuzzer_node_bridge::FuzzerNodeInterface;
@@ -19,6 +23,16 @@ use ucode_compiler_dynamic::instruction::Instruction;
 use ucode_compiler_dynamic::sequence_word::SequenceWord;
 use x86_perf_counter::PerfEventSpecifier;
 
+/// Sends blacklisted addresses to the device
+///
+/// # Arguments
+///
+/// * `net` - Network connection to the device
+/// * `database` - Database containing blacklisted addresses
+///
+/// # Returns
+///
+/// * `bool` indicating success or failure
 pub async fn net_blacklist(net: &mut DeviceConnection, database: &mut Database) -> bool {
     let vector = database.blacklisted().collect_vec();
     for blacklist in vector
@@ -53,6 +67,18 @@ pub async fn net_blacklist(net: &mut DeviceConnection, database: &mut Database) 
     true
 }
 
+/// Executes a code sample on the device
+///
+/// # Arguments
+///
+/// * `net` - Network connection to the device
+/// * `interface` - Interface to the fuzzing node
+/// * `db` - Database for storing results
+/// * `sample` - Code sample to execute
+///
+/// # Returns
+///
+/// * `ExecuteSampleResult` containing execution results and events
 pub async fn net_execute_sample(
     net: &mut DeviceConnection,
     interface: &FuzzerNodeInterface,
@@ -123,6 +149,15 @@ pub async fn net_execute_sample(
     ExecuteSampleResult::Success((result, events))
 }
 
+/// Receives excluded addresses from the device (if the agent did exclude an address last run)
+///
+/// # Arguments
+///
+/// * `net` - Network connection to the device
+///
+/// # Returns
+///
+/// * `Option<u16>` containing the excluded address if any
 pub async fn net_receive_excluded_addresses(net: &mut DeviceConnection) -> Option<u16> {
     let result = net
         .receive_packet(
@@ -158,6 +193,16 @@ pub async fn net_receive_excluded_addresses(net: &mut DeviceConnection) -> Optio
     }
 }
 
+/// Reboots the fuzzing device
+///
+/// # Arguments
+///
+/// * `net` - Network connection to the device
+/// * `interface` - Interface to the fuzzing node
+///
+/// # Returns
+///
+/// * `Option<CommandExitResult>` indicating the outcome of the reboot
 pub async fn net_reboot_device(
     net: &mut DeviceConnection,
     interface: &FuzzerNodeInterface,
@@ -178,6 +223,16 @@ pub async fn net_reboot_device(
     }
 }
 
+/// Receives execution results from the device
+///
+/// # Arguments
+///
+/// * `net` - Network connection to the device
+/// * `timeout` - Timeout duration for receiving results
+///
+/// # Returns
+///
+/// * `Option<(ExecutionResult, Vec<ReportExecutionProblem>)>` containing execution results and events
 pub async fn net_receive_execution_result(
     net: &mut DeviceConnection,
     timeout: Duration,
@@ -229,6 +284,16 @@ pub async fn net_receive_execution_result(
     }
 }
 
+/// Receives performance timing data from the device
+///
+/// # Arguments
+///
+/// * `net` - Network connection to the device
+/// * `timeout` - Timeout duration for receiving data
+///
+/// # Returns
+///
+/// * `Option<BTreeMap<String, MeasureValues<f64>>>` containing performance measurements
 pub async fn net_receive_performance_timing(
     net: &mut DeviceConnection,
     timeout: Duration,
@@ -270,12 +335,29 @@ pub async fn net_receive_performance_timing(
     }
 }
 
+/// Results of executing a code sample
+#[derive(Debug)]
 pub enum ExecuteSampleResult<T> {
+    /// Execution timed out
     Timeout,
+    /// Sample needs to be rerun
     Rerun,
+    /// Execution completed successfully
     Success(T),
 }
 
+/// Performs pre-execution setup for fuzzing
+///
+/// # Arguments
+///
+/// * `net` - Network connection to the device
+/// * `database` - Database for storing results
+/// * `last_code_executed` - Last code sample that was executed
+/// * `last_reported_exclusion` - Last reported address exclusion
+///
+/// # Returns
+///
+/// * `CommandExitResult` indicating the outcome of setup
 pub async fn net_fuzzing_pretext(
     net: &mut DeviceConnection,
     database: &mut Database,
@@ -338,6 +420,16 @@ pub async fn net_fuzzing_pretext(
     }
 }
 
+/// Receives speculative execution results from the device
+///
+/// # Arguments
+///
+/// * `net` - Network connection to the device
+/// * `timeout` - Timeout duration for receiving results
+///
+/// # Returns
+///
+/// * `Option<SpeculationResult>` containing speculative execution results
 pub async fn net_receive_speculative_result(
     net: &mut DeviceConnection,
     timeout: Duration,
@@ -362,6 +454,18 @@ pub async fn net_receive_speculative_result(
     }
 }
 
+/// Executes a speculative sample on the device
+///
+/// # Arguments
+///
+/// * `net` - Network connection to the device
+/// * `triad` - Array of three instructions to execute
+/// * `sequence_word` - Sequence word for execution
+/// * `perf_counter_setup` - Performance counter configuration
+///
+/// # Returns
+///
+/// * `ExecuteSampleResult<SpeculationResult>` containing speculative execution results
 pub async fn net_speculative_sample(
     net: &mut DeviceConnection,
     triad: [Instruction; 3],
