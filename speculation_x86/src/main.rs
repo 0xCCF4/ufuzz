@@ -1,3 +1,7 @@
+//! # Speculation X86
+//!
+//! An experiment for analyzing and testing x86 architecture-level speculation behavior.
+
 #![no_main]
 #![no_std]
 #![allow(named_asm_labels)]

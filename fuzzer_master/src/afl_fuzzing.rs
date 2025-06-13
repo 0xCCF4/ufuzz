@@ -41,6 +41,7 @@ static LAST_EXECUTION_PROBLEMS: Mutex<Vec<ReportExecutionProblem>> = Mutex::new(
 const HANDLE_UCOVERAGE: Cow<'static, str> = Cow::Borrowed("uCoverage");
 const HANDLE_STATE_DIFFERENCE: Cow<'static, str> = Cow::Borrowed("stateDifference");
 
+#[allow(dead_code)]
 pub struct AFLExecutor<'a, OT, I, S> {
     udp: &'a mut DeviceConnection,
     interface: &'a Arc<FuzzerNodeInterface>,
@@ -78,7 +79,7 @@ where
             last_reported_exclusion: None,
             seed,
             timeout_at: timeout_hours
-                .map(|x| Instant::now() + Duration::from_secs((x as u64) *60*60)),
+                .map(|x| Instant::now() + Duration::from_secs((x as u64) * 60 * 60)),
         }
     }
 }

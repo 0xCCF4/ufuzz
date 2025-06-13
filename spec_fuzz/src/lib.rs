@@ -1,3 +1,8 @@
+//! Speculation Fuzzer Library
+//!
+//! This library provides functionality for fuzzing and analyzing CPU speculation behavior.
+//! It consists of a fuzzing harness to execute microcode operations in a speculative window.
+
 #![feature(new_zeroed_alloc)]
 #![allow(incomplete_features)]
 #![feature(generic_const_exprs)]
@@ -30,6 +35,19 @@ use uefi::println;
 use x86::msr::{IA32_PERFEVTSEL0, IA32_PERFEVTSEL1, IA32_PERFEVTSEL2, IA32_PERFEVTSEL3};
 use x86_perf_counter::{PerfEventSpecifier, PerformanceCounter};
 
+/// Checks if the performance monitoring counters (PMCs) are stable
+///
+/// This function executes a series of speculative microcode NOP instructions multiple times and checks
+/// if the performance counter values remain consistent across executions.
+///
+/// # Arguments
+///
+/// * `udp` - The controller connection to use for logging
+/// * `perf_counter_setup` - Vector of performance event specifiers to monitor
+///
+/// # Returns
+///
+/// Returns a vector of booleans indicating whether each performance counter is stable
 pub fn check_if_pmc_stable(
     udp: &mut ControllerConnection,
     perf_counter_setup: Vec<PerfEventSpecifier>,
@@ -59,6 +77,22 @@ pub fn check_if_pmc_stable(
         .collect_vec()
 }
 
+/// Executes a speculative instruction sequence and collects performance data
+///
+/// This function executes a triad of microcode speculativly and monitors
+/// the specified performance counters during execution.
+///
+/// # Arguments
+///
+/// * `udp` - The controller connection to use for logging
+/// * `triad` - Array of three instructions to execute
+/// * `sequence_word` - The sequence word to use
+/// * `perf_counter_setup` - Vector of performance event specifiers to monitor
+///
+/// # Returns
+///
+/// Returns a `SpeculationResult` containing the architectural state before and after
+/// execution, along with performance counter values
 pub fn execute_speculation(
     udp: &mut ControllerConnection,
     triad: [Instruction; 3],
@@ -121,6 +155,19 @@ pub fn execute_speculation(
     result
 }
 
+/// Collects performance counter values during speculative microcode execution
+///
+/// This function sets up performance counters, executes the instructions,
+/// and collect the counter values along with architectural state.
+///
+/// # Arguments
+///
+/// * `perf_counter_setup` - Array of optional performance event specifiers
+///
+/// # Returns
+///
+/// Returns a `SpeculationResult` containing the architectural state and performance
+/// counter values
 #[inline(always)]
 fn collect_perf_counters_values(
     perf_counter_setup: [Option<PerfEventSpecifier>; 4],

@@ -1,3 +1,8 @@
+//! Virtual Machine State Management Module
+//!
+//! This module provides structures and traits for managing the state of virtual machines
+//! in the hypervisor. It includes representations of CPU registers, and VM exit handling.
+
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 use core::fmt::Debug;
@@ -10,16 +15,24 @@ use serde::{Deserialize, Serialize};
 #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
 use x86::dtables::DescriptorTablePointer;
 
+/// Represents the complete state of a virtual machine
+///
+/// This structure contains all the necessary information to represent
+/// the state of a virtual machine, including general-purpose registers,
+/// extended registers, and system state.
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub struct VmState {
+    /// General-purpose registers and XMM registers
     pub standard_registers: GuestRegisters,
+    /// System registers and descriptor tables
     pub extended_registers: VmStateExtendedRegisters,
 }
 
-/// The collection of the guest general purpose register values.
+/// Collection of guest general-purpose and XMM registers
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 #[repr(C)]
 pub struct GuestRegisters {
+    /// General-purpose registers
     pub rax: u64,
     pub rbx: u64,
     pub rcx: u64,
@@ -35,9 +48,13 @@ pub struct GuestRegisters {
     pub r13: u64,
     pub r14: u64,
     pub r15: u64,
+    /// Instruction pointer
     pub rip: u64,
+    /// Stack pointer
     pub rsp: u64,
+    /// CPU flags
     pub rflags: u64,
+    /// XMM registers (128-bit)
     pub xmm0: M128A,
     pub xmm1: M128A,
     pub xmm2: M128A,
@@ -57,7 +74,10 @@ pub struct GuestRegisters {
 }
 
 impl GuestRegisters {
-    // dont compare rip
+    /// Compares registers for equality, excluding the instruction pointer
+    ///
+    /// This method compares all registers except RIP, which is useful for
+    /// comparing VM states where using equivalent program execution
     pub fn is_equal_no_address_compare(&self, other: &Self) -> bool {
         self.rax == other.rax
             && self.rbx == other.rbx
@@ -205,11 +225,17 @@ impl StateDifference for GuestRegisters {
     }
 }
 
+/// 128-bit value used for XMM registers, represented as two 64-bit values
+///
+/// This structure represents a 128-bit value split into high and low 64-bit parts,
+/// used for XMM registers in the guest VM.
 #[repr(C)]
 #[repr(align(16))]
 #[derive(Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub struct M128A {
+    /// Lower 64 bits
     pub low: u64,
+    /// Upper 64 bits
     pub high: i64,
 }
 
@@ -252,6 +278,10 @@ pub struct VmStateExtendedRegisters {
     pub ds_base: u64,
 }
 
+/// Wrapper for descriptor table pointers
+///
+/// This structure wraps the `DescriptorTablePointer` type to provide
+/// functionality like Default, De.
 #[derive(Default)]
 #[repr(transparent)]
 pub struct DescriptorTablePointerWrapper<T>(pub DescriptorTablePointer<T>);
@@ -321,7 +351,18 @@ impl Hash for DescriptorTablePointerWrapper<u64> {
     }
 }
 
+/// Trait for comparing states and identifying differences
+///
+/// This trait provides functionality to compare two states and identify
+/// specific differences between them, returning a vector of tuples containing
+/// the field name and the differing values.
 pub trait StateDifference {
+    /// Returns a vector of differences between two states
+    ///
+    /// Each difference is represented as a tuple containing:
+    /// - The field name as a static string
+    /// - A boxed reference to the value from the first state
+    /// - A boxed reference to the value from the second state
     fn difference<'a, 'b>(
         &'a self,
         other: &'b Self,
@@ -564,56 +605,51 @@ impl VmState {
     }
 }
 
-/// Reasons of VM exit.
+/// Reasons for VM exits
+///
+/// This enum represents various reasons why a virtual machine might exit
+/// to the hypervisor, including exceptions, I/O operations, and system events.
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize, Hash)]
 pub enum VmExitReason {
-    /// An address translation failure with nested paging. GPA->LA. Contains a guest
-    /// physical address that failed translation and whether the access was
-    /// write access.
+    /// An address translation failure with nested paging
     EPTPageFault(EPTPageFaultQualification),
-
-    /// An exception happened. Contains an exception code.
+    /// An exception occurred in the guest
     Exception(ExceptionQualification),
-
+    /// CPUID instruction executed
     Cpuid,
-
+    /// HLT instruction executed
     Hlt,
-
+    /// I/O operation
     Io,
-
+    /// RDMSR instruction executed
     Rdmsr,
-
+    /// WRMSR instruction executed
     Wrmsr,
-
+    /// RDRAND instruction executed
     Rdrand,
-
+    /// RDSEED instruction executed
     Rdseed,
-
+    /// RDTSC instruction executed
     Rdtsc,
-
+    /// RDPMC instruction executed
     Rdpmc,
-
+    /// CR8 write operation
     Cr8Write,
-
+    /// I/O write operation
     IoWrite,
-
+    /// MSR usage
     MsrUse,
-
+    /// External interrupt received
     ExternalInterrupt,
-
-    /// The guest ran long enough to use up its time slice.
+    /// Timer expiration
     TimerExpiration,
-
-    /// The logical processor entered the shutdown state, eg, triple fault.
+    /// Processor shutdown
     Shutdown(u64),
-
-    /// An unhandled VM exit happened. Contains a vendor specific VM exit code.
+    /// Unhandled VM exit
     Unexpected(u64),
-
-    /// VM entry failure: reason, qualification
+    /// VM entry failure
     VMEntryFailure(u32, u64),
-
-    /// If an SMM exit occurred that has a higher priority than a pending MTF Exit
+    /// Monitor trap flag
     MonitorTrap,
 }
 
@@ -702,55 +738,105 @@ impl Default for VmExitReason {
     }
 }
 
+/// Information about and why EPT page fault occurred.
+///
+/// This structure contains detailed information about an EPT page fault,
+/// including the faulting address, access type, and page permissions.
 /// Details of the cause of nested page fault.
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize, Hash)]
 pub struct EPTPageFaultQualification {
+    /// Instruction pointer at time of fault
     pub rip: usize,
+    /// Guest physical address that caused the fault
     pub gpa: usize,
+    /// Whether the access was a read
     pub data_read: bool,
+    /// Whether the access was a write
     pub data_write: bool,
+    /// Whether the access was an instruction fetch
     pub instruction_fetch: bool,
+    /// Whether the page was readable, permission-wise
     pub was_readable: bool,
+    /// Whether the page was writable, permission-wise
     pub was_writable: bool,
+    /// Whether the page was executable in user mode, permission-wise
     pub was_executable_user: bool,
+    /// Whether the page was executable in supervisor mode, permission-wise
     pub was_executable_supervisor: bool,
+    /// Whether the guest linear address was valid
     pub gla_valid: bool,
+    /// Whether NMI was being unblocked
     pub nmi_unblocking: bool,
+    /// Whether the access was to shadow stack
     pub shadow_stack_access: bool,
+    /// Whether guest paging verification was in progress
     pub guest_paging_verification: bool,
 }
 
+/// Information about why exception occurred.
+///
+/// This structure contains information about an exception that occurred
+/// in the guest VM.
+/// Details of the cause of nested page fault.
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize, Hash)]
 pub struct ExceptionQualification {
+    /// Instruction pointer at time of exception
     pub rip: u64,
+    /// The exception code
     pub exception_code: GuestException,
 }
 
-/// The cause of guest exception.
+/// Guest exception types
+///
+/// This enum represents various types of exceptions that can occur
+/// in the guest VM.
 #[derive(Clone, Copy, PartialEq, Debug, Eq, Serialize, Deserialize, Hash)]
 pub enum GuestException {
+    /// Division by zero
     DivideError,
+    /// Debug exception
     DebugException,
+    /// Non-maskable interrupt
     NMIInterrupt,
+    /// Breakpoint
     BreakPoint,
+    /// Overflow
     Overflow,
+    /// Bound range exceeded
     BoundRangeExceeded,
+    /// Invalid opcode
     InvalidOpcode,
+    /// Device not available
     DeviceNotAvailable,
+    /// Double fault
     DoubleFault,
+    /// Coprocessor segment overrun
     CoprocessorSegmentOverrun,
+    /// Invalid TSS
     InvalidTSS,
+    /// Segment not present
     SegmentNotPresent,
+    /// Stack segment fault
     StackSegmentFault,
+    /// General protection fault
     GeneralProtection,
+    /// Page fault
     PageFault,
+    /// Floating point error
     FloatingPointError,
+    /// Alignment check
     AlignmentCheck,
+    /// Machine check
     MachineCheck,
+    /// SIMD exception
     SIMDException,
+    /// Virtualization exception
     VirtualizationException,
+    /// Control protection
     ControlProtection,
+    /// Reserved exception code
     Reserved(u8),
+    /// User-defined exception code
     User(u8),
 }
 

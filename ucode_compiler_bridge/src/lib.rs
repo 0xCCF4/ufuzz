@@ -1,3 +1,6 @@
+//! # Ucode Compiler Bridge
+//!
+//! A crate that provides an interface between Rust and Python assembler for microcode compilation.
 extern crate alloc;
 extern crate core;
 

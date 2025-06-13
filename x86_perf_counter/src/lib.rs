@@ -1,12 +1,30 @@
+//! x86 Performance Counter Library
+//!
+//! This library provides functionality for working with x86 performance counters.
+//! It allows configuring and reading hardware performance monitoring events on x86 processors.
+//!
+//! The main components are:
+//! - [`PerfEventSpecifier`]: Specifies a performance monitoring event
+//! - [`PerformanceCounter`]: Represents a hardware performance counter
+
 #![no_std]
 
 extern crate core;
 
+/// Specifies a performance monitoring event
+///
+/// This struct contains the fields needed to configure a performance counter
+///
+/// For details on the fields, see the Intel manual.
 #[derive(Clone, Copy, Serialize, Deserialize, Debug, PartialEq, Eq, Ord, PartialOrd)]
 pub struct PerfEventSpecifier {
+    /// Event select
     pub event_select: u8,
+    /// Unit mask field - qualify event condition
     pub umask: u8,
+    /// Detect transition changes, None -> 0, Enable -> 1
     pub edge_detect: Option<u8>,
+    /// Optional counter mask for threshold comparison
     pub cmask: Option<u8>,
 }
 
@@ -31,6 +49,8 @@ pub use x86::*;
 /// of any sort that initiates a flow of uops. The event will count MS startups
 /// for uops that are speculative, and subsequently cleared by branch mispredict
 /// or a machine clear.
+///
+/// <https://perfmon-events.intel.com/>
 pub const MS_DECODED_MS_ENTRY: PerfEventSpecifier = PerfEventSpecifier {
     event_select: 0xE7,
     umask: 0x01,
@@ -45,6 +65,8 @@ pub const MS_DECODED_MS_ENTRY: PerfEventSpecifier = PerfEventSpecifier {
 /// the shadow of a miss-predicted branch, those uops that are inserted during
 /// an assist (such as for a denormal floating point result), and (previously
 /// allocated) uops that might be canceled during a machine clear.
+///
+/// <https://perfmon-events.intel.com/>
 pub const UOPS_ISSUED_ANY: PerfEventSpecifier = PerfEventSpecifier {
     event_select: 0x0E,
     umask: 0x00,
@@ -53,6 +75,8 @@ pub const UOPS_ISSUED_ANY: PerfEventSpecifier = PerfEventSpecifier {
 };
 
 /// This event counts when the last uop of an instruction retires.
+///
+/// <https://perfmon-events.intel.com/>
 pub const INSTRUCTIONS_RETIRED: PerfEventSpecifier = PerfEventSpecifier {
     event_select: 0xC0,
     umask: 0x00,
@@ -61,6 +85,8 @@ pub const INSTRUCTIONS_RETIRED: PerfEventSpecifier = PerfEventSpecifier {
 };
 
 /// This event counts uops which retired. It is a precise event.
+///
+/// <https://perfmon-events.intel.com/>
 pub const UOPS_RETIRED_ANY: PerfEventSpecifier = PerfEventSpecifier {
     event_select: 0xC2,
     umask: 0x00,

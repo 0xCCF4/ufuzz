@@ -122,7 +122,7 @@ fn barrier() {
 /// The value read from the debug interface
 ///
 /// # Literature
-/// [1] https://doi.org/10.1007/s11416-022-00438-x
+/// * <https://doi.org/10.1007/s11416-022-00438-x>
 fn udebug_read(command: usize, address: usize) -> usize {
     if cfg!(feature = "emulation") {
         let res_high: usize = 0;
@@ -167,7 +167,7 @@ fn udebug_read(command: usize, address: usize) -> usize {
 /// * `value` - The value to write
 ///
 /// # Literature
-/// [1] https://doi.org/10.1007/s11416-022-00438-x
+/// * <https://doi.org/10.1007/s11416-022-00438-x>
 fn udebug_write(command: usize, address: usize, value: usize) {
     if cfg!(feature = "emulation") {
         let val_low = value as u32;
@@ -214,7 +214,7 @@ fn udebug_write(command: usize, address: usize, value: usize) {
 /// * `res_d` - Mutable reference to store RDX result
 ///
 /// # Literature
-/// [1] https://doi.org/10.1007/s11416-022-00438-x
+/// * <https://doi.org/10.1007/s11416-022-00438-x>
 pub fn udebug_invoke(
     address: UCInstructionAddress,
     res_a: &mut usize,

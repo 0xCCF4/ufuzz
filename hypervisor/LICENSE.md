@@ -1,5 +1,5 @@
 The hypervisor software contains
-substantial portions of the code from
+portions of the code from
 the following projects:
 - https://github.com/memN0ps/illusion-rs/
 - https://github.com/tandasat/Hypervisor-101-in-Rust

@@ -1,3 +1,8 @@
+//! Code Serialization Module
+//!
+//! This module provides functionality for serializing and transforming x86-64 code
+//! to equivalent (serialized) code.
+
 use crate::Trace;
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
@@ -11,6 +16,10 @@ use log::warn;
 use performance_timing::track_time;
 use rand_core::RngCore;
 
+/// Fence instructions used for serialization
+///
+/// These instructions are inserted between original instructions to ensure
+/// proper serialization of execution.
 const FENCE_INSTRUCTIONS: &[&[u8]] = &[
     // lfence
     &[0x0F, 0xAE, 0xE8],
@@ -24,15 +33,24 @@ const FENCE_INSTRUCTIONS: &[&[u8]] = &[
     // &[0x0F, 0x01, 0xE8]
 ];
 
+/// Serializer for x86-64 code samples
+///
+/// This structure provides functionality for transforming code samples while
+/// preserving their execution semantics.
 #[derive(Default)]
 pub struct Serializer {
+    /// Decoder for x86-64 instructions
     instruction_decoder: InstructionDecoder,
 }
 
+/// Errors that can occur during code serialization
 #[derive(Debug)]
 pub enum SerializeError {
+    /// Error from the iced-x86 library
     IcedError(IcedError),
+    /// Indirect branch instruction, currently not supported
     IndirectBranch,
+    /// Unknown error with description
     Unknown(&'static str),
 }
 
@@ -55,6 +73,17 @@ impl From<IcedError> for SerializeError {
 }
 
 impl Serializer {
+    /// Serializes a code sample with fence instructions
+    ///
+    /// # Arguments
+    ///
+    /// * `random` - Random number generator for fence instruction selection
+    /// * `code` - The code sample to serialize
+    /// * `trace` - Execution trace for identifying executed instructions
+    ///
+    /// # Returns
+    ///
+    /// * `Result<Vec<u8>, SerializeError>` - Serialized code or error
     #[cfg_attr(feature = "__debug_performance_trace", track_time("serialize"))]
     pub fn serialize_code<R: RngCore>(
         &mut self,
@@ -206,6 +235,18 @@ impl Serializer {
         Ok(output)
     }
 
+    /// Translates a source address to its target address, according to the derived mapping
+    ///
+    /// # Arguments
+    ///
+    /// * `target_address_absolute` - Absolute target address
+    /// * `map` - Mapping of old to new instruction addresses
+    /// * `source_end_ip` - End IP of source instruction
+    /// * `target_end_ip` - End IP of target instruction
+    ///
+    /// # Returns
+    ///
+    /// * `Result<u64, SerializeError>` - Translated address or error
     fn source_to_target_address(
         target_address_absolute: u64,
         map: &BTreeMap<u64, InstructionInfo>,
@@ -252,6 +293,15 @@ impl Serializer {
         })
     }
 
+    /// Patches IP-relative memory operands
+    ///
+    /// # Arguments
+    ///
+    /// * `instruction` - Instruction to patch
+    ///
+    /// # Returns
+    ///
+    /// * `Result<Option<Instruction>, SerializeError>` - Patched instruction or None
     fn patch_ip_rel_memory_oop(
         instruction: &Instruction,
     ) -> Result<Option<Instruction>, SerializeError> {
@@ -268,6 +318,19 @@ impl Serializer {
         }
     }
 
+    /// Patches special instructions
+    ///
+    /// # Arguments
+    ///
+    /// * `code` - Original code sample
+    /// * `map_old_to_new_ip` - Mapping of old to new instruction addresses
+    /// * `current_ip` - Current instruction pointer
+    /// * `instruction` - Instruction to patch
+    /// * `data` - Instruction information
+    ///
+    /// # Returns
+    ///
+    /// * `Result<Option<Instruction>, SerializeError>` - Patched instruction or None
     fn patch_special_instructions(
         _code: &[u8],
         _map_old_to_new_ip: &BTreeMap<u64, InstructionInfo>,
@@ -278,6 +341,19 @@ impl Serializer {
         Ok(None)
     }
 
+    /// Patches control flow instructions
+    ///
+    /// # Arguments
+    ///
+    /// * `code` - Original code sample
+    /// * `map_old_to_new_ip` - Mapping of old to new instruction addresses
+    /// * `current_ip` - Current instruction pointer
+    /// * `instruction` - Instruction to patch
+    /// * `data` - Instruction information
+    ///
+    /// # Returns
+    ///
+    /// * `Result<Option<Instruction>, SerializeError>` - Patched instruction or None
     fn patch_control_flow(
         code: &[u8],
         map_old_to_new_ip: &BTreeMap<u64, InstructionInfo>,
@@ -509,12 +585,18 @@ impl Serializer {
     }
 }
 
+/// Information about an instruction in the serialization process
 #[derive(Clone, Copy)]
 struct InstructionInfo {
+    /// Original instruction pointer
     pub ip_original_instruction: u64,
+    /// Length of the original instruction
     pub original_instruction_length: u64,
+    /// New IP for the serialization operation
     pub new_ip_serialize_operation: u64,
+    /// New IP for the original instruction
     pub new_ip_original_instruction: u64,
+    /// Whether the instruction was executed
     pub was_executed: bool,
 }
 

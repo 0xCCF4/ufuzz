@@ -1,8 +1,13 @@
+//! # Speculation X86
+//!
+//! An experiment for analyzing and testing x86 architecture-level speculation behavior.
 #![no_std]
 
 use x86_perf_counter::PerfEventSpecifier;
 
 pub mod patches;
+
+// https://perfmon-events.intel.com
 
 /// This event counts the number of uops delivered to Instruction Decode Queue (IDQ)
 /// from the MITE path. Counting includes uops that may "bypass" the IDQ. This also

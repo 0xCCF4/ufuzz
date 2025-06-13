@@ -1,3 +1,8 @@
+//! UDP4 Protocol Interface
+//!
+//! This module provides a safe interface for working with the UEFI UDP4 protocol.
+//! It includes functionality for configuring UDP sessions, transmitting and receiving packets.
+
 use crate::uefi::proto::network::udp4::managed_event::ManagedEvent;
 use crate::uefi_raw::protocol::network::ip4::{
     Ip4ConfigData, Ip4IcmpType, Ip4ModeData, Ip4RouteTable, ManagedNetworkConfigData,
@@ -21,6 +26,17 @@ use uefi::proto::unsafe_protocol;
 use uefi_raw::table::boot::{EventType, Tpl};
 use uefi_raw::{Ipv4Address, Status};
 
+/// UDP4 Protocol Interface
+///
+/// This struct provides low-level interface for working with the UEFI UDP4 protocol.
+///
+/// # Safety
+///
+/// This protocol is marked as unsafe because it directly interfaces with UEFI system calls.
+/// Users should ensure proper initialization and cleanup of protocol instances, validate
+/// the correctness of the provided arguments, and handle errors appropriately.
+///
+/// <https://github.com/tianocore/edk2/blob/1b26c4b73b27386f187fabe37810d3e2c055dc43/MdePkg/Include/Protocol/Udp4.h#L423>
 #[derive(Debug)]
 #[repr(C)]
 #[unsafe_protocol("3ad9df29-4501-478d-b1f8-7f7fe70e50f3")]
@@ -60,15 +76,28 @@ pub struct UDP4Protocol {
     poll_fn: extern "efiapi" fn(this: &mut Self) -> Status,
 }
 
+/// Safe wrapper for IPv4 mode data
+///
+/// This struct provides a safe interface to the IPv4 mode data, ensuring proper
+/// handling of raw pointers and memory safety.
+///
+/// Todo: does we need to free the table pointers?
 #[derive(Debug)]
 #[allow(dead_code)]
 pub struct Ip4ModeDataSafe<'a> {
+    /// Whether the IPv4 instance is started
     pub is_started: bool,
+    /// Maximum packet size supported
     pub max_packet_size: u32,
+    /// Current configuration data
     pub config_data: Ip4ConfigData,
+    /// Whether the instance is configured
     pub is_configured: bool,
+    /// Multicast group table
     pub group_table: &'a [Ipv4Address],
+    /// IPv4 routing table
     pub ip4_route_table: &'a [Ip4RouteTable],
+    /// ICMP type list
     pub icmp_type_list: &'a [Ip4IcmpType],
 }
 
@@ -97,16 +126,28 @@ impl From<Ip4ModeData> for Ip4ModeDataSafe<'_> {
     }
 }
 
+/// UDP Configuration Data
+///
+/// This struct contains all the configuration data for a UDP session, including
+/// UDP4 configuration, IPv4 mode data, and managed network configuration.
 #[derive(Debug)]
 pub struct UdpConfiguration<'a> {
+    /// UDP4 configuration data
     pub udp4config_data: Udp4ConfigData,
+    /// IPv4 mode data
     pub ip4_mode_data: Ip4ModeDataSafe<'a>,
+    /// Managed network configuration data
     pub managed_network_config_data: ManagedNetworkConfigData,
 }
 
+/// Transmission Error Types
+///
+/// This enum represents the possible errors that can occur during UDP packet transmission.
 #[derive(Debug, Clone, Copy, PartialEq, Hash)]
 pub enum TransmitError {
+    /// Transmission failed with the given status
     TransmitFailed(Status),
+    /// Post-transmission operation failed with the given status
     PostLate(Status),
 }
 
@@ -123,11 +164,18 @@ impl Display for TransmitError {
 
 impl Error for TransmitError {}
 
+/// Reception Error Types
+///
+/// This enum represents the possible errors that can occur during UDP packet reception.
 #[derive(Debug, Clone, Copy, PartialEq, Hash)]
 pub enum ReceiveError {
+    /// Reception failed with the given status
     ReceiveFailed(Status),
+    /// Post-reception operation failed with the given status
     PostLate(Status),
+    /// Reception timed out
     ReceiveTimeout,
+    /// Receive buffer was too small for the received data
     ReceiveBufferTooSmall(usize),
 }
 
@@ -147,6 +195,11 @@ impl Display for ReceiveError {
 impl Error for ReceiveError {}
 
 impl UDP4Protocol {
+    /// Resets the UDP4 protocol instance to its default state
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` if successful, or an error status if the operation failed.
     pub fn reset(&mut self) -> Result<(), Status> {
         let result = (self.configure_fn)(self, None);
         if result != Status::SUCCESS {
@@ -155,6 +208,11 @@ impl UDP4Protocol {
         Ok(())
     }
 
+    /// Cancels all pending operations
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` if successful, or an error status if the operation failed.
     pub fn cancel_all(&mut self) -> Result<(), Status> {
         let result = (self.cancel_fn)(self, None);
         if result != Status::SUCCESS {
@@ -163,6 +221,15 @@ impl UDP4Protocol {
         Ok(())
     }
 
+    /// Configures the UDP4 protocol instance
+    ///
+    /// # Arguments
+    ///
+    /// * `connection_mode` - The configuration data to apply
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` if successful, or an error status if the operation failed.
     pub fn configure(&mut self, connection_mode: &Udp4ConfigData) -> Result<(), Status> {
         let result = (self.configure_fn)(self, Some(connection_mode));
         if result != Status::SUCCESS {
@@ -171,6 +238,11 @@ impl UDP4Protocol {
         Ok(())
     }
 
+    /// Retrieves the current mode data for the UDP4 protocol instance
+    ///
+    /// # Returns
+    ///
+    /// Returns the current configuration data if successful, or an error status if the operation failed.
     pub fn get_mode_data(&mut self) -> Result<UdpConfiguration, Status> {
         let mut config_data = Udp4ConfigData::default();
         let mut ip4_mode_data = Ip4ModeData::default();
@@ -194,6 +266,11 @@ impl UDP4Protocol {
         })
     }
 
+    /// Leaves all multicast groups
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` if successful, or an error status if the operation failed.
     pub fn leave_all_multicast_groups(&mut self) -> Result<(), Status> {
         let result = (self.groups_fn)(self, false, None);
         if result != Status::SUCCESS {
@@ -202,6 +279,15 @@ impl UDP4Protocol {
         Ok(())
     }
 
+    /// Joins a multicast group
+    ///
+    /// # Arguments
+    ///
+    /// * `multicast_address` - The multicast address to join
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` if successful, or an error status if the operation failed.
     pub fn join_multicast_group(&mut self, multicast_address: &Ipv4Address) -> Result<(), Status> {
         let result = (self.groups_fn)(self, true, Some(multicast_address));
         if result != Status::SUCCESS {
@@ -210,6 +296,15 @@ impl UDP4Protocol {
         Ok(())
     }
 
+    /// Leaves a multicast group
+    ///
+    /// # Arguments
+    ///
+    /// * `multicast_address` - The multicast address to leave
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` if successful, or an error status if the operation failed.
     pub fn leave_multicast_group(&mut self, multicast_address: &Ipv4Address) -> Result<(), Status> {
         let result = (self.groups_fn)(self, false, Some(multicast_address));
         if result != Status::SUCCESS {
@@ -218,6 +313,17 @@ impl UDP4Protocol {
         Ok(())
     }
 
+    /// Adds a route to the routing table
+    ///
+    /// # Arguments
+    ///
+    /// * `subnet_address` - The subnet address
+    /// * `subnet_mask` - The subnet mask
+    /// * `gateway_address` - The gateway address
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` if successful, or an error status if the operation failed.
     pub fn add_route(
         &mut self,
         subnet_address: &Ipv4Address,
@@ -231,6 +337,17 @@ impl UDP4Protocol {
         Ok(())
     }
 
+    /// Deletes a route from the routing table
+    ///
+    /// # Arguments
+    ///
+    /// * `subnet_address` - The subnet address
+    /// * `subnet_mask` - The subnet mask
+    /// * `gateway_address` - The gateway address
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` if successful, or an error status if the operation failed.
     pub fn delete_route(
         &mut self,
         subnet_address: &Ipv4Address,
@@ -244,6 +361,11 @@ impl UDP4Protocol {
         Ok(())
     }
 
+    /// Polls for pending operations
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` if successful, or an error status if the operation failed.
     pub fn poll(&mut self) -> Result<(), Status> {
         match (self.poll_fn)(self) {
             Status::SUCCESS => Ok(()),
@@ -251,25 +373,43 @@ impl UDP4Protocol {
         }
     }
 
+    /// Creates a new UDP channel for sending and receiving packets
+    ///
+    /// # Returns
+    ///
+    /// Returns a new UDP channel instance.
     pub fn channel<'a>(&'a mut self) -> UdpChannel<'a> {
         UdpChannel::new(self)
     }
 }
 
+/// UDP Channel for sending and receiving packets
+///
+/// This struct provides a higher-level interface for sending and receiving UDP packets,
+/// handling event management and completion tokens internally.
 pub struct UdpChannel<'a> {
+    /// The underlying UDP4 protocol instance
     udp: &'a mut UDP4Protocol,
 
+    /// Result of receive operation
     status_rx_result: Arc<AtomicBool>,
+    /// Result of transmit operation
     status_tx_result: Arc<AtomicBool>,
+    /// Result of timeout operation
     status_timeout_result: Arc<AtomicBool>,
 
+    /// Event for transmit operations
     #[allow(dead_code)]
     tx_event: ManagedEvent,
+    /// Event for receive operations
     #[allow(dead_code)]
     rx_event: ManagedEvent,
+    /// Event for timeout detection
     timeout_event: ManagedEvent,
 
+    /// Completion token for receive operations
     rx_completion_token: Pin<Box<Udp4CompletionToken<'static>>>,
+    /// Completion token for transmit operations
     tx_completion_token: Pin<Box<Udp4CompletionToken<'static>>>,
 }
 
@@ -280,6 +420,15 @@ impl Drop for UdpChannel<'_> {
 }
 
 impl<'a> UdpChannel<'a> {
+    /// Creates a new UDP channel
+    ///
+    /// # Arguments
+    ///
+    /// * `udp` - The UDP4 protocol instance to use
+    ///
+    /// # Returns
+    ///
+    /// Returns a new UDP channel instance.
     pub fn new(udp: &'a mut UDP4Protocol) -> Self {
         let status_rx_result = Arc::new(AtomicBool::new(false));
         let status_tx_result = Arc::new(AtomicBool::new(false));
@@ -325,6 +474,17 @@ impl<'a> UdpChannel<'a> {
         }
     }
 
+    /// Transmits a UDP packet
+    ///
+    /// # Arguments
+    ///
+    /// * `session_data` - Optional session data for the packet
+    /// * `gateway` - Optional gateway address
+    /// * `data` - The data to transmit
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` if successful, or a transmission error if the operation failed.
     pub fn transmit(
         &mut self,
         session_data: Option<&Udp4SessionData>,
@@ -392,6 +552,15 @@ impl<'a> UdpChannel<'a> {
         Ok(())
     }
 
+    /// Receives a UDP packet
+    ///
+    /// # Arguments
+    ///
+    /// * `timeout_millis` - Optional timeout in milliseconds
+    ///
+    /// # Returns
+    ///
+    /// Returns the received data if successful, or a reception error if the operation failed.
     pub fn receive(&mut self, timeout_millis: Option<u64>) -> Result<Vec<u8>, ReceiveError> {
         let _ = (self.udp.cancel_fn)(self.udp, Some(&mut *self.rx_completion_token));
         self.status_rx_result

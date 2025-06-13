@@ -1,3 +1,8 @@
+//! CMOS Memory Management Module
+//!
+//! This module provides functionality for reading and writing data to CMOS memory,
+//! which persists across system reboots.
+
 use core::fmt::{Debug, Formatter};
 use core::mem::ManuallyDrop;
 use core::ops::{Deref, DerefMut};
@@ -24,13 +29,20 @@ use crate::cmos;
 #[cfg(feature = "platform_bochs")]
 pub use platform_bochs::*;
 
+/// Maximum size of user data that can be stored in CMOS memory
 const CMOS_USER_DATA_SIZE: usize = (CMOS_DATA_SIZE - 4) as usize;
 
+/// Internal union type for storing data in CMOS memory
+///
+/// This union allows for both type-safe access to the data and raw byte access
+/// for checksum calculation and storage.
 union CMOSData<T>
 where
     [(); size_of::<T>()]:,
 {
+    /// Type-safe access to the stored data
     data: core::mem::ManuallyDrop<T>,
+    /// Raw byte access for storage and checksum calculation
     raw: [u8; size_of::<T>()],
 }
 
@@ -38,6 +50,7 @@ impl<T> CMOSData<T>
 where
     [(); size_of::<T>()]:,
 {
+    /// Verifies that the type T fits within the available CMOS memory
     #[allow(dead_code)]
     const fn size_check() {
         assert!(
@@ -65,14 +78,29 @@ where
     }
 }
 
+/// Main structure for managing CMOS memory access
+///
+/// This structure provides a safe interface for reading and writing data to CMOS memory,
+/// including checksum validation and NMI management.
+///
+/// # Type Parameters
+///
+/// * `T` - The type of data to store in CMOS memory
+///
+/// # Safety
+///
+/// The type `T` must be `repr(C)` to ensure proper memory layout when stored in CMOS.
 pub struct CMOS<T>
 where
     [(); size_of::<T>()]:,
 {
-    // todo restructure as enum, such that this is a more safe interface
+    /// The data stored in CMOS memory
     data: CMOSData<T>,
+    /// Whether the stored data is valid (checksum matches)
     valid: bool,
+    /// Whether NMI is disabled during CMOS operations
     disable_nmi: bool,
+    /// Guard for managing NMI state
     nmi_guard: Option<NMIGuard>,
 }
 
@@ -80,20 +108,32 @@ impl<T> CMOS<T>
 where
     [(); size_of::<T>()]:,
 {
+    /// Verifies that the type T fits within the available CMOS memory
     #[allow(dead_code)]
     pub const fn size_check() {
         CMOSData::<T>::size_check();
     }
 
+    /// Marks the stored data as valid
+    ///
+    /// # Safety
+    ///
+    /// This function should only be called when the data is known to be valid.
     #[allow(dead_code)]
     unsafe fn mark_valid(&mut self) {
         self.valid = true;
     }
 
+    /// Checks if the stored data is valid
     pub fn is_data_valid(&self) -> bool {
         self.valid
     }
 
+    /// Reads data from CMOS memory into a new instance
+    ///
+    /// # Arguments
+    ///
+    /// * `disable_nmi` - Whether to disable NMI during the use of the returned data
     pub fn read_from_ram(disable_nmi: bool) -> Self {
         let mut data = Self {
             data: CMOSData {
@@ -107,6 +147,7 @@ where
         data
     }
 
+    /// Reads the checksum from CMOS memory
     pub fn read_checksum(&mut self) -> u32 {
         let mut checksum: u32 = 0;
         checksum |= unsafe { read_cmos_ram(CMOS_DATA_OFFSET + 0, self.disable_nmi) as u32 } << 0;
@@ -116,6 +157,7 @@ where
         checksum
     }
 
+    /// Reads data from CMOS memory and validates it
     pub fn read_cmos_ram(&mut self) {
         let checksum = self.read_checksum();
 
@@ -136,6 +178,7 @@ where
         self.valid = checksum == self.calculate_checksum();
     }
 
+    /// Writes data to CMOS memory if it is valid
     pub fn write_cmos_ram(&self) {
         if !self.valid {
             error!("Tried to write invalid CMOS data; Skipped writing");
@@ -181,6 +224,7 @@ where
         }
     }
 
+    /// Calculates the checksum of the stored data
     fn calculate_checksum(&self) -> u32 {
         let result = unsafe {
             self.data.raw.iter().fold((0u32, 0u8), |(sum, xor), &x| {
@@ -190,6 +234,7 @@ where
         result.0 ^ ((result.1 as u32) << 24)
     }
 
+    /// Returns a reference to the stored data if it is valid
     pub fn data(&self) -> Option<&T> {
         if self.valid {
             Some(unsafe { &self.data.data })
@@ -198,6 +243,7 @@ where
         }
     }
 
+    /// Returns a mutable handle to the stored data if it is valid
     pub fn data_mut(&mut self) -> Option<CMOSDataHandle<T>> {
         if self.valid {
             Some(CMOSDataHandle::new(self))
@@ -206,10 +252,16 @@ where
         }
     }
 
+    /// Returns a mutable reference to the raw data
+    ///
+    /// # Safety
+    ///
+    /// This function provides direct access to the raw data without validation.
     pub unsafe fn raw_data(&mut self) -> &mut [u8; size_of::<T>()] {
         &mut self.data.raw
     }
 
+    /// Sets whether NMI should be disabled during operations
     pub fn disable_nmi(&mut self, disable_nmi: bool) {
         self.disable_nmi = disable_nmi;
         unsafe {
@@ -217,6 +269,7 @@ where
         }
     }
 
+    /// Closes the CMOS instance and returns the NMI guard
     pub fn close(mut self) -> NMIGuard {
         self.write_cmos_ram();
         self.nmi_guard.take().unwrap()
@@ -227,6 +280,7 @@ impl<T: Default> CMOS<T>
 where
     [(); size_of::<T>()]:,
 {
+    /// Resets the stored data to its default value
     pub fn reset(&mut self) -> CMOSDataHandle<T> {
         self.data = CMOSData {
             data: core::mem::ManuallyDrop::new(T::default()),
@@ -235,6 +289,7 @@ where
         CMOSDataHandle::new(self)
     }
 
+    /// Returns a mutable handle to the data, creating default data if invalid
     pub fn data_mut_or_insert(&mut self) -> CMOSDataHandle<T> {
         if !self.valid {
             self.reset()
@@ -243,6 +298,7 @@ where
         }
     }
 
+    /// Returns a reference to the data, creating default data if invalid
     pub fn data_or_insert(&mut self) -> &T {
         if !self.valid {
             self.reset();
@@ -300,10 +356,15 @@ where
     }
 }
 
+/// Handle for safely modifying CMOS data
+///
+/// This structure provides a safe way to modify CMOS data while ensuring
+/// proper cleanup and validation.
 pub struct CMOSDataHandle<'a, T>
 where
     [(); size_of::<T>()]:,
 {
+    /// Reference to the parent CMOS instance
     cmos: &'a mut CMOS<T>,
 }
 
@@ -345,7 +406,11 @@ where
     }
 }
 
+/// Guard for managing NMI state
+///
+/// This structure ensures that NMI state is properly restored when dropped.
 pub struct NMIGuard {
+    /// The previous NMI state
     previous_disable_nmi: bool,
 }
 

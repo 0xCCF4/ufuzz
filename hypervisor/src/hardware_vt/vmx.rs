@@ -1,14 +1,9 @@
-//! The module containing the [`Vmx`] type, which implements the
-//! [`hardware_vt::HardwareVt`] trait for Intel processors.
+//! Intel VMX (Virtual Machine Extensions) Module
 //!
-//! The virtual-machine extensions (VMX) implements Intel Virtualization
-//! Technology (VT-x), the hardware assisted virtualization technology on Intel
-//! processors.
+//! This module implements the `HardwareVt` trait for Intel processors using
+//! Virtual Machine Extensions (VMX), which is Intel's hardware-assisted
+//! virtualization technology (VT-x).
 //!
-//! All references to external resources (denoted with "See:") refers to
-//! "Intel 64 and IA-32 Architectures Software Developer’s Manual Volume 3"
-//! Revision 78 (December 2022) at <https://www.intel.com/sdm/> unless otherwise
-//! stated.
 
 use super::{
     get_segment_descriptor_value, get_segment_limit, GuestRegisters,
@@ -45,20 +40,27 @@ use x86::{
     vmx::vmcs,
 };
 
-/// VMX-specific data to represent a guest.
+/// VMX-specific data for managing a virtual machine
+///
+/// This structure encapsulates all the necessary components to manage a virtual
+/// machine using Intel's VMX technology, including the VMXON region, VMCS,
+/// host GDT, and guest registers.
 #[derive(derivative::Derivative)]
 #[derivative(Debug, Default)]
 pub struct Vmx {
+    /// VMXON region for entering VMX operation
     #[derivative(Debug = "ignore")]
     vmxon_region: Box<Vmxon>,
+    /// Virtual Machine Control Structure
     vmcs_region: Box<Vmcs>,
+    /// Host Global Descriptor Table
     #[derivative(Debug = "ignore")]
     host_gdt: HostGdt,
+    /// Guest register state
     registers: GuestRegisters,
-    /// Whether [`Vmx::vmcs_region`] is already in the launched state.
+    /// Whether the VMCS is in launched state
     launched: bool,
-    /// The scale to convert TSC into the unit used for VMX-preemption timer.
-    /// If VMX-preemption timer is not supported, None.
+    /// TSC to VMX-preemption timer conversion scale
     timer_scale: Option<u64>,
 }
 
@@ -111,6 +113,7 @@ impl hardware_vt::HardwareVt for Vmx {
         self.host_gdt.initialize_from_current();
     }
 
+    /// Disables VMX operation on the current processor
     fn disable(&mut self) {
         trace!("Disabling VMX operation");
 
@@ -867,7 +870,9 @@ impl Vmx {
 #[derivative(Default)]
 #[repr(C, align(4096))]
 struct Vmxon {
+    /// VMCS revision identifier
     revision_id: u32,
+    /// Implementation-specific data
     #[derivative(Default(value = "[0; 4092]"))]
     data: [u8; 4092],
 }
@@ -881,20 +886,31 @@ const _: () = assert!(size_of::<Vmxon>() == 0x1000);
 #[derivative(Default)]
 #[repr(C, align(4096))]
 struct Vmcs {
+    /// VMCS revision identifier
     revision_id: u32,
+    /// Abort indicator
     abort_indicator: u32,
+    /// Implementation-specific data
     #[derivative(Default(value = "[0; 4088]"))]
     data: [u8; 4088],
 }
 const _: () = assert!(size_of::<Vmcs>() == 0x1000);
 
-/// The types of the control field.
+/// VMX control types
+///
+/// This enum represents different types of VMX controls that can be adjusted
+/// during VM initialization.
 #[derive(Clone, Copy)]
 pub enum VmxControl {
+    /// Pin-based VM-execution controls
     PinBased,
+    /// Primary processor-based VM-execution controls
     ProcessorBased,
+    /// Secondary processor-based VM-execution controls
     ProcessorBased2,
+    /// VM-exit controls
     VmExit,
+    /// VM-entry controls
     VmEntry,
 }
 
@@ -903,6 +919,7 @@ pub enum VmxControl {
 /// See: 29.4.3.1 Operations that Invalidate Cached Mappings
 #[repr(u64)]
 enum InveptType {
+    /// Invalidate a single EPT context
     SingleContext = 1,
 }
 
@@ -911,7 +928,9 @@ enum InveptType {
 /// See: Figure 31-1. INVEPT Descriptor
 #[repr(C)]
 struct InveptDescriptor {
+    /// EPT pointer
     eptp: u64,
+    /// Reserved field
     _reserved: u64,
 }
 const _: () = assert!(size_of::<InveptDescriptor>() == 16);
@@ -919,11 +938,17 @@ const _: () = assert!(size_of::<InveptDescriptor>() == 16);
 /// The collection of GDT related data needed to manage the host GDT.
 #[repr(C, align(16))]
 struct HostGdt {
+    /// GDT entries
     gdt: Vec<u64>,
+    /// GDTR value
     gdtr: DescriptorTablePointer<u64>,
+    /// Task State Segment
     tss: TaskStateSegment,
+    /// Task Register selector
     tr: SegmentSelector,
+    /// Code Segment selector
     cs: SegmentSelector,
+    /// Previous GDTR value
     previous_gdtr: DescriptorTablePointerWrapper<u64>,
 }
 const _: () = assert!((size_of::<HostGdt>() % 0x10) == 0);

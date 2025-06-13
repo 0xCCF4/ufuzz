@@ -1,3 +1,13 @@
+//! Controller Connection Module
+//!
+//! This module provides functionality for establishing and managing network connections
+//! between the fuzzer device and the fuzzing controller. It implements a reliable
+//! UDP-based communication protocol.
+//!
+//! The module provides a high-level interface for sending and receiving messages
+//! between the fuzzer device and controller, handling all the low-level details
+//! of network communication and protocol management.
+
 use alloc::boxed::Box;
 use alloc::collections::VecDeque;
 use alloc::format;
@@ -21,41 +31,71 @@ use uefi_udp4::uefi_raw::protocol::network::udp4::{
 };
 use uefi_udp4::Ipv4AddressExt;
 
+/// Errors that can occur during controller connection operations
 #[derive(Debug)]
 pub enum ConnectionError {
+    /// No network protocol was found
     NoNetworkProtocol,
+    /// Failed to open the network protocol
     CouldNotOpenNetProto,
+    /// Failed to create a new connection
     FailedToCreateConnection,
+    /// Failed to open a child connection
     FailedToOpenChildConnection,
+    /// Failed to reset the connection
     FailedToResetConnection,
+    /// Failed to configure the connection
     FailedToConfigureConnection,
 
+    /// Transmitted data exceeded maximum length
     TransmitLengthExceeded,
+    /// Error during packet transmission
     TransmitPacket(TransmitError),
+    /// Failed to wait for acknowledgment after multiple retries
     TransmitWaitForAckFailedHard(Box<ConnectionError>),
+    /// Packet was not acknowledged
     TransmitNotAcknowledged,
 
+    /// Error during packet reception
     ReceivePacket(ReceiveError),
+    /// Reception timed out
     ReceiveTimeout,
+    /// Received data is not valid UTF-8
     ReceiveNotUtf8,
+    /// Received data could not be deserialized
     ReceiveNotDeserializable,
+    /// Received packet is too large
     PacketTooLarge,
+    /// Received fragment is out of order
     FragmentOutOfOrder,
+    /// Fragment session was closed
     FragmentSessionClosed,
 }
 
+/// Configuration settings for the controller connection
 pub struct ConnectionSettings {
+    /// IP address of the remote controller
     pub remote_address: Ipv4Address,
+    /// IP address of the local device
     pub source_address: Ipv4Address,
+    /// Network subnet mask
     pub subnet_mask: Ipv4Address,
+    /// UDP port of the remote controller
     pub remote_port: u16,
+    /// UDP port of the local device
     pub source_port: u16,
+    /// Number of retransmission attempts
     pub resent_attempts: u8,
-    pub ack_timeout: u64,      // ms
-    pub fragment_timeout: u64, // ms
+    /// Timeout for acknowledgment in milliseconds
+    pub ack_timeout: u64,
+    /// Timeout for fragment reception in milliseconds
+    pub fragment_timeout: u64,
 }
 
 impl Default for ConnectionSettings {
+    /// Creates default connection settings
+    ///
+    /// Must be changed when using different experiment setups
     fn default() -> Self {
         Self {
             remote_address: Ipv4Address::new(10, 83, 3, 250),
@@ -70,23 +110,48 @@ impl Default for ConnectionSettings {
     }
 }
 
+/// Manages the connection to the fuzzing controller
+///
+/// This structure handles all aspects of communication with the controller,
+/// including connection management, message sending and receiving, and
+/// protocol state tracking.
 pub struct ControllerConnection {
+    /// UDP service binding protocol handle
     udp_handle: Option<ScopedBindingProtocol<UDP4ServiceBindingProtocol>>,
+    /// Network protocol instance
     network: Option<Pin<Box<ScopedProtocol<UDP4Protocol>>>>,
+    /// UDP channel for communication
     channel: Option<UdpChannel<'static>>,
 
+    /// Buffer for received messages
     virtual_receive_buffer: VecDeque<OtaC2D>,
+    /// Number of retransmission attempts
     resent_attempts: u8,
+    /// Timeout for acknowledgment in milliseconds
     ack_timeout: u64,
+    /// Timeout for fragment reception in milliseconds
     fragment_timeout: u64,
 
+    /// Current remote session identifier
     remote_session: u16,
+    /// Next sequence number for received messages
     sequence_number_rx: u64,
+    /// Next sequence number for transmitted messages
     sequence_number_tx: u64,
 }
 
 #[cfg_attr(feature = "__debug_performance_trace", track_time)]
 impl ControllerConnection {
+    /// Establishes a connection to the controller
+    ///
+    /// # Arguments
+    ///
+    /// * `settings` - Connection configuration settings
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Self)` - A new controller connection instance
+    /// * `Err(ConnectionError)` - An error occurred during connection
     pub fn connect(settings: &ConnectionSettings) -> Result<Self, ConnectionError> {
         let binding_handle = match uefi::boot::find_handles::<UDP4ServiceBindingProtocol>() {
             Ok(handles) => handles,
@@ -233,6 +298,16 @@ impl ControllerConnection {
         })
     }
 
+    /// Sends a packet to the controller
+    ///
+    /// # Arguments
+    ///
+    /// * `data` - The packet to send
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` - Packet was sent successfully
+    /// * `Err(ConnectionError)` - An error occurred during transmission
     #[allow(unreachable_code)]
     pub fn send<Packet: OtaPacket<OtaD2CUnreliable, OtaD2CTransport>>(
         &mut self,
@@ -283,6 +358,17 @@ impl ControllerConnection {
         }
     }
 
+    /// Sends raw data to the controller
+    ///
+    /// # Arguments
+    ///
+    /// * `data` - The data to send
+    /// * `require_ack` - Whether to wait for acknowledgment
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` - Data was sent successfully
+    /// * `Err(ConnectionError)` - An error occurred during transmission
     fn send_native(&mut self, data: &[u8], require_ack: bool) -> Result<(), ConnectionError> {
         if data.len() as u64 > MAX_FRAGMENT_SIZE {
             return Err(ConnectionError::TransmitLengthExceeded);
@@ -354,6 +440,17 @@ impl ControllerConnection {
         status.unwrap_or(Err(ConnectionError::TransmitNotAcknowledged))
     }
 
+    /// Receives raw data from the controller
+    ///
+    /// # Arguments
+    ///
+    /// * `timeout_millis` - Optional timeout in milliseconds
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Some(OtaC2D))` - Received packet
+    /// * `Ok(None)` - No packet received within timeout
+    /// * `Err(ConnectionError)` - An error occurred during reception
     fn receive_native(
         &mut self,
         timeout_millis: Option<u64>,
@@ -427,6 +524,17 @@ impl ControllerConnection {
         Ok(Some(data))
     }
 
+    /// Receives a packet from the controller
+    ///
+    /// # Arguments
+    ///
+    /// * `timeout_millis` - Optional timeout in milliseconds
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Some(OtaC2D))` - Received packet
+    /// * `Ok(None)` - No packet received within timeout
+    /// * `Err(ConnectionError)` - An error occurred during reception
     #[allow(unreachable_code)]
     #[allow(unused_variables)]
     pub fn receive(
@@ -506,6 +614,17 @@ impl ControllerConnection {
         }
     }
 
+    /// Sends an unreliable log message to the controller
+    ///
+    /// # Arguments
+    ///
+    /// * `level` - Log level of the message
+    /// * `message` - The message to send
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` - Message was sent successfully
+    /// * `Err(ConnectionError)` - An error occurred during transmission
     #[track_caller]
     pub fn log_unreliable<S: Display>(
         &mut self,
@@ -524,6 +643,17 @@ impl ControllerConnection {
         })
     }
 
+    /// Sends a log message to the controller, requiring acknowledgment
+    ///
+    /// # Arguments
+    ///
+    /// * `level` - Log level of the message
+    /// * `message` - The message to send
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` - Message was sent successfully
+    /// * `Err(ConnectionError)` - An error occurred during transmission
     #[track_caller]
     pub fn log_reliable<S: Display>(
         &mut self,
@@ -544,6 +674,7 @@ impl ControllerConnection {
 }
 
 impl Drop for ControllerConnection {
+    /// Cleans up resources when the connection is dropped
     fn drop(&mut self) {
         drop(self.channel.take());
         drop(self.network.take());

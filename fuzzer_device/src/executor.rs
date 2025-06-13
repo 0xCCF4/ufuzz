@@ -1,3 +1,7 @@
+//! Sample Execution Module
+//!
+//! This module provides functionality for execute a fuzzing input
+
 #[cfg(not(feature = "__debug_bochs_pretend"))]
 mod coverage_collection;
 #[cfg(feature = "__debug_bochs_pretend")]
@@ -39,15 +43,26 @@ use uefi::print;
 #[cfg(feature = "__debug_print_progress_print")]
 use uefi::println;
 
+/// Internal structure for managing coverage collection state
 struct CoverageCollectorData {
+    /// Collector for gathering coverage information
     pub collector: CoverageCollector,
+    /// Planner for coverage execution on hookable addresses
     pub planner: IterationHarness,
 }
 
+/// Main executor for running and analyzing code samples
+///
+/// This structure manages the execution of code samples in a virtualized environment,
+/// handling coverage collection, state tracking, and result analysis.
 pub struct SampleExecutor {
+    /// Hypervisor instance for virtualized execution
     hypervisor: Hypervisor,
+    /// Optional coverage collection state
     coverage: Option<CoverageCollectorData>,
+    /// Serializer for code samples
     serializer: Serializer,
+    /// Description of the coverage interface
     coverage_interface: &'static ComInterfaceDescription,
 }
 
@@ -57,15 +72,31 @@ fn disable_all_hooks() {
     custom_processing_unit::disable_all_hooks();
 }
 
+/// Result of executing a single code sample
 pub struct ExecutionSampleResult {
+    /// Serialized version of the executed sample, if successful
     pub serialized_sample: Option<Vec<u8>>,
 }
 
 impl SampleExecutor {
+    /// Checks if coverage collection is supported
     pub fn supports_coverage_collection(&self) -> bool {
         self.coverage.is_some()
     }
 
+    /// Executes a code sample and collects execution results
+    ///
+    /// # Arguments
+    ///
+    /// * `sample` - The code sample to execute
+    /// * `execution_result` - Where to store execution results
+    /// * `cmos` - CMOS storage for persistent data
+    /// * `random` - Random number generator for serialization
+    /// * `net` - Optional network connection for logging
+    ///
+    /// # Returns
+    ///
+    /// * `ExecutionSampleResult` the results of the execution
     #[cfg_attr(feature = "__debug_performance_trace", track_time)]
     #[allow(unused_mut, unused_variables)]
     pub fn execute_sample<R: RngCore>(
@@ -368,6 +399,16 @@ impl SampleExecutor {
         ExecutionSampleResult { serialized_sample }
     }
 
+    /// Creates a new sample executor instance
+    ///
+    /// # Arguments
+    ///
+    /// * `excluded_addresses` - Set of addresses to exclude from coverage
+    /// * `coverage_interface` - Description of the coverage interface
+    ///
+    /// # Returns
+    ///
+    /// * `Result<SampleExecutor, HypervisorError>` - New executor instance or error
     pub fn new(
         excluded_addresses: Rc<RefCell<BTreeSet<u16>>>,
         coverage_interface: &'static ComInterfaceDescription,
@@ -408,12 +449,24 @@ impl SampleExecutor {
         })
     }
 
+    /// Updates the set of excluded addresses for coverage collection
     pub fn update_excluded_addresses(&mut self) {
         if let Some(coverage) = self.coverage.as_mut() {
             coverage.planner = coverage.collector.get_iteration_harness();
         }
     }
 
+    /// Traces the execution of a code sample
+    ///
+    /// # Arguments
+    ///
+    /// * `sample` - The code sample to trace
+    /// * `trace_result` - Where to store the trace
+    /// * `max_trace_length` - Maximum number of instructions to trace
+    ///
+    /// # Returns
+    ///
+    /// * `VmExitReason` - Reason for VM exit
     pub fn trace_sample(
         &mut self,
         sample: &[u8],
@@ -425,6 +478,17 @@ impl SampleExecutor {
         self.hypervisor.trace_vm(trace_result, max_trace_length)
     }
 
+    /// Traces the state changes during sample execution
+    ///
+    /// # Arguments
+    ///
+    /// * `sample` - The code sample to trace
+    /// * `trace_result` - Where to store the state trace
+    /// * `max_trace_length` - Maximum number of states to trace
+    ///
+    /// # Returns
+    ///
+    /// * `VmExitReason` - Reason for VM exit
     pub fn state_trace_sample(
         &mut self,
         sample: &[u8],
@@ -437,6 +501,11 @@ impl SampleExecutor {
             .state_trace_vm(trace_result, max_trace_length)
     }
 
+    /// Performs a self-check of the executor
+    ///
+    /// # Returns
+    ///
+    /// * `bool` - True if self-check passed
     pub fn selfcheck(&mut self) -> bool {
         for _ in 0..10 {
             // can fail due to ExternalInterrupts
@@ -449,27 +518,42 @@ impl SampleExecutor {
     }
 }
 
+/// Events that can occur during code sample execution
 #[derive(Debug, Clone)]
 pub enum ExecutionEvent {
+    /// VM state mismatch during coverage collection
     VmMismatchCoverageCollection {
+        /// Address where mismatch occurred
         address: u16,
-
+        /// Exit reason from coverage collection, set if different from normal execution
         coverage_exit: Option<VmExitReason>,
+        /// State during coverage collection, set if different from normal execution
         coverage_state: Option<VmState>,
     },
+    /// Error during coverage collection
     CoverageCollectionError {
+        /// The error that occurred
         error: coverage::harness::coverage_harness::CoverageError,
     },
+    /// Mismatch between serialized and normal execution
     SerializedMismatch {
+        /// Exit reason from serialized execution, set if different from normal execution
         serialized_exit: Option<VmExitReason>,
+        /// State from serialized execution, set if different from normal execution
         serialized_state: Option<VmState>,
     },
+    /// Indicates a likely bug in the code
     VeryLikelyBug,
+    /// Mismatch in state trace
     StateTraceMismatch {
+        /// Index where mismatch occurred
         index: u64,
+        /// State from normal execution, set if different from serialized execution
         normal: Option<VmState>,
+        /// State from serialized execution, set if different from normal execution
         serialized: Option<VmState>,
     },
+    /// Access to coverage collection area
     AccessCoverageArea,
 }
 
@@ -508,18 +592,27 @@ impl From<ExecutionEvent> for Option<ReportExecutionProblem> {
     }
 }
 
+/// Tracks the results of executing a code sample
 #[derive(Default)]
 pub struct ExecutionResult {
-    pub coverage: BTreeMap<UCInstructionAddress, CoverageCount>, // mapping address -> count
+    /// Coverage information for each instruction address
+    pub coverage: BTreeMap<UCInstructionAddress, CoverageCount>,
+    /// Events that occurred during execution
     pub events: Vec<ExecutionEvent>,
-
+    /// Final VM state
     pub state: VmState,
+    /// Reason for VM exit
     pub exit: VmExitReason,
-
+    /// Trace of executed instructions
     pub trace: Trace,
 }
 
 impl ExecutionResult {
+    /// Resets the execution result to initial state
+    ///
+    /// # Arguments
+    ///
+    /// * `initial_state` - Initial VM state to use
     pub fn reset(&mut self, initial_state: &VmState) {
         self.coverage.clear();
         self.events.clear();

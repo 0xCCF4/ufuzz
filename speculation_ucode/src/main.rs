@@ -1,3 +1,7 @@
+//! # Speculation Ucode
+//!
+//! An experiment for analyzing and testing CPU microcode-level speculation behavior.
+
 #![no_main]
 #![no_std]
 #![allow(named_asm_labels)]

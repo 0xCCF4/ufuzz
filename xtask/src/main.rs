@@ -529,6 +529,7 @@ fn main_generate_doc() {
     fn cmd(target: Option<&str>, safe: bool) -> Command {
         let mut cmd = Command::new("cargo");
         cmd.arg("doc")
+            .env("RUSTFLAGS", "-D warnings")
             .arg("--no-deps")
             .arg("--document-private-items");
         if let Some(target) = target {

@@ -1,3 +1,11 @@
+//! Microcode compiler interface to rust
+//!
+//! This module provides functionality for compiling and processing microcode assembly files.
+//! It includes tools for preprocessing, compilation, and transformation of microcode files into Rust code.
+//!
+//! The compiler of https://github.com/pietroborrello/CustomProcessingUnit is used.
+//! To correctly work, the uasm.py.patch file must be applied to the assembler.
+
 #![allow(unexpected_cfgs)] // todo: hide warning - file bug]
 
 use error_chain::error_chain;
@@ -11,50 +19,62 @@ use std::{env, fs};
 
 error_chain! {
     errors {
+        /// Error when the compiler executable cannot be found
         CompilerNotFound(path: PathBuf) {
             description("Compiler not found")
             display("Compiler not found {:?}. Path does not exist. Try setting the env variable UASM.", path)
         }
+        /// Error when the compiler process fails to start
         CompilerInvocationError {
             description("Compiler invocation error")
             display("Compiler invocation error")
         }
+        /// Error when compilation fails with a non-zero exit code
         CompilationFailed(exit_code: i32, stdout: String) {
             description("Compiler invocation error")
             display("Compiler invocation error. Exit code: {}.\n{}", exit_code, stdout)
         }
+        /// Error when the source file does not exist
         SourceFileDoesNotExist(path: PathBuf) {
             description("Source file does not exist")
             display("Source file {:?} does not exist", path)
         }
+        /// Error when the target folder does not exist
         TargetFolderDoesNotExist(path: PathBuf) {
             description("Target folder does not exist")
             display("Target folder {:?} does not exist", path)
         }
+        /// Error when writing to a file fails
         FailedToWrite(path: PathBuf, description: String, error: std::io::Error) {
             description("Failed to write file")
             display("Failed to write file {:?} at step {}: {}", path, description, error)
         }
+        /// Error when reading from a file fails
         FailedToRead(path: PathBuf, description: String, error: std::io::Error) {
             description("Failed to read file")
             display("Failed to read file {:?} at step {}: {}", path, description, error)
         }
+        /// Error when converting a filename to string fails due to non-UTF8 characters
         LossyFilenameConversion(path: PathBuf) {
             description("Failed to convert filename to string")
             display("Failed to convert filename {:?} to string, since it contains non UTF-8 characters", path)
         }
+        /// Error when reading a parent directory fails
         ParentDirectoryReadError(path: PathBuf, description: String) {
             description("Failed to read parent directory")
             display("Failed to read parent directory of {:?} at {}", path, description)
         }
+        /// Error when deleting a file fails
         FileDeletionError(path: PathBuf, description: String, error: std::io::Error) {
             description("Failed to delete file")
             display("Failed to delete file {:?} at {}: {}", path, description, error)
         }
+        /// Error during preprocessing stage
         PreprocessorError(path: PathBuf, description: String) {
             description("Preprocessor error")
             display("Preprocessor error at {:?}: {}", path, description)
         }
+        /// Error when a file exists but doesn't contain the autogeneration notice
         FileExistsButNoAutogen(path: PathBuf) {
             description("File exists but does not contain AUTOGEN_NOTICE")
             display("File {:?} exists but does not contain AUTOGEN_NOTICE", path)
@@ -64,10 +84,14 @@ error_chain! {
     skip_msg_variant
 }
 
+/// Configuration options for the microcode compiler
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompilerOptions {
+    /// Optional CPU ID to use during compilation
     pub cpuid: Option<String>,
+    /// Whether to avoid unknown 256-bit instructions
     pub avoid_unknown_256: bool,
+    /// Whether to allow unused code
     pub allow_unused: bool,
 }
 
@@ -77,6 +101,7 @@ impl AsRef<CompilerOptions> for CompilerOptions {
     }
 }
 
+/// Runs rustfmt on the specified file
 pub fn run_rustfmt<P: AsRef<Path>>(path: P) {
     let _ = Command::new("rustfmt")
         .arg(path.as_ref())
@@ -84,11 +109,21 @@ pub fn run_rustfmt<P: AsRef<Path>>(path: P) {
         .map(|mut c| c.wait());
 }
 
+/// Main compiler for UASM files
 pub struct UcodeCompiler {
     compiler_path: PathBuf,
 }
 
 impl UcodeCompiler {
+    /// Creates a new compiler instance
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Path to the compiler executable (must be a Python file)
+    ///
+    /// # Returns
+    ///
+    /// Returns a Result containing the compiler instance if successful
     pub fn new(path: PathBuf) -> Result<UcodeCompiler> {
         if !path.exists()
             || path
@@ -105,6 +140,17 @@ impl UcodeCompiler {
         })
     }
 
+    /// Compiles a UASM file to a header file
+    ///
+    /// # Arguments
+    ///
+    /// * `input` - Path to the input UASM file
+    /// * `output` - Path where the output header file should be written
+    /// * `compiler_options` - Compiler configuration options
+    ///
+    /// # Returns
+    ///
+    /// Returns a Result indicating success or failure
     pub fn compile<C: AsRef<CompilerOptions>>(
         &self,
         input: &PathBuf,
@@ -170,11 +216,23 @@ impl UcodeCompiler {
     }
 }
 
+/// Marker string indicating that a file is automatically generated
 pub const AUTOGEN: &str = "// AUTOGEN_NOTICE: this file is automatically generated. Do not change stuff. This file will be overriden without further notice.";
 
+/// Prefix for autogenerated files, used to check if a file is autogenerated
 pub const AUTOGEN_PREFIX: &str = "// AUTOGEN_NOTICE: ";
 
 /// Compiles all source files and creates a patches.rs module file with all source files registered to.
+///
+/// # Arguments
+///
+/// * `patch_source_folder` - Directory containing the source UASM files
+/// * `target_rust_folder` - Directory where the compiled Rust files will be written
+/// * `compiler_options` - Compiler configuration options
+///
+/// # Returns
+///
+/// Returns a Result indicating success or failure
 pub fn compile_source_and_create_module<
     P: AsRef<Path>,
     Q: AsRef<Path>,
@@ -284,7 +342,18 @@ pub fn compile_source_and_create_module<
     Ok(())
 }
 
-// Compiles all source files in the source dir -> target dir
+/// Compiles all source files in the source directory to the target directory
+/// Further, issue cargo
+///
+/// # Arguments
+///
+/// * `patch_source_folder` - Directory containing the source UASM files
+/// * `target_rust_folder` - Directory where the compiled Rust files will be written
+/// * `compiler_options` - Compiler configuration options
+///
+/// # Returns
+///
+/// Returns a Result containing a vector of patch names if successful
 pub fn build_script_compile_folder<P: AsRef<Path>, Q: AsRef<Path>, C: AsRef<CompilerOptions>>(
     patch_source_folder: P,
     target_rust_folder: Q,
@@ -413,6 +482,18 @@ pub fn build_script_compile_folder<P: AsRef<Path>, Q: AsRef<Path>, C: AsRef<Comp
     Ok(patch_names)
 }
 
+/// Transforms a C header patch file (output of the microcode compiler) into a Rust file
+///
+///
+/// # Arguments
+///
+/// * `patch` - Path to the input C header file
+/// * `target` - Path where the output Rust file should be written
+/// * `allow_unused` - Whether to allow unused code in the generated Rust file
+///
+/// # Returns
+///
+/// Returns a Result indicating success or failure
 pub fn transform_h_patch_to_rs_patch<P: AsRef<Path>, Q: AsRef<Path>>(
     patch: P,
     target: Q,
@@ -594,24 +675,33 @@ pub fn transform_h_patch_to_rs_patch<P: AsRef<Path>, Q: AsRef<Path>>(
     Ok(())
 }
 
+/// Marker string for preprocessor errors
 const ERROR_MARKER: &str = "PREPROCESSOR_ERROR_MARKER: ";
 
+/// Replacer for handling include directives in UASM files
 struct IncludeReplacer {
     cwd: PathBuf,
 }
+
 impl IncludeReplacer {
+    /// Creates a new instance
+    ///
+    /// # Arguments
+    ///
+    /// * `cwd` - Current working directory for resolving include paths
     pub fn new<P: AsRef<Path>>(cwd: P) -> IncludeReplacer {
         IncludeReplacer {
             cwd: cwd.as_ref().to_owned(),
         }
     }
 }
+
 impl Replacer for IncludeReplacer {
     fn replace_append(&mut self, caps: &Captures<'_>, dst: &mut String) {
         let name = caps.get(2).expect("include path not given").as_str();
         let path = self.cwd.join(name);
         if !path.is_temporary() {
-            println!("cargo:rerun-if-changed={}", path.to_string_lossy());
+            println!("cargo::rerun-if-changed={}", path.to_string_lossy());
         }
         let content = std::fs::read_to_string(&path);
 
@@ -637,16 +727,24 @@ impl Replacer for IncludeReplacer {
     }
 }
 
+/// Replacer for handling function includes in UASM files
 struct FuncIncludeReplacer {
     cwd: PathBuf,
 }
+
 impl FuncIncludeReplacer {
+    /// Creates a new instance
+    ///
+    /// # Arguments
+    ///
+    /// * `cwd` - Current working directory for resolving function paths
     pub fn new<P: AsRef<Path>>(cwd: P) -> FuncIncludeReplacer {
         FuncIncludeReplacer {
             cwd: cwd.as_ref().to_owned(),
         }
     }
 }
+
 impl Replacer for FuncIncludeReplacer {
     fn replace_append(&mut self, caps: &Captures<'_>, dst: &mut String) {
         let name = caps.get(1).expect("func name not given").as_str();
@@ -660,7 +758,7 @@ impl Replacer for FuncIncludeReplacer {
 
         let path = self.cwd.join(name).with_extension("func");
         if !path.is_temporary() {
-            println!("cargo:rerun-if-changed={}", path.to_string_lossy());
+            println!("cargo::rerun-if-changed={}", path.to_string_lossy());
         }
         let content = std::fs::read_to_string(&path);
 
@@ -698,8 +796,10 @@ impl Replacer for FuncIncludeReplacer {
     }
 }
 
+/// Replacer for resolving define directives in UASM files
 #[derive(Default)]
 struct DefineResolveReplacer {
+    /// List of defined macros and their values
     pub defines: Vec<(String, String)>,
 }
 
@@ -714,6 +814,7 @@ impl Replacer for &mut DefineResolveReplacer {
     }
 }
 
+/// Replacer for handling repeat directives in UASM files
 #[derive(Default)]
 struct RepeatReplacer {}
 
@@ -751,6 +852,16 @@ impl Replacer for RepeatReplacer {
 }
 
 /// Execute the preprocessing stage on all files in the source directory and write the processed files to the destination directory.
+///
+/// # Arguments
+///
+/// * `src` - Source directory containing UASM files
+/// * `dst` - Destination directory for processed files
+/// * `cwd` - Current working directory for resolving includes and functions
+///
+/// # Returns
+///
+/// Returns a Result indicating success or failure
 pub fn preprocess_scripts<A: AsRef<Path>, B: AsRef<Path>, C: AsRef<Path>>(
     src: A,
     dst: B,
@@ -829,7 +940,7 @@ pub fn preprocess_scripts<A: AsRef<Path>, B: AsRef<Path>, C: AsRef<Path>>(
             .path();
 
         if !file.is_temporary() {
-            println!("cargo:rerun-if-changed={}", file.to_string_lossy());
+            println!("cargo::rerun-if-changed={}", file.to_string_lossy());
         }
 
         if file
@@ -917,7 +1028,9 @@ pub fn preprocess_scripts<A: AsRef<Path>, B: AsRef<Path>, C: AsRef<Path>>(
     Ok(())
 }
 
+/// Extension trait for path data types, checking if a path is temporary
 trait IsTemporaryPathExt {
+    /// Returns true if the path is in a temporary directory
     fn is_temporary(&self) -> bool;
 }
 

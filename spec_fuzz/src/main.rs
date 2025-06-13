@@ -1,3 +1,7 @@
+//! Speculation Fuzzer Main Module
+//!
+//! This module contains the main entry point and control flow for the speculation fuzzer.
+
 #![allow(incomplete_features)]
 #![feature(generic_const_exprs)]
 #![feature(stmt_expr_attributes)]
@@ -27,10 +31,12 @@ use x86::apic::DestinationMode::Physical;
 use x86::cpuid::cpuid;
 use x86_perf_counter::PerformanceCounter;
 
+/// Main entry point for the speculation fuzzer
+///
+/// This function initializes the system, sets up the CPU and microcode patches,
+/// establishes communication with the controller, and enters the main fuzzing loop.
 #[entry]
 unsafe fn main() -> Status {
-    // todo setup idt
-
     uefi::helpers::init().unwrap();
     println!("Hello world!");
 

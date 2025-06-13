@@ -1,5 +1,9 @@
-//! The module containing vendor agnostic representation of HW VT
-//! (hardware-assisted virtualization technology) related definitions.
+//! Hardware Virtualization Technology Module
+//!
+//! This module provides vendor-agnostic abstractions for hardware-assisted
+//! virtualization technologies (VT-x for Intel, SVM for AMD). It defines the
+//! core interfaces and data structures needed to manage virtual machines at
+//! the hardware level.
 
 //pub mod svm;
 pub mod vmx;
@@ -14,53 +18,118 @@ use x86::{
     irq,
 };
 
-/// This trait represents an interface to enable HW VT, setup and run a single
-/// virtual machine instance on the current processor.
+/// Interface for hardware-assisted virtualization
+///
+/// This trait defines the core functionality required to enable, configure,
+/// and manage hardware virtualization on a processor. It provides methods for
+/// enabling/disabling virtualization, managing VM state, and handling VM exits.
 pub trait HardwareVt: fmt::Debug {
-    /// Enables HW VT on the current processor. It has to be called exactly once
-    /// before calling any other method.
+    /// Enables hardware virtualization on the current processor
+    ///
+    /// This method must be called exactly once before any other methods
+    /// are used. It initializes the hardware virtualization features.
     fn enable(&mut self);
 
-    /// Disable HW VT on the current processor.
+    /// Disables hardware virtualization on the current processor
+    ///
+    /// This method cleans up hardware virtualization resources and returns
+    /// the processor to normal operation.
     fn disable(&mut self);
 
-    /// Configures HW VT such as enabling nested paging and exception
-    /// interception.
+    /// Configures hardware virtualization features
+    ///
+    /// Sets up nested paging, exception interception, and other virtualization
+    /// features. Must be called after `enable()` and before running a VM.
+    ///
+    /// # Arguments
+    ///
+    /// * `nested_pml4_addr` - The physical address of the nested PML4 table
     fn initialize(&mut self, nested_pml4_addr: u64) -> Result<(), &'static str>;
 
-    /// Load the guest state.
+    /// Loads guest state into the hardware virtualization structures
+    ///
+    /// # Arguments
+    ///
+    /// * `state` - The VM state to load
     fn load_state(&mut self, state: &VmState);
 
-    /// Save state
+    /// Saves the current guest state
+    ///
+    /// # Arguments
+    ///
+    /// * `state` - The VM state to save into
     fn save_state(&self, state: &mut VmState);
 
-    /// Executes the guest until it triggers VM exit. Runs the after execution callback at the first possible moment (volatile state is saved).
+    /// Executes the guest VM with a callback
+    ///
+    /// Runs the guest until a VM exit occurs, then executes the provided
+    /// callback function at the first possible moment after saving volatile state.
+    ///
+    /// # Arguments
+    ///
+    /// * `after_execution` - Function to call after VM execution
+    ///
+    /// # Returns
+    ///
+    /// The reason for the VM exit
     fn run_with_callback(&mut self, after_execution: fn()) -> VmExitReason;
 
-    /// Executes the guest until it triggers VM exit.
+    /// Executes the guest VM
+    ///
+    /// Runs the guest until a VM exit occurs.
+    ///
+    /// # Returns
+    ///
+    /// The reason for the VM exit
     fn run(&mut self) -> VmExitReason {
         self.run_with_callback(|| {})
     }
 
-    /// Invalidates caches of the nested paging structures.
+    /// Invalidates nested paging structure caches
+    ///
+    /// This method ensures that changes to page tables are visible to the
+    /// hardware virtualization unit.
     fn invalidate_caches(&mut self);
 
-    /// Gets a flag value to be set to nested paging structure entries for the
-    /// given entry types (eg, permissions).
+    /// Gets flags for nested paging structure entries
+    ///
+    /// # Arguments
+    ///
+    /// * `entry_type` - The type of page table entry
+    ///
+    /// # Returns
+    ///
+    /// The flags to set in the page table entry
     fn nps_entry_flags(
         &self,
         entry_type: NestedPagingStructureEntryType,
     ) -> NestedPagingStructureEntryFlags;
+
+    /// Sets the preemption timer
+    ///
+    /// # Arguments
+    ///
+    /// * `timeout_in_tsc` - Timeout value in TSC cycles
     fn set_preemption_timer(&self, timeout_in_tsc: u64);
 
+    /// Enables tracing of VM execution
     fn enable_tracing(&mut self);
 
+    /// Disables tracing of VM execution
     fn disable_tracing(&mut self);
 
+    /// Returns a reference to the current guest registers
     fn registers(&self) -> &GuestRegisters;
 }
 
 impl EPTPageFaultQualification {
+    /// Parse an EPT page fault qualification from raw values
+    ///
+    /// # Arguments
+    ///
+    /// * `qualification` - Raw qualification bits
+    /// * `rip` - Instruction pointer at time of fault
+    /// * `gpa` - Guest physical address that caused the fault
     fn from(qualification: u64, rip: usize, gpa: usize) -> Self {
         EPTPageFaultQualification {
             data_read: (qualification & (1 << 0)) != 0,
@@ -110,60 +179,60 @@ impl From<u8> for GuestException {
     }
 }
 
-/// Permissions and memory types to be specified for nested paging structure
-/// entries.
+/// Page table entry types for nested paging
+///
+/// This enum defines the different access types of page table entries that can be
+/// created in the nested paging structures, specifying their permissions
+/// and memory types.
 pub enum NestedPagingStructureEntryType {
-    /// None
+    /// No permissions
     None,
-
-    /// Execute
+    /// Execute only
     X,
-
-    /// Read, execute
+    /// Read and execute
     Rx,
-
     /// Read only
     R,
-
-    /// Read write
+    /// Read and write
     Rw,
-
-    /// Readable, writable, executable.
+    /// Read, write, and execute
     Rwx,
-
-    /// Readable, writable, executable, with the write-back memory type.
+    /// Read, write, execute with write-back memory type
     RwxWriteBack,
-
-    /// Readable, NON writable, executable, with the write-back memory type.
+    /// Read and execute with write-back memory type
     RxWriteBack,
 }
 
-/// The values used to initialize [`NestedPagingStructureEntry`].
+/// Flags for nested paging structure entries
+///
+/// This structure contains the permission and memory type flags that are
+/// used to initialize page table entries in the nested paging structures.
 #[derive(Clone, Copy)]
 pub struct NestedPagingStructureEntryFlags {
+    /// Permission bits
     pub permission: u8,
+    /// Memory type bits
     pub memory_type: u8,
 }
 
-/// A single nested paging structure.
+/// A nested paging structure
 ///
-/// This is a extended page table on Intel and a nested page table on AMD. The
-/// details of the layout are not represented in this structure so that it may
-/// be used for any the structures (PML4, PDPT, PD and PT) across platforms.
+/// This structure represents a page table in the nested paging hierarchy
+/// (PML4, PDPT, PD, or PT). It is used for both Intel EPT and AMD NPT.
 #[derive(Clone, Debug)]
 #[repr(C, align(4096))]
 pub struct NestedPagingStructure {
-    /// An array of extended page table entry (8 bytes, 512 entries)
+    /// Array of page table entries
     pub entries: [NestedPagingStructureEntry; PAGE_SIZE_ENTRIES],
 }
 const _: () = assert!(size_of::<NestedPagingStructure>() == 0x1000);
 
 bitfield! {
-    /// Platform independent representation of a nested paging structure entry.
+    /// A nested paging structure entry
     ///
-    /// Because it is platform independent, the layout is not exactly correct.
-    /// For example, bit 5:3 `memory_type` exists only on Intel. On AMD, those are
-    /// other bits and we set zeros.
+    /// This structure represents a single entry in a nested paging structure.
+    /// It is platform-independent, so some bits may have different meanings
+    /// on different architectures.
     /*
          66665 5     1 110000 000 000
          32109 8.....2 109876 543 210
@@ -182,7 +251,11 @@ bitfield! {
 }
 
 impl NestedPagingStructureEntry {
-    /// Returns the next nested paging structures.
+    /// Returns a mutable reference to the next level page table
+    ///
+    /// # Returns
+    ///
+    /// A mutable reference to the next level page table structure
     pub fn next_table_mut(&mut self) -> &mut NestedPagingStructure {
         let next_table_addr = self.pfn() << BASE_PAGE_SHIFT;
         assert!(next_table_addr != 0);
@@ -190,8 +263,12 @@ impl NestedPagingStructureEntry {
         unsafe { next_table_ptr.as_mut() }.unwrap()
     }
 
-    /// Sets the address to the next nested paging structure or final physical
-    /// address with permissions specified by `flags`.
+    /// Sets the translation and flags for this entry
+    ///
+    /// # Arguments
+    ///
+    /// * `pa` - Physical address to translate to
+    /// * `flags` - Permission and memory type flags
     pub fn set_translation(&mut self, pa: u64, flags: NestedPagingStructureEntryFlags) {
         self.set_pfn(pa >> BASE_PAGE_SHIFT);
         self.set_permission(u64::from(flags.permission));
@@ -199,8 +276,16 @@ impl NestedPagingStructureEntry {
     }
 }
 
-/// Returns the segment descriptor casted as a 64bit integer for the given
-/// selector.
+/// Gets the segment descriptor value for a selector
+///
+/// # Arguments
+///
+/// * `table_base` - Base address of the descriptor table
+/// * `selector` - Segment selector
+///
+/// # Returns
+///
+/// The 64-bit segment descriptor value
 fn get_segment_descriptor_value(table_base: u64, selector: u16) -> u64 {
     let sel = x86::segmentation::SegmentSelector::from_raw(selector);
     let descriptor_addr = table_base + u64::from(sel.index() * 8);
@@ -208,7 +293,16 @@ fn get_segment_descriptor_value(table_base: u64, selector: u16) -> u64 {
     unsafe { *ptr }
 }
 
-/// Returns the limit of the given segment.
+/// Gets the segment limit for a selector
+///
+/// # Arguments
+///
+/// * `table_base` - Base address of the descriptor table
+/// * `selector` - Segment selector
+///
+/// # Returns
+///
+/// The segment limit in bytes
 fn get_segment_limit(table_base: u64, selector: u16) -> u32 {
     let sel = x86::segmentation::SegmentSelector::from_raw(selector);
     if sel.index() == 0 && (sel.bits() >> 2) == 0 {

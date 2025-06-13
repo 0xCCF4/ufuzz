@@ -1,4 +1,8 @@
-//! The module containing the [`Vm`] type.
+//! Virtual Machine Management Module
+//!
+//! This module provides the core functionality for managing virtual machines
+//! in the hypervisor. It handles VM creation, memory management through nested
+//! paging, and hardware-assisted virtualization.
 
 use crate::error::HypervisorError;
 use crate::{
@@ -12,32 +16,42 @@ use alloc::boxed::Box;
 use core::ptr::addr_of;
 use log::trace;
 
-/// The representation of a virtual machine, made up of collection of registers,
-/// which is managed through [`HardwareVt`], preallocated
-/// [`NestedPagingStructure`]s to build GPA -> PA translations, and preallocated
-/// dirty [`Page`]s to back GPAs that are modified by the VM.
+/// Represents a virtual machine in the hypervisor
+///
+/// This structure encapsulates all the necessary components to manage a virtual
+/// machine.
 #[derive(derivative::Derivative)]
 #[derivative(Debug)]
 pub struct Vm {
-    /// Encapsulates implementation of hardware assisted virtualization
-    /// technology, which is capable of managing VM's registers and memory.
+    /// Hardware virtualization implementation (VT-x or SVM)
+    ///
+    /// This field encapsulates the implementation of hardware-assisted
+    /// virtualization technology.
     pub vt: Box<dyn HardwareVt>,
 
-    /// The nested PML4. All other nested paging structures are built on the fly
-    /// by consuming [`Vm::nested_paging_structures`].
+    /// The nested PML4 (Page Map Level 4) table
+    ///
+    /// This is the root of the nested paging hierarchy. All other nested paging
+    /// structures are built dynamically at runtime.
     #[derivative(Debug = "ignore")]
     nested_pml4: Box<NestedPagingStructure>,
 
-    /// Preallocated nested paging structures for dynamically building GPA -> PA
-    /// translation.
+    /// Preallocated nested paging structures
+    ///
+    /// A pool of preallocated nested paging structures used for dynamically
+    /// building GPA (Guest Physical Address) to PA (Physical Address) translations.
     #[derivative(Debug = "ignore")]
     nested_paging_structures: Box<[NestedPagingStructure]>,
 
-    /// How many [`Vm::nested_paging_structures`] has been consumed.
+    /// Count of used nested paging structures
+    ///
+    /// Tracks how many structures from `nested_paging_structures` have been
+    /// consumed for building the page tables.
     used_nps_count: usize,
 }
 
 impl Vm {
+    /// Creates a new virtual machine instance
     pub fn new() -> Self {
         // The number of pre-allocated nested paging structures. The more memory the VM
         // accesses, the more tables we need. If the VM attempts to access more
@@ -67,15 +81,23 @@ impl Vm {
         }
     }
 
+    /// Returns the address of the nested PML4 table
     pub(crate) fn nested_pml4_addr(&mut self) -> *mut NestedPagingStructure {
         core::ptr::from_mut(self.nested_pml4.as_mut())
     }
 
-    /// Builds nested paging translation for `gpa` to translate to `pa`.
+    /// Gets the translation entry for a guest physical address
     ///
-    /// This function does so by walking through whole PML4 -> PDPT -> PD -> PT
-    /// as a processor does, and allocating tables and initializing table
-    /// entries as needed.
+    /// This function walks through the nested paging hierarchy (PML4 -> PDPT -> PD -> PT)
+    /// to find or create the appropriate page table entry for the given GPA.
+    ///
+    /// # Arguments
+    ///
+    /// * `gpa` - The guest physical address to translate
+    ///
+    /// # Returns
+    ///
+    /// A mutable reference to the page table entry that will handle the translation, or Err if out of memory.
     pub fn get_translation(
         &mut self,
         gpa: usize,
@@ -135,11 +157,16 @@ impl Vm {
         Ok(pte)
     }
 
-    /// Builds nested paging translation for `gpa` to translate to `pa`.
+    /// Builds a translation mapping for a guest physical address
     ///
-    /// This function does so by walking through whole PML4 -> PDPT -> PD -> PT
-    /// as a processor does, and allocating tables and initializing table
-    /// entries as needed.
+    /// This function creates or updates the page table entries to map a guest
+    /// physical address to a physical address with the specified entry type.
+    ///
+    /// # Arguments
+    ///
+    /// * `gpa` - The guest physical address to map
+    /// * `pa` - The physical address to map to
+    /// * `entry_type` - The type of page table entry to create
     #[allow(clippy::similar_names)]
     pub fn build_translation(
         &mut self,
@@ -156,10 +183,15 @@ impl Vm {
         Ok(())
     }
 
-    /// Locates a nested paging structure entry from `table` using `index`.
+    /// Walks a nested paging structure to find or create an entry
     ///
-    /// This function initializes the entry if it is not yet. `table` must be
-    /// either a nested PML4, PDPT, or PD. Not PT.
+    /// This function handles the creation and initialization of nested paging
+    /// structure entries. If an entry doesn't exist, it allocates a new table
+    /// from the preallocated pool and initializes the entry.
+    ///
+    /// # Returns
+    ///
+    /// A mutable reference to the requested page table entry, or Err if out of memory.
     fn walk_table<'a>(
         &mut self,
         table: &'a mut NestedPagingStructure,
@@ -183,14 +215,22 @@ impl Vm {
         Ok(entry)
     }
 
+    /// Initializes the virtual machine
+    ///
+    /// This function sets up the hardware virtualization environment by
+    /// providing the address of the nested PML4 table to the hardware
+    /// virtualization implementation.
     pub fn initialize(&mut self) -> Result<(), &'static str> {
         let addr = self.nested_pml4_addr() as u64;
         self.vt.initialize(addr)
     }
 }
 
-/// Checks whether the current processor is Intel-processors (as opposed to
-/// AMD).
+/// Checks if the current processor is an Intel processor
+///
+/// This function uses CPUID to determine if the processor is manufactured
+/// by Intel, which affects the choice of hardware virtualization technology
+/// (VT-x for Intel, SVM for AMD).
 fn is_intel() -> bool {
     x86::cpuid::CpuId::new().get_vendor_info().unwrap().as_str() == "GenuineIntel"
 }

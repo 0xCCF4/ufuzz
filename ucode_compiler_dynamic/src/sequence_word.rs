@@ -1,3 +1,8 @@
+//! Sequence Word Module
+//!
+//! This module provides functionality for working with sequence words, which control
+//! the execution flow and synchronization of microcode instructions.
+
 use crate::even_odd_parity_u32;
 use core::fmt::Display;
 use data_types::addresses::{Address, UCInstructionAddress};
@@ -11,29 +16,44 @@ use serde::de::Error as DeError;
 use serde::ser::Error as SerError;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+/// Control operations that can be applied to microcode instructions
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, FromPrimitive)]
 #[allow(non_camel_case_types)] // these are the names
 pub enum SequenceWordControl {
+    /// Return from microcode subroutine
     URET0 = 0x2,
+    /// Return from microcode subroutine
     URET1 = 0x3,
 
+    /// Save current instruction pointer to reg0
     SAVEUPIP0 = 0x4,
+    /// Save current instruction pointer to reg1
     SAVEUPIP1 = 0x5,
 
+    /// Save current instruction pointer with override
     ROVR_SAVEUPIP0 = 0x6,
+    /// Save current instruction pointer with override
     ROVR_SAVEUPIP1 = 0x7,
 
+    /// Unknown behavior?
     WRTAGW = 0x8,
+    /// Unknown behavior? something with loops
     MSLOOP = 0x9,
+    /// Unknown behavior? something with loops
     MSSTOP = 0xB,
 
+    /// End microcode execution, fetch next x86 instruction
     UEND0 = 0xC,
+    /// End microcode execution, raise exception?
     UEND1 = 0xD,
+    /// End microcode execution, unknown behavior
     UEND2 = 0xE,
+    /// End microcode execution, unknown behavior
     UEND3 = 0xF,
 }
 
 impl SequenceWordControl {
+    /// Checks if this control operation is an end operation
     pub fn is_uend(&self) -> bool {
         matches!(
             self,
@@ -44,6 +64,7 @@ impl SequenceWordControl {
         )
     }
 
+    /// Checks if this control operation is a return operation
     pub fn is_uret(&self) -> bool {
         matches!(
             self,
@@ -51,10 +72,12 @@ impl SequenceWordControl {
         )
     }
 
+    /// Checks if this control operation is a terminator (end or return)
     pub fn is_terminator(&self) -> bool {
         self.is_uend() || self.is_uret()
     }
 
+    /// Checks if this control operation is a save instruction pointer operation
     pub fn is_saveupip(&self) -> bool {
         matches!(
             self,
@@ -66,20 +89,35 @@ impl SequenceWordControl {
     }
 }
 
+/// Synchronization operations that can be applied to microcode instructions
+///
+/// # Literature
+///  - <https://doi.org/10.48550/arXiv.2501.12890>
+///  - <https://raw.githubusercontent.com/chip-red-pill/udbgInstr/main/paper/undocumented_x86_insts_for_uarch_control.pdf>
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, FromPrimitive)]
 pub enum SequenceWordSync {
+    /// Wait for until all load/load-like operations in the current frame are completed
     LFNCEWAIT = 0x1,
+    /// Start a new load frame
     LFNCEMARK = 0x2,
+    /// Wait and start new load frame
     LFNCEWTMRK = 0x3,
+    /// Full synchronization, wait until all prior-micro uops executed
     SYNCFULL = 0x4,
+    /// Full synchronization, wait until all prior-micro uops executed inside the current frame
     SYNCWAIT = 0x5,
+    /// Start new synwait frame
     SYNCMARK = 0x6,
+    /// Wait and and start new synwait frame
     SYNCWTMRK = 0x7,
 }
 
+/// A part of a sequence word that applies to a specific instruction
 #[derive(Clone, Debug, Copy, PartialEq, Eq, Hash)]
 pub struct SequenceWordPart<T> {
+    /// The index of the instruction this part applies to (0-2)
     pub apply_to_index: u8,
+    /// The value to apply
     pub value: T,
 }
 
@@ -109,14 +147,17 @@ pub struct SequenceWordPart<T> {
 /// # Open questions
 /// - How does an `eflow` value like URET/UEND behaves when also a jump is scheduled at other indexes?
 ///
-/// # Sources
+/// # Literature
 ///  - https://github.com/chip-red-pill/uCodeDisasm/
 ///  - https://github.com/pietroborrello/CustomProcessingUnit
 ///  - https://libmicro.dev/structure.html#sequence-word
 #[derive(Default, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct SequenceWord {
+    /// Control operation
     control: Option<SequenceWordPart<SequenceWordControl>>,
+    /// Synchronization operation
     sync: Option<SequenceWordPart<SequenceWordSync>>,
+    /// Jump target
     goto: Option<SequenceWordPart<UCInstructionAddress>>,
 }
 
@@ -150,16 +191,28 @@ impl<'de> Deserialize<'de> for SequenceWord {
 }
 
 impl SequenceWord {
+    /// A no-operation sequence word
     pub const NOP: SequenceWord = SequenceWord {
         control: None,
         sync: None,
         goto: None,
     };
 
+    /// Creates a new empty sequence word
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Sets a control operation
+    ///
+    /// # Arguments
+    ///
+    /// * `index` - The index of the instruction (0-2)
+    /// * `control` - The control operation to apply
+    ///
+    /// # Returns
+    ///
+    /// Returns a mutable reference to self for chaining
     pub fn set_control(&mut self, index: u8, control: SequenceWordControl) -> &mut Self {
         assert!(index < 3);
         self.control = Some(SequenceWordPart {
@@ -169,20 +222,50 @@ impl SequenceWord {
         self
     }
 
+    /// Applies a control operation
+    ///
+    /// # Arguments
+    ///
+    /// * `index` - The index of the instruction (0-2)
+    /// * `control` - The control operation to apply
+    ///
+    /// # Returns
+    ///
+    /// Returns self for chaining
     pub fn apply_control(mut self, index: u8, control: SequenceWordControl) -> Self {
         self.set_control(index, control);
         self
     }
 
+    /// Removes any control operation
+    ///
+    /// # Returns
+    ///
+    /// Returns a mutable reference to self for chaining
     pub fn no_control(&mut self) -> &mut Self {
         self.control = None;
         self
     }
 
+    /// Gets the current control operation
+    ///
+    /// # Returns
+    ///
+    /// Returns a reference to the current control operation, if any
     pub fn control(&self) -> &Option<SequenceWordPart<SequenceWordControl>> {
         &self.control
     }
 
+    /// Sets a synchronization operation
+    ///
+    /// # Arguments
+    ///
+    /// * `index` - The index of the instruction (0-2)
+    /// * `sync` - The synchronization operation to apply
+    ///
+    /// # Returns
+    ///
+    /// Returns a mutable reference to self for chaining
     pub fn set_sync(&mut self, index: u8, sync: SequenceWordSync) -> &mut Self {
         assert!(index < 3);
         self.sync = Some(SequenceWordPart {
@@ -192,20 +275,50 @@ impl SequenceWord {
         self
     }
 
+    /// Applies a synchronization operation
+    ///
+    /// # Arguments
+    ///
+    /// * `index` - The index of the instruction (0-2)
+    /// * `sync` - The synchronization operation to apply
+    ///
+    /// # Returns
+    ///
+    /// Returns self for chaining
     pub fn apply_sync(mut self, index: u8, sync: SequenceWordSync) -> Self {
         self.set_sync(index, sync);
         self
     }
 
+    /// Removes any synchronization operation
+    ///
+    /// # Returns
+    ///
+    /// Returns a mutable reference to self for chaining
     pub fn no_sync(&mut self) -> &mut Self {
         self.sync = None;
         self
     }
 
+    /// Gets the current synchronization operation
+    ///
+    /// # Returns
+    ///
+    /// Returns a reference to the current synchronization operation, if any
     pub fn sync(&self) -> &Option<SequenceWordPart<SequenceWordSync>> {
         &self.sync
     }
 
+    /// Sets a jump target
+    ///
+    /// # Arguments
+    ///
+    /// * `index` - The index of the instruction (0-2)
+    /// * `goto` - The target address to jump to
+    ///
+    /// # Returns
+    ///
+    /// Returns a mutable reference to self for chaining
     pub fn set_goto<T: Into<UCInstructionAddress>>(&mut self, index: u8, goto: T) -> &mut Self {
         assert!(index < 3);
         self.goto = Some(SequenceWordPart {
@@ -215,20 +328,45 @@ impl SequenceWord {
         self
     }
 
+    /// Applies a jump target
+    ///
+    /// # Arguments
+    ///
+    /// * `index` - The index of the instruction (0-2)
+    /// * `goto` - The target address to jump to
+    ///
+    /// # Returns
+    ///
+    /// Returns self for chaining
     pub fn apply_goto<T: Into<UCInstructionAddress>>(mut self, index: u8, goto: T) -> Self {
         self.set_goto(index, goto);
         self
     }
 
+    /// Removes any jump target
+    ///
+    /// # Returns
+    ///
+    /// Returns a mutable reference to self for chaining
     pub fn no_goto(&mut self) -> &mut Self {
         self.goto = None;
         self
     }
 
+    /// Gets the current jump target
+    ///
+    /// # Returns
+    ///
+    /// Returns a reference to the current jump target, if any
     pub fn goto(&self) -> &Option<SequenceWordPart<UCInstructionAddress>> {
         &self.goto
     }
 
+    /// Assembles the sequence word without calculating the CRC (same than MSROM)
+    ///
+    /// # Returns
+    ///
+    /// Returns a Result containing the assembled sequence word value if successful
     pub fn assemble_no_crc(&self) -> AssembleResult<u32> {
         if !self.is_valid() {
             return Err(AssembleError::InvalidCombination);
@@ -262,6 +400,11 @@ impl SequenceWord {
             | uop_uidx)
     }
 
+    /// Assembles the sequence word with CRC (for usage in MSRAM)
+    ///
+    /// # Returns
+    ///
+    /// Returns a Result containing the complete assembled sequence word if successful
     pub fn assemble(&self) -> AssembleResult<u32> {
         let seqw = self.assemble_no_crc()?;
         Ok(seqw | even_odd_parity_u32(seqw) << 28)
@@ -269,6 +412,7 @@ impl SequenceWord {
 
     const MASK: u32 = 0x3fffffff;
 
+    /// Checks if the sequence word length is valid
     fn check_length(seqw: u32) -> DisassembleResult<()> {
         if (seqw & !Self::MASK) != 0 {
             Err(DisassembleError::InvalidLength(seqw))
@@ -277,6 +421,7 @@ impl SequenceWord {
         }
     }
 
+    /// Checks if the sequence word CRC is valid
     fn check_crc(seqw: u32) -> DisassembleResult<()> {
         let set_crc = (seqw >> 28) & 0b11;
         let sequence_word = seqw & (Self::MASK >> 2);
@@ -289,12 +434,30 @@ impl SequenceWord {
         }
     }
 
+    /// Disassembles a sequence word value
+    ///
+    /// # Arguments
+    ///
+    /// * `seqw` - The sequence word value to disassemble
+    ///
+    /// # Returns
+    ///
+    /// Returns a Result containing the disassembled sequence word if successful
     pub fn disassemble(seqw: u32) -> DisassembleResult<SequenceWord> {
         Self::check_length(seqw)?;
         Self::check_crc(seqw)?;
         Self::disassemble_no_crc_check(seqw)
     }
 
+    /// Disassembles a sequence word value without checking the CRC
+    ///
+    /// # Arguments
+    ///
+    /// * `seqw` - The sequence word value to disassemble
+    ///
+    /// # Returns
+    ///
+    /// Returns a Result containing the disassembled sequence word if successful
     pub fn disassemble_no_crc_check(seqw: u32) -> DisassembleResult<SequenceWord> {
         Self::check_length(seqw)?;
 
@@ -353,6 +516,11 @@ impl SequenceWord {
         })
     }
 
+    /// Checks if the sequence word is valid
+    ///
+    /// # Returns
+    ///
+    /// Returns true if the sequence word is valid
     pub fn is_valid(&self) -> bool {
         if let Some(control) = self.control() {
             if let Some(goto) = self.goto() {
@@ -366,23 +534,71 @@ impl SequenceWord {
         true
     }
 
+    /// Creates a view of a portion (uop instruction wise) of the sequence word
+    ///
+    /// # Arguments
+    ///
+    /// * `base` - The base index for the view
+    /// * `len` - The length of the view
+    ///
+    /// # Returns
+    ///
+    /// Returns a view of the sequence word
     pub fn view(&self, base: u8, len: u8) -> SequenceWordView<&SequenceWord> {
         SequenceWordView::new(self, base, len)
     }
 
+    /// Creates a mutable view (uop instruction wise) of a portion of the sequence word
+    ///
+    /// # Arguments
+    ///
+    /// * `base` - The base index for the view
+    /// * `len` - The length of the view
+    ///
+    /// # Returns
+    ///
+    /// Returns a mutable view of the sequence word
     pub fn view_mut(&mut self, base: u8, len: u8) -> SequenceWordView<&mut SequenceWord> {
         SequenceWordView::new(self, base, len)
     }
 
+    /// Creates a view of a portion (uop instruction wise) of the sequence word and consumes self
+    ///
+    /// # Arguments
+    ///
+    /// * `base` - The base index for the view
+    /// * `len` - The length of the view
+    ///
+    /// # Returns
+    ///
+    /// Returns a view of the sequence word
     pub fn apply_view(self, base: u8, len: u8) -> SequenceWordView<SequenceWord> {
         SequenceWordView::new(self, base, len)
     }
 
+    /// Shifts the sequence word by a specified amount (uop instruction index wise)
+    ///
+    /// # Arguments
+    ///
+    /// * `amount` - The amount to shift by
+    ///
+    /// # Returns
+    ///
+    /// Returns self for chaining
     pub fn apply_shift(mut self, amount: i8) -> Self {
         self.shift(amount);
         self
     }
 
+    /// Shifts the sequence word by a specified amount (uop instruction index wise)
+    ///
+    /// # Arguments
+    ///
+    /// * `amount` - The amount to shift by
+    ///
+    /// # Returns
+    ///
+    /// Returns a mutable reference to self for chaining
     pub fn shift(&mut self, amount: i8) -> &mut Self {
         if amount == 0 {
             return self;
@@ -436,35 +652,71 @@ impl Display for SequenceWord {
     }
 }
 
+/// Result type for disassembly operations
 pub type DisassembleResult<T> = Result<T, DisassembleError>;
+
+/// Errors that can occur during sequence word disassembly
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum DisassembleError {
+    /// The sequence word length is invalid
     InvalidLength(u32),
+    /// The sequence word CRC is invalid
     InvalidCRC(u32),
+    /// The goto index is invalid
     InvalidGoto(u32, u32),
+    /// The sync index is invalid
     InvalidSync(u32, u32),
+    /// The goto address is invalid
     InvalidGotoAddress(u32),
+    /// The control value is invalid
     InvalidControlValue(u32),
+    /// The control index is invalid
     InvalidControlIndex(u32),
+    /// The sync value is invalid
     InvalidSyncValue(u32),
 }
+
+/// Result type for assembly operations
 pub type AssembleResult<T> = Result<T, AssembleError>;
+
+/// Errors that can occur during sequence word assembly
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum AssembleError {
+    /// The combination of operations is invalid
     InvalidCombination,
 }
 
+/// A view of a portion of a sequence word
 pub struct SequenceWordView<T: Borrow<SequenceWord>> {
+    /// The sequence word being viewed
     word: T,
+    /// The base index for the view
     base: u8,
+    /// The length of the view
     len: u8,
 }
 
 impl<T: Borrow<SequenceWord>> SequenceWordView<T> {
+    /// Creates a new sequence word view
+    ///
+    /// # Arguments
+    ///
+    /// * `word` - The sequence word to view
+    /// * `base` - The base index for the view
+    /// * `len` - The length of the view
     fn new(word: T, base: u8, len: u8) -> Self {
         Self { word, base, len }
     }
 
+    /// Rebases a sequence word part to the view's base
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - The sequence word part to rebase
+    ///
+    /// # Returns
+    ///
+    /// Returns the rebased sequence word part, if any
     fn rebase<V: Copy>(&self, value: &Option<SequenceWordPart<V>>) -> Option<SequenceWordPart<V>> {
         match value {
             Some(control)
@@ -480,24 +732,54 @@ impl<T: Borrow<SequenceWord>> SequenceWordView<T> {
         }
     }
 
+    /// Gets the control operation for this view
+    ///
+    /// # Returns
+    ///
+    /// Returns the control operation, if any
     pub fn control(&self) -> Option<SequenceWordPart<SequenceWordControl>> {
         self.rebase(self.word.borrow().control())
     }
 
+    /// Gets the synchronization operation for this view
+    ///
+    /// # Returns
+    ///
+    /// Returns the synchronization operation, if any
     pub fn sync(&self) -> Option<SequenceWordPart<SequenceWordSync>> {
         self.rebase(self.word.borrow().sync())
     }
 
+    /// Gets the jump target for this view
+    ///
+    /// # Returns
+    ///
+    /// Returns the jump target, if any
     pub fn goto(&self) -> Option<SequenceWordPart<UCInstructionAddress>> {
         self.rebase(self.word.borrow().goto())
     }
 
+    /// Closes the view and returns the underlying sequence word
+    ///
+    /// # Returns
+    ///
+    /// Returns the underlying sequence word
     pub fn close(self) -> T {
         self.word
     }
 }
 
 impl<T: BorrowMut<SequenceWord>> SequenceWordView<T> {
+    /// Sets a control operation for this view
+    ///
+    /// # Arguments
+    ///
+    /// * `index` - The index of the instruction (0-2)
+    /// * `control` - The control operation to apply
+    ///
+    /// # Returns
+    ///
+    /// Returns a mutable reference to self for chaining
     pub fn set_control(&mut self, index: u8, control: SequenceWordControl) -> &mut Self {
         assert!(index < self.len);
         self.word
@@ -506,33 +788,73 @@ impl<T: BorrowMut<SequenceWord>> SequenceWordView<T> {
         self
     }
 
+    /// Removes any control operation from this view
+    ///
+    /// # Returns
+    ///
+    /// Returns a mutable reference to self for chaining
     pub fn no_control(&mut self) -> &mut Self {
         self.word.borrow_mut().no_control();
         self
     }
 
+    /// Sets a synchronization operation for this view
+    ///
+    /// # Arguments
+    ///
+    /// * `index` - The index of the instruction (0-2)
+    /// * `sync` - The synchronization operation to apply
+    ///
+    /// # Returns
+    ///
+    /// Returns a mutable reference to self for chaining
     pub fn set_sync(&mut self, index: u8, sync: SequenceWordSync) -> &mut Self {
         assert!(index < self.len);
         self.word.borrow_mut().set_sync(index + self.base, sync);
         self
     }
 
+    /// Removes any synchronization operation from this view
+    ///
+    /// # Returns
+    ///
+    /// Returns a mutable reference to self for chaining
     pub fn no_sync(&mut self) -> &mut Self {
         self.word.borrow_mut().no_sync();
         self
     }
 
+    /// Sets a jump target for this view
+    ///
+    /// # Arguments
+    ///
+    /// * `index` - The index of the instruction (0-2)
+    /// * `goto` - The target address to jump to
+    ///
+    /// # Returns
+    ///
+    /// Returns a mutable reference to self for chaining
     pub fn set_goto<A: Into<UCInstructionAddress>>(&mut self, index: u8, goto: A) -> &mut Self {
         assert!(index < self.len);
         self.word.borrow_mut().set_goto(index + self.base, goto);
         self
     }
 
+    /// Removes any jump target from this view
+    ///
+    /// # Returns
+    ///
+    /// Returns a mutable reference to self for chaining
     pub fn no_goto(&mut self) -> &mut Self {
         self.word.borrow_mut().no_goto();
         self
     }
 
+    /// Removes any operations that fall outside this view
+    ///
+    /// # Returns
+    ///
+    /// Returns a mutable reference to self for chaining
     pub fn cleanup_outside(&mut self) -> &mut Self {
         if self.control().is_none() {
             self.word.borrow_mut().no_control();
@@ -546,6 +868,11 @@ impl<T: BorrowMut<SequenceWord>> SequenceWordView<T> {
         self
     }
 
+    /// Applies the view's changes and returns the underlying sequence word
+    ///
+    /// # Returns
+    ///
+    /// Returns the underlying sequence word
     pub fn apply(mut self) -> T {
         self.cleanup_outside();
         self.word.borrow_mut().shift(-(self.base as i8));

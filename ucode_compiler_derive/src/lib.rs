@@ -1,4 +1,8 @@
+//! # Ucode Compiler Derive
+//!
+//! A procedural macro provides in rust source microcode compilation
 #![crate_type = "proc-macro"]
+
 extern crate proc_macro;
 use proc_macro::TokenStream;
 use std::path::PathBuf;
@@ -33,6 +37,7 @@ pub fn patch(_item: TokenStream) -> TokenStream {
     result.parse().unwrap()
 }
 
+/// Compiles a microcode assembly file into a rust string
 fn compile(text: &str) -> String {
     let project_dir = PathBuf::from(
         std::env::var("CARGO_MANIFEST_DIR").expect("Failed to get project dir for patch! macro!"),
