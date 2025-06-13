@@ -31,7 +31,6 @@ x86_perf_counter = { path = "../x86_perf_counter" }
 libafl = { version = "0.15.2", features = ["std", "derive"] }
 libafl_bolts = "0.15.2"
 futures = "0.3.31"
-tempfile = "3.19.1"
 
 [[bin]]
 name = "fuzz_master"

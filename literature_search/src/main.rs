@@ -1,11 +1,11 @@
 //! Literature search and management tool
-//! 
+//!
 //! This tool helps manage academic literature by:
 //! - Searching papers using the Semantic Scholar API
 //! - Filtering and categorizing papers
 //! - Managing citations and references
 //! - Exporting to BibTeX format
-//! 
+//!
 //! The tool provides an interactive terminal UI for reviewing papers and
 //! maintains a local database of papers and their metadata.
 

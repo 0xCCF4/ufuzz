@@ -3245,10 +3245,6 @@ rec {
             features = [ "float_roundtrip" ];
           }
           {
-            name = "tempfile";
-            packageId = "tempfile";
-          }
-          {
             name = "tokio";
             packageId = "tokio";
             features = [ "full" ];

@@ -1,15 +1,15 @@
 //! # Coverage Interface
-//! 
+//!
 //! This module provides the interface for interacting with coverage data collection.
 //! It contains both a raw unsafe interface and a safe UEFI-specific interface.
-//! 
+//!
 //! ## Raw Interface
-//! 
+//!
 //! The raw interface provides direct memory access to coverage data structures, while
 //! the user is responsible for managing the memory region.
-//! 
+//!
 //! ## Safe Interface
-//! 
+//!
 //! The safe interface (available with the `uefi` feature) provides memory-safe
 //! operations with proper page allocation and boundary checks.
 
@@ -31,9 +31,9 @@ pub mod raw {
 
     impl<'a> ComInterface<'a> {
         /// Creates a new raw interface with the given description
-        /// 
+        ///
         /// # Safety
-        /// 
+        ///
         /// The caller must ensure that:
         /// - The base address in the description is valid
         /// - The memory region is properly allocated
@@ -59,9 +59,9 @@ pub mod raw {
         }
 
         /// Reads the entire jump table
-        /// 
+        ///
         /// # Safety
-        /// 
+        ///
         /// The caller must ensure that the memory region is valid and not being modified
         #[allow(unused)]
         pub unsafe fn read_jump_table(&self) -> &[JumpTableEntry] {
@@ -72,9 +72,9 @@ pub mod raw {
         }
 
         /// Writes a value to the jump table at the specified index
-        /// 
+        ///
         /// # Safety
-        /// 
+        ///
         /// The caller must ensure that the memory region is valid and not being read
         pub unsafe fn write_jump_table<P: Into<UCInstructionAddress>>(
             &mut self,
@@ -91,9 +91,9 @@ pub mod raw {
         }
 
         /// Writes multiple values to the jump table
-        /// 
+        ///
         /// # Safety
-        /// 
+        ///
         /// The caller must ensure that the memory region is valid and not being read
         pub unsafe fn write_jump_table_all<
             P: Into<UCInstructionAddress>,
@@ -108,9 +108,9 @@ pub mod raw {
         }
 
         /// Zeros out the entire jump table
-        /// 
+        ///
         /// # Safety
-        /// 
+        ///
         /// The caller must ensure that the memory region is valid and not being read
         pub unsafe fn zero_jump_table(&mut self) {
             for i in 0..self.description.max_number_of_hooks {
@@ -126,9 +126,9 @@ pub mod raw {
         }
 
         /// Reads a coverage entry at the specified index
-        /// 
+        ///
         /// # Safety
-        /// 
+        ///
         /// The caller must ensure that the memory region is valid and not being modified
         pub unsafe fn read_coverage_table(&self, index: usize) -> CoverageEntry {
             if index >= self.description.max_number_of_hooks {
@@ -139,9 +139,9 @@ pub mod raw {
         }
 
         /// Writes a coverage entry at the specified index
-        /// 
+        ///
         /// # Safety
-        /// 
+        ///
         /// The caller must ensure that the memory region is valid and not being read
         pub unsafe fn write_coverage_table(&mut self, index: usize, value: CoverageEntry) {
             if index >= self.description.max_number_of_hooks {
@@ -152,9 +152,9 @@ pub mod raw {
         }
 
         /// Resets all coverage entries to their default values
-        /// 
+        ///
         /// # Safety
-        /// 
+        ///
         /// The caller must ensure that the memory region is valid and not being read
         pub unsafe fn reset_coverage(&mut self) {
             for index in 0..self.description.max_number_of_hooks * 2 {
@@ -229,7 +229,7 @@ pub mod safe {
     use uefi::data_types::PhysicalAddress;
 
     /// A safe interface for coverage data collection in UEFI environments
-    /// 
+    ///
     /// This interface provides memory-safe operations by managing page allocations
     /// and ensuring proper memory boundaries.
     pub struct ComInterface<'a> {
@@ -243,9 +243,9 @@ pub mod safe {
 
     impl<'a> ComInterface<'a> {
         /// Creates a new safe interface with proper page allocation
-        /// 
+        ///
         /// # Errors
-        /// 
+        ///
         /// Returns an error if:
         /// - The base address is invalid (zero)
         /// - The memory layout has overlapping regions

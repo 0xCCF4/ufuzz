@@ -117,6 +117,8 @@ in
 
       services.openssh.enable = true;
 
+      programs.nix-ld.enable = true;
+
       users = {
         mutableUsers = false;
         users."${user}" = {

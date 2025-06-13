@@ -11,11 +11,11 @@ use ucode_compiler_dynamic::sequence_word::{
 use ucode_compiler_dynamic::Triad;
 use ucode_dump::RomDump;
 
-/// Settings for controlling microcode modifications
-/// 
-/// These flags control what types of instructions and sequence words can be modified
-/// for coverage collection.
 bitflags::bitflags! {
+    /// Settings for controlling microcode modifications
+    ///
+    /// These flags control what types of instructions and sequence words can be modified
+    /// for coverage collection.
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
     pub struct ModificationEngineSettings: u64 {
         /// Disallow modification of GOTO instructions
@@ -79,15 +79,15 @@ pub enum NotHookableReason {
 }
 
 /// Checks if an address can be hooked for coverage collection
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `address` - The address to check
 /// * `rom` - Reference to the ROM dump
 /// * `mode` - Modification engine settings
-/// 
+///
 /// # Returns
-/// 
+///
 /// Ok(()) if the address can be hooked, or a NotHookableReason if it cannot
 pub fn is_hookable(
     address: UCInstructionAddress,
@@ -220,15 +220,15 @@ pub fn is_hookable(
 }
 
 /// Modifies a triad to put it into the microcode after calling instrumentation
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `address` - The address to modify
 /// * `rom` - Reference to the ROM dump
 /// * `mode` - Modification engine settings
-/// 
+///
 /// # Returns
-/// 
+///
 /// The modified triad if successful, or a NotHookableReason if modification fails
 pub fn modify_triad_for_hooking(
     address: UCInstructionAddress,

@@ -11,7 +11,7 @@ use itertools::Itertools;
 use ucode_dump::RomDump;
 
 /// Iterator over hookable microcode addresses
-/// 
+///
 /// This structure manages a list of addresses that can be hooked for coverage collection,
 /// ensuring proper spacing between hooks.
 #[derive(Debug, Clone)]
@@ -24,16 +24,16 @@ pub struct HookableAddressIterator {
 
 impl HookableAddressIterator {
     /// Constructs a new iterator over hookable addresses
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `rom` - Reference to the ROM dump
     /// * `modification_engine_settings` - Settings for the modification engine
     /// * `chunk_size` - Size of chunks for hook grouping
     /// * `filter` - Additional filter function for addresses
-    /// 
+    ///
     /// # Returns
-    /// 
+    ///
     /// A new iterator instance
     pub fn construct<F: Fn(UCInstructionAddress) -> bool>(
         rom: &RomDump,

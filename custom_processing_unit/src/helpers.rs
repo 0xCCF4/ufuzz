@@ -1,5 +1,5 @@
 //! Helper functions and types for microcode operations
-//! 
+//!
 //! This module provides low-level functionality for:
 //! - CPU instruction execution
 //! - Memory barriers and fences
@@ -111,14 +111,14 @@ fn barrier() {
 }
 
 /// Reads from the microcode debug interface
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `command` - The debug command to execute
 /// * `address` - The address to read from
-/// 
+///
 /// # Returns
-/// 
+///
 /// The value read from the debug interface
 ///
 /// # Literature
@@ -159,9 +159,9 @@ fn udebug_read(command: usize, address: usize) -> usize {
 }
 
 /// Writes to the microcode debug interface
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `command` - The debug command to execute
 /// * `address` - The address to write to
 /// * `value` - The value to write
@@ -204,9 +204,9 @@ fn udebug_write(command: usize, address: usize, value: usize) {
 }
 
 /// Invokes a microcode function and returns its results
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `address` - The address of the function to invoke
 /// * `res_a` - Mutable reference to store RAX result
 /// * `res_b` - Mutable reference to store RBX result
@@ -258,9 +258,9 @@ pub fn udebug_invoke(
 }
 
 /// Writes to a Model Specific Register (MSR)
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `msr` - The MSR number to write to
 /// * `value` - The value to write
 #[inline(always)]
@@ -415,14 +415,14 @@ pub struct FunctionResult {
 }
 
 /// Calls a custom microcode function
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `func_address` - Address of the function to call
 /// * `args` - Array of 3 arguments to pass to the function
-/// 
+///
 /// # Returns
-/// 
+///
 /// The function's result in the [`FunctionResult`] struct
 pub fn call_custom_ucode_function(
     func_address: UCInstructionAddress,
@@ -594,14 +594,14 @@ pub enum PatchError {
 }
 
 /// Applies a microcode patch at the specified address
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `addr` - The address to apply the patch at
 /// * `ucode_patch` - The patch data to apply
-/// 
+///
 /// # Returns
-/// 
+///
 /// - `Ok(())` if the patch was applied successfully
 /// - `Err(PatchError)` if the patch could not be applied
 pub fn patch_ucode<A: Into<UCInstructionAddress>>(
@@ -637,9 +637,9 @@ pub fn patch_ucode<A: Into<UCInstructionAddress>>(
 }
 
 /// Reads a patch from the specified address
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `ucode_read_function` - Function to use for reading
 /// * `addr` - Address to read from
 /// * `ucode_patch` - Buffer to store the read patch
@@ -663,15 +663,15 @@ pub fn read_patch(
 }
 
 /// Calculates the value for a hook
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `to_hook_ucode_addr` - Address to hook
 /// * `redirect_to_addr` - Address to redirect to
 /// * `enabled` - Whether the hook should be enabled
-/// 
+///
 /// # Returns
-/// 
+///
 /// - `Ok(usize)` with the calculated hook value
 /// - `Err(Error)` if the calculation fails
 pub fn calculate_hook_value(
@@ -699,17 +699,17 @@ pub fn calculate_hook_value(
 }
 
 /// Sets up a hook in the microcode
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `apply_hook_func` - Function to use for applying the hook
 /// * `hook_idx` - Index of the hook to set up
 /// * `to_hook_ucode_addr` - Address to hook
 /// * `redirect_to_addr` - Address to redirect to
 /// * `enabled` - Whether the hook should be enabled
-/// 
+///
 /// # Returns
-/// 
+///
 /// - `Ok(())` if the hook was set up successfully
 /// - `Err(Error)` if the hook setup fails
 pub fn hook<A: Into<UCInstructionAddress>, B: Into<UCInstructionAddress>>(

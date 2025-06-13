@@ -1,5 +1,5 @@
 //! Genetic algorithm implementation for fuzzing
-//! 
+//!
 //! This module provides types and functionality for running a genetic algorithm
 //! to evolve and optimize fuzzing samples.
 

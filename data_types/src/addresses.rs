@@ -1,14 +1,14 @@
 //! Types for representing and manipulating microcode addresses
-//! 
+//!
 //! This module provides types for working with various kinds of addresses used in
 //! microcode operations:
-//! 
+//!
 //! - Linear addresses: Simple sequential addresses
 //! - Instruction addresses: Addresses in the microcode instruction space
 //! - MSRAM addresses: Addresses in the microcode RAM
 //! - MSROM addresses: Addresses in the microcode ROM
 //! - Hook addresses: Addresses for microcode hooks
-//! 
+//!
 //! Each address type implements common traits for arithmetic operations and
 //! conversions between different address spaces.
 
@@ -29,7 +29,7 @@ pub trait Address:
 pub trait MSRAMAddress: Address {}
 
 /// A linear address, starting at 0 and counting up by 1 for each unit.
-/// 
+///
 /// This is the simplest form of address, used as a base for other address types.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct LinearAddress(usize);
@@ -121,7 +121,7 @@ impl From<&LinearAddress> for LinearAddress {
 }
 
 /// An address in the microcode instruction space
-/// 
+///
 /// - Microcode instruction RAM starts at 0x7c00
 /// - Microcode ROM starts at 0x0000
 /// - Each instruction is 1 unit apart
@@ -137,9 +137,9 @@ impl Address for UCInstructionAddress {
 
 impl UCInstructionAddress {
     /// Creates a new instruction address from a constant value
-    /// 
+    ///
     /// # Panics
-    /// 
+    ///
     /// Panics if the address is out of bounds (>= 0x7c00 + 4 * 128)
     #[track_caller]
     pub const fn from_const(value: usize) -> Self {
@@ -157,11 +157,11 @@ impl UCInstructionAddress {
     }
 
     /// Returns the instruction address for a given offset
-    /// 
+    ///
     /// Offsets are [0,1,2,3,...] mapping to addresses self+[0,1,2, 4,5,6, 8,9,a]
-    /// 
+    ///
     /// # Panics
-    /// 
+    ///
     /// Panics if the origin address is not a multiple of 4
     #[track_caller]
     pub fn patch_offset(&self, offset: usize) -> UCInstructionAddress {
@@ -177,7 +177,7 @@ impl UCInstructionAddress {
     }
 
     /// Returns the next valid instruction address
-    /// 
+    ///
     /// Sequence: [7c00, 7c01, 7c02, 7c04, 7c05, ...]
     /// Skips each fourth address (where addr % 4 == 3)
     pub fn next_address(&self) -> Self {
@@ -351,9 +351,9 @@ impl Address for MSRAMInstructionPartWriteAddress {
 
 impl MSRAMInstructionPartWriteAddress {
     /// Creates a new write address from a constant value
-    /// 
+    ///
     /// # Panics
-    /// 
+    ///
     /// Panics if the address is out of bounds (>= 128 * 3)
     #[track_caller]
     pub const fn from_const(value: usize) -> Self {
@@ -443,9 +443,9 @@ impl Address for MSRAMInstructionPartReadAddress {
 
 impl MSRAMInstructionPartReadAddress {
     /// Creates a new read address from a constant value
-    /// 
+    ///
     /// # Panics
-    /// 
+    ///
     /// Panics if the address is out of bounds (>= 128 * 3)
     #[track_caller]
     pub const fn from_const(value: usize) -> Self {
@@ -524,9 +524,9 @@ impl Address for MSRAMSequenceWordAddress {
 
 impl MSRAMSequenceWordAddress {
     /// Creates a new sequence word address from a constant value
-    /// 
+    ///
     /// # Panics
-    /// 
+    ///
     /// Panics if the address is out of bounds (>= 128)
     #[track_caller]
     pub const fn from_const(value: usize) -> Self {
@@ -613,9 +613,9 @@ impl Address for MSRAMHookIndex {
 
 impl MSRAMHookIndex {
     /// Creates a new hook index from a constant value
-    /// 
+    ///
     /// # Panics
-    /// 
+    ///
     /// Panics if the index is out of bounds (>= 32)
     #[track_caller]
     pub const fn from_const(value: usize) -> Self {

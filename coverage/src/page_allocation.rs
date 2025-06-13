@@ -8,7 +8,7 @@ use uefi::boot::{AllocateType, MemoryType};
 use uefi::data_types::PhysicalAddress;
 
 /// Represents an allocated block of memory pages in UEFI
-/// 
+///
 /// This structure manages the lifecycle of allocated pages, automatically
 /// freeing them when dropped.
 pub struct PageAllocation {
@@ -26,14 +26,14 @@ impl Drop for PageAllocation {
 
 impl PageAllocation {
     /// Allocates pages at a specific physical address
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `address` - Physical address where pages should be allocated
     /// * `count` - Number of pages to allocate
-    /// 
+    ///
     /// # Returns
-    /// 
+    ///
     /// A Result containing the page allocation or a UEFI error
     pub fn alloc_address(address: PhysicalAddress, count: usize) -> uefi::Result<PageAllocation> {
         let data = uefi::boot::allocate_pages(
@@ -45,13 +45,13 @@ impl PageAllocation {
     }
 
     /// Allocates pages at any available address
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `count` - Number of pages to allocate
-    /// 
+    ///
     /// # Returns
-    /// 
+    ///
     /// A Result containing the page allocation or a UEFI error
     pub fn alloc(count: usize) -> uefi::Result<PageAllocation> {
         let data =

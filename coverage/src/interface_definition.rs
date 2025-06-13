@@ -5,7 +5,7 @@ use core::mem::align_of;
 use core::mem::size_of;
 
 /// Describes the communication interface layout and configuration
-/// 
+///
 /// This structure defines the memory layout for coverage data collection,
 /// including table offsets and size limits.
 #[allow(dead_code)]
@@ -26,9 +26,9 @@ pub struct ComInterfaceDescription {
 
 impl ComInterfaceDescription {
     /// Calculates total memory usage in bytes
-    /// 
+    ///
     /// # Returns
-    /// 
+    ///
     /// Total size of all tables and data structures
     #[allow(dead_code)] // todo: maybe cargo error, since it is actually used, investigate and if valid, report to cargo
     pub const fn memory_usage(&self) -> usize {
@@ -92,7 +92,7 @@ impl ComInterfaceDescription {
 }
 
 /// Maximum number of hooks that can be installed
-/// 
+///
 /// This sets an upper limit on coverage collection capacity.
 const MAX_NUMBER_OF_HOOKS: usize = 1; // todo: change back to higher value
 
@@ -100,7 +100,7 @@ const MAX_NUMBER_OF_HOOKS: usize = 1; // todo: change back to higher value
 pub type CoverageCount = u16;
 
 /// Entry in the coverage results table
-/// 
+///
 /// Contains two counters since collection is done in pairs.
 pub type CoverageEntry = [CoverageCount; 2];
 
@@ -108,7 +108,7 @@ pub type CoverageEntry = [CoverageCount; 2];
 pub const COVERAGE_RESULT_TABLE_BYTE_SIZE: usize = size_of::<CoverageEntry>() * MAX_NUMBER_OF_HOOKS;
 
 /// Entry in the jump table
-/// 
+///
 /// Stores addresses for hook return points.
 pub type JumpTableEntry = u16;
 
@@ -116,7 +116,7 @@ pub type JumpTableEntry = u16;
 pub const JUMP_TABLE_BYTE_SIZE: usize = size_of::<JumpTableEntry>() * MAX_NUMBER_OF_HOOKS;
 
 /// Entry in the instruction table
-/// 
+///
 /// Stores instruction triads overwritten by hooks. Two triads per hook.
 pub type InstructionTableEntry = [[u64; 4]; 2];
 
@@ -125,7 +125,7 @@ pub const INSTRUCTION_TABLE_BYTE_SIZE: usize =
     size_of::<InstructionTableEntry>() * MAX_NUMBER_OF_HOOKS;
 
 /// Entry in the last RIP table
-/// 
+///
 /// Stores the last instruction pointer values for each hook.
 pub type LastRIPEntry = [u64; 2];
 
@@ -189,14 +189,14 @@ pub const COM_INTERFACE_DESCRIPTION: ComInterfaceDescription = ComInterfaceDescr
 };
 
 /// Calculates alignment correction for a value (pow2)
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `to` - Alignment requirement (power of 2)
 /// * `value` - Value to align
-/// 
+///
 /// # Returns
-/// 
+///
 /// Number of bytes needed to align the value
 const fn align_correction(to: usize, value: usize) -> usize {
     let mask: usize = 2 << to;
@@ -204,14 +204,14 @@ const fn align_correction(to: usize, value: usize) -> usize {
 }
 
 /// Aligns a value to a specified boundary (pow2)
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `to` - Alignment requirement (power of 2)
 /// * `value` - Value to align
-/// 
+///
 /// # Returns
-/// 
+///
 /// Aligned value
 const fn align(to: usize, value: usize) -> usize {
     value + align_correction(to, value)

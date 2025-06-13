@@ -1,14 +1,14 @@
 //! # Data Types for Microcode Operations
-//! 
+//!
 //! This crate provides fundamental data types for working with processor microcode.
 //! It supports both standard and no_std environments through feature flags.
-//! 
+//!
 //! ## Features
-//! 
+//!
 //! - `nostd`: Enables no_std compatibility
-//! 
+//!
 //! ## Modules
-//! 
+//!
 //! - [`addresses`]: Types for representing and manipulating various microcode addresses
 //! - [`patch`]: Types for representing microcode patches and triads
 #![cfg_attr(feature = "nostd", no_std)]

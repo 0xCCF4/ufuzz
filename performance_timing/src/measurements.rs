@@ -1,5 +1,5 @@
 //! Performance measurement management
-//! 
+//!
 //! This module provides types and functionality for managing performance
 //! measurements.
 

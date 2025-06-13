@@ -6,30 +6,27 @@ use crate::{guarantee_initial_state, power_on, CommandExitResult};
 use fuzzer_data::instruction_corpus::CorpusInstruction;
 use fuzzer_data::{Code, ExecutionResult, OtaC2DTransport, ReportExecutionProblem};
 use hypervisor::state::VmExitReason;
-use itertools::Itertools;
 use libafl::corpus::{CachedOnDiskCorpus, OnDiskCorpus};
 use libafl::events::{SendExiting, SimpleEventManager};
 use libafl::executors::{Executor, ExitKind, HasObservers};
 use libafl::feedbacks::{CrashFeedback, MaxMapFeedback};
-use libafl::generators::{RandBytesGenerator, RandPrintablesGenerator};
-use libafl::inputs::HasTargetBytes;
+use libafl::generators::{Generator, RandBytesGenerator, RandPrintablesGenerator};
+use libafl::inputs::{BytesInput, HasTargetBytes};
 use libafl::monitors::SimpleMonitor;
 use libafl::mutators::{havoc_mutations, HavocScheduledMutator};
 use libafl::observers::{MapObserver, Observer, ObserversTuple};
 use libafl::schedulers::QueueScheduler;
 use libafl::stages::StdMutationalStage;
-use libafl::state::{HasExecutions, StdState};
+use libafl::state::{HasExecutions, HasRand, StdState};
 use libafl::{Fuzzer, StdFuzzer};
-use libafl_bolts::rands::StdRand;
+use libafl_bolts::rands::{Rand, StdRand};
 use libafl_bolts::tuples::{tuple_list, HasConstLen, RefIndexable};
 use libafl_bolts::{nonzero, ErrorBacktrace, HasLen, Named};
 use log::{error, info, warn};
-use rand::random;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::hash::Hash;
-use std::io::Write;
 use std::marker::PhantomData;
 use std::mem::transmute;
 use std::ops::Deref;
@@ -81,7 +78,7 @@ where
             last_reported_exclusion: None,
             seed,
             timeout_at: timeout_hours
-                .map(|x| Instant::now() + Duration::from_secs((x as u64 * 60) as u64)),
+                .map(|x| Instant::now() + Duration::from_secs((x as u64) *60*60)),
         }
     }
 }
@@ -535,6 +532,33 @@ impl AsMut<Self> for DifferenceObserver {
     }
 }
 
+struct CorpusGenerator {
+    corpus: Vec<CorpusInstruction>,
+}
+
+impl CorpusGenerator {
+    pub fn new(corpus: Vec<CorpusInstruction>) -> Self {
+        CorpusGenerator { corpus }
+    }
+}
+
+impl<S> Generator<BytesInput, S> for CorpusGenerator
+where
+    S: HasRand,
+{
+    fn generate(&mut self, state: &mut S) -> Result<BytesInput, libafl::Error> {
+        let mut code = Vec::new();
+        while code.len() < 32 {
+            let instruction = self
+                .corpus
+                .get(state.rand_mut().between(0, self.corpus.len() - 1))
+                .expect("couldn't get instruction");
+            code.extend_from_slice(&instruction.bytes);
+        }
+        Ok(BytesInput::new(code))
+    }
+}
+
 pub async fn afl_main(
     udp: &mut DeviceConnection,
     interface: &Arc<FuzzerNodeInterface>,
@@ -547,28 +571,7 @@ pub async fn afl_main(
     seed: u64,
     printable_input_generation: bool,
 ) {
-    let initial_corpus_files = initial_corpus.map(|instructions| {
-        let mut population = Vec::with_capacity(8);
-        for _ in 0..32 {
-            let mut code = Vec::new();
-            while code.len() < 32 {
-                let instruction = instructions
-                    .get(random::<u32>() as usize % instructions.len())
-                    .expect("should always be inbound");
-                code.extend_from_slice(&instruction.bytes);
-            }
-
-            let tmp_file = tempfile::NamedTempFile::new().expect("failed to create tmp file");
-
-            std::fs::File::create(&tmp_file)
-                .expect("Failed to create temporary file for initial corpus")
-                .write_all(&code)
-                .expect("Failed to write initial corpus code to temporary file");
-
-            population.push(tmp_file);
-        }
-        population
-    });
+    let initial_corpus_gen = initial_corpus.map(|instructions| CorpusGenerator::new(instructions));
 
     let udp_unsafe_ref =
         unsafe { transmute::<&mut DeviceConnection, &'static mut DeviceConnection>(udp) };
@@ -628,20 +631,10 @@ pub async fn afl_main(
                 timeout_hours,
             );
 
-            if let Some(initial) = initial_corpus_files {
+            if let Some(mut initial) = initial_corpus_gen {
                 state
-                    .load_initial_inputs(
-                        &mut fuzzer,
-                        &mut executor,
-                        &mut mgr,
-                        initial
-                            .iter()
-                            .map(|x| x.path().to_path_buf())
-                            .collect_vec()
-                            .as_slice(),
-                    )
-                    .expect("Failed to load initial corpus from files");
-                drop(initial);
+                    .generate_initial_inputs(&mut fuzzer, &mut executor, &mut initial, &mut mgr, 8)
+                    .expect("couldn't generate initial corpus");
             } else {
                 if printable_input_generation {
                     state
@@ -702,20 +695,10 @@ pub async fn afl_main(
                 timeout_hours,
             );
 
-            if let Some(initial) = initial_corpus_files {
+            if let Some(mut initial) = initial_corpus_gen {
                 state
-                    .load_initial_inputs(
-                        &mut fuzzer,
-                        &mut executor,
-                        &mut mgr,
-                        initial
-                            .iter()
-                            .map(|x| x.path().to_path_buf())
-                            .collect_vec()
-                            .as_slice(),
-                    )
-                    .expect("Failed to load initial corpus from files");
-                drop(initial);
+                    .generate_initial_inputs(&mut fuzzer, &mut executor, &mut initial, &mut mgr, 8)
+                    .expect("couldn't generate initial corpus");
             } else {
                 if printable_input_generation {
                     state

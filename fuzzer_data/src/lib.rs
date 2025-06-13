@@ -1,14 +1,14 @@
 //! # Fuzzer Data Types
-//! 
+//!
 //! This crate provides shared data types, used by both the fuzzer agent and the fuzzer controller.
 //! It includes support for:
-//! 
+//!
 //! - Genetic algorithm-based fuzzing
 //! - Instruction corpus management
 //! - Over-the-air (OTA) communication protocols
 //! - Execution result tracking
 //! - Performance measurements
-//! 
+//!
 //! The crate is designed to work in a no_std environment and uses serialization
 //! for communication between components.
 #![no_std]

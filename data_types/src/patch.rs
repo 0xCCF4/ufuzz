@@ -1,5 +1,5 @@
 //! Types for representing microcode patches
-//! 
+//!
 //! This module provides types for working with microcode patches, including:
 //! - Patch entries (triads of instructions)
 //! - Patch blobs (collections of patch entries)

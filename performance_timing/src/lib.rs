@@ -1,5 +1,5 @@
 //! # Performance Timing
-//! 
+//!
 //! This crate provides tools for measuring and analyzing performance timing
 //! in both std and no_std environments using the `rdtsc` instruction.
 #![cfg_attr(all(not(test), not(target_arch = "aarch64")), no_std)]

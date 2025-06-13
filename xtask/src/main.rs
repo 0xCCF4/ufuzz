@@ -597,6 +597,7 @@ fn main_generate_doc() {
     }
 
     if !cmd(None, false)
+        .env("RUSTDOCFLAGS", "--enable-index-page -Zunstable-options")
         .args(["-p", "xtask"])
         .current_dir(&project_root)
         .status()
