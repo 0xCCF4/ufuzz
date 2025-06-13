@@ -3,14 +3,14 @@ A x86 CPU fuzzer utilizing microcode coverage
 
 ## Overview
 uFuzz is a CPU fuzzer that leverage custom microcode updates for x86 Intel
-CPUs to extract microcode coverage information at runtime. For more details
+CPUs to extract e.g. microcode coverage information at runtime. For more details
 see the [paper](xxx).
 
 ## Structure
 uFuzz consists of three different systems:
-1. The fuzzer device: This is the target device that runs the fuzzer. We used the [Gigabyte Brix (GB-BPCE-3350C-BWUP)](https://www.gigabyte.com/de/Mini-PcBarebone/GB-BPCE-3350C-rev-10) with an Intel Apollo Lake (Celeron, Goldmont) N3350 processor (`CPUID[1].EAX=0x506ca`) ; vulnerable to the Red-unlock vulnerability.
-2. A fuzzer instrumentor: This is a device that emulates an USB storage (for serving the UEFI app) and USB keyboard for skipping the BIOS screen automatically and controls the power supply of the fuzzer device. (Raspberry Pi 4)
-3. The fuzzer master: The main fuzzing loop runs here, tasks are scheduled on the fuzzer device for execution. (Raspberry Pi 4)
+1. The fuzzer agent: This is the target device that runs the fuzzer. We used the [Gigabyte Brix (GB-BPCE-3350C-BWUP)](https://www.gigabyte.com/de/Mini-PcBarebone/GB-BPCE-3350C-rev-10) with an Intel Apollo Lake (Celeron, Goldmont) N3350 processor (`CPUID[1].EAX=0x506ca`) ; vulnerable to the Red-unlock vulnerability.
+2. A fuzzer watchdog: This is a device that emulates an USB storage (for serving the UEFI app) and USB keyboard for skipping the BIOS screen automatically and controls the power supply of the fuzzer device. (Raspberry Pi 4)
+3. The fuzzer controller: The main fuzzing loop runs here, tasks are scheduled on the fuzzer device for execution. (Raspberry Pi 4)
 
 ## Project structure
 The uFuzz project is structured as follows:
@@ -22,16 +22,17 @@ Component       | Description
 [`custom_processing_unit`](custom_processing_unit/) | Contains utility function derived from [CustomProcessingUnit](https://github.com/pietroborrello/CustomProcessingUnit).
 [`data_types`](data_types/) | Contains shared data types for writing custom microcode updates.
 [`fuzzer_data`](fuzzer_data/) | Contains shared data between the fuzzer instance and fuzzer master controller.
-[`fuzzer_device`](fuzzer_device/) | Contains the implementation of uFuzz, which runs on the target device/CPU.
-[`fuzzer_master`](fuzzer_master/) | Contains the implementation of the fuzzer master that controls a fuzzer device.
-[`fuzzer_node`](fuzzer_node/) | Contains the implementation of the fuzzer device instrumentor - emulating USB devices for the fuzzer device.
+[`fuzzer_device`](fuzzer_device/) | Contains the implementation of the fuzzing agent, which runs on the target device/CPU.
+[`fuzzer_master`](fuzzer_master/) | Contains the implementation of the fuzzer controler that controls a fuzzer agent.
+[`fuzzer_node`](fuzzer_node/) | Contains the implementation of the fuzzer device watchdog - emulating USB devices for the fuzzer device.
 [`hypervisor`](hypervisor/) | Contains the implementation of the hypervisor environment.
 [`literature_search`](literature_search/) | Contains the tool to search connected/related works by paper connections.
 [`nix`](nix/) | Contains the definition of system of the fuzzer master and fuzzer instrumentor.
 [`performance_timing`](performance_timing/) | Contains the tools to collect timing information from the fuzzer device,
 [`performance_timing_macros`](performance_timing_macros/) | Contains utility macros to automate timing collection from target functions.
 [`spec_fuzz`](spec_fuzz/) | Contains the implementation of the speculative micrcode fuzzer.
-[`speculation`](speculation_x86/) | Contains some test scenarios to check speculative execution behavior.
+[`speculation_x86`](speculation_x86/) | Contains some test scenarios to check speculative execution behavior.
+[`speculation_ucode`](speculation_ucode/) | Contains some test scenarios to check speculative execution behavior.
 [`ucode_compiler_bridge`](ucode_compiler_bridge/) | Contains a bridge implementation to interface with the microcode compiler from [CustomProcessingUnit](https://github.com/pietroborrello/CustomProcessingUnit) and preprocessor macros for deriving multi file microcode updates.
 [`ucode_compiler_derive`](ucode_compiler_derive/)| Contains utility macros to automate the generation of microcode updates.
 [`ucode_compiler_dynamic`](ucode_compiler_dynamic/) | Contains runtime mircocode update compilation.
@@ -44,31 +45,31 @@ Component       | Description
 Download [CustomProcessingUnit](https://github.com/pietroborrello/CustomProcessingUnit) and 1. place it into the parent directory of this folder or 2. set the env var `UASM` to the
 `uasm.py` file from CustomProcessingUnit. The uFuzz project uses the `uasm.py` script to compile microcode updates.
 
-Then apply the following git-patch for `uasm.py`: [uasm.py.patch](ucode_compiler_bridge/uasm.py.patch).
+Then apply the following git-patch to `uasm.py`: [uasm.py.patch](ucode_compiler_bridge/uasm.py.patch).
 
-To deploy the fuzzer instrumentor and fuzzer master, you will need `nix` installed.
-Go into the [`nix`}(nix/) directory, change the public ssh keys, IPs etc., then, change IP within the [`fuzzer_master`](fuzzer_master/) project,
+To deploy the fuzzer watchdog and fuzzer master, you will need `nix` installed.
+Go into the [`nix`}(nix/) directory, change the public ssh keys, IPs etc., then, change IP settings within the [`fuzzer_master`](fuzzer_master/src/main.rs) project,
 and run the following command (`|& nom` is optional):
 ```bash
 nix build .#images.master |& nom
 nix build .#images.node |& nom
 ```
-This builds SD card images for the fuzzer master and fuzzer instrumentor. After initial setup,
+This builds SD card images for the fuzzer master and fuzzer watchdog. After initial setup,
 further changes may be deployed using (deploy-rs) by running in the `nix` directory (`|& nom` is optional):
 ```bash
 nix run |& nom
 ```
 
-To built and deploy the fuzzer device UEFI app, first, change the IP settings, then; fuzzer instrumentor must be running, then
+To built and deploy the fuzzer device UEFI app, first, change the IP settings [`spec_fuzz`](spec_fuzz/src/controller_connection.rs)/[`fuzzer_device`](fuzzer_device/src/controller_connection.rs),
+then; fuzzer watchdog must be running, then
 compile and deploy the app using:
 ```bash
-HOST_NODE="put IP of the instrumentor here" cargo xtask put-remote --startup fuzzer_device
+HOST_NODE="put IP of the watchdog here" cargo xtask put-remote --startup {XXX}
 ```
+Depending on the target fuzzing scenario, use `spec_fuzz` (speculative microcode fuzzing) or `fuzzer_device` (x86 fuzzing)
+instead of `{XXX}`.
 
-Then boot the fuzzer master. Start the `fuzzer_master` app manually or start any of the following services:
-- `fuzzer_master`
-- `fuzzer_master_corpus`: requires that a corpus generated with `cargo run corpus-gen` is present at `/home/thesis/corpus.json`.
-- `spec_fuzz`
+Then boot the fuzzer master. Start the `fuzzer_master` app. Settings can be displayed by using `--help` in the CLI.
 
 ---
 
@@ -78,8 +79,26 @@ and can be viewed by running (fuzzer master):
 fuzz_viewer /home/thesis/database.json
 ```
 
-Disclaimer: The IP addresses of the devices must be changed within the codebase of uFuzz before builting the.
-images/app using the above commands.
+---
+
+The following binaries are provided for the fuzzing master:
+
+| Binary              | Description                                                                                    |
+|---------------------|------------------------------------------------------------------------------------------------|
+| `fuzzer_master`     | Main fuzzing controller, main fuzzing loop + manual execution, list all options using `--help` |
+| `fuzz_viewer`       | Tool for viewing and analyzing fuzzing results from the database                               |
+| `fuzz_compare`      | Compares execution results from different manual fuzzing input executions                      |
+| `spec_compare`      | Analyzes and compares results from speculative execution fuzzing campaigns                     |
+| `spec_new_database` | Creates new speculative execution databases from templates                                     |
+| `fuzz_combine`      | Combines multiple fuzzing databases into a single output database                              |
+| `afl_convert`       | Converts AFL fuzzing findings to inputs usable with the manual execution fuzzing tool          |
+
+## Documentation
+Generate the documentation using the following command:
+```bash
+cargo xtask doc
+```
+The results will be placed inside the build directory `target/doc`
 
 ## Utilities
 The `cargo xtask` command contains utilities to test the hypervisor environment on a simulated
