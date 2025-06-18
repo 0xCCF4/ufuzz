@@ -227,7 +227,7 @@ async fn main() {
     if let Cmd::AFL {
         disable_feedback,
         timeout_hours,
-        corpus,
+        corpus : _,
         solutions,
         printable_input_generation,
         afl_corpus,

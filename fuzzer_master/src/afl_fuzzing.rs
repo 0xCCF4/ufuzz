@@ -374,6 +374,8 @@ struct CoverageObserver {
     /// Raw coverage data slice
     #[serde(skip, default = "default_array")]
     slice: [u8; 0x7c00],
+    /// disable feedback
+    disable_feedback: bool,
 }
 
 fn default_array() -> [u8; 0x7c00] {
@@ -385,11 +387,12 @@ impl Default for CoverageObserver {
         CoverageObserver {
             coverage: BTreeMap::new(),
             slice: [0; 0x7c00],
+            disable_feedback: false,
         }
     }
 }
 
-impl<I, S> Observer<I, S> for CoverageObserver {
+impl<I, S> Observer<I, S> for CoverageObserver where S: HasRand {
     fn pre_exec(&mut self, _state: &mut S, _input: &I) -> Result<(), libafl::Error> {
         if let Ok(mut data) = LAST_EXECUTION_RESULT.lock() {
             if data.is_some() {
@@ -401,13 +404,22 @@ impl<I, S> Observer<I, S> for CoverageObserver {
     }
     fn post_exec(
         &mut self,
-        _state: &mut S,
+        state: &mut S,
         _input: &I,
         _exit_kind: &ExitKind,
     ) -> Result<(), libafl::Error> {
         if let Ok(data) = LAST_EXECUTION_RESULT.lock() {
             if let Some(execution_result) = data.as_ref() {
-                self.coverage.clone_from(&execution_result.coverage);
+                if self.disable_feedback {
+                    self.coverage.clear();
+                    for address in 0..0x7c00 {
+                        if state.rand_mut().between(0, 99) <= 1 {
+                            self.coverage.insert(address, 1);
+                        }
+                    }
+                } else {
+                    self.coverage.clone_from(&execution_result.coverage);
+                }
 
                 for (address, count) in self.coverage.iter() {
                     if (*address as usize) < self.slice.len() {
@@ -632,76 +644,12 @@ pub async fn afl_main(
     };
 
     let result = tokio::task::spawn_blocking(move || {
-        let coverage_observer = CoverageObserver::default();
+        let mut coverage_observer = CoverageObserver::default();
+        coverage_observer.disable_feedback = disable_feedback;
 
         let mut generator_rand = RandBytesGenerator::new(nonzero!(32));
         let mut generator_printable = RandPrintablesGenerator::new(nonzero!(32));
 
-        if disable_feedback {
-            // No coverage feedback
-            let mut const_feedback = ();
-            let mut objective = CrashFeedback::new();
-
-            let mut state = StdState::new(
-                StdRand::new(),
-                CachedOnDiskCorpus::new(corpus.unwrap_or(PathBuf::from("./corpus")), 2000)
-                    .expect("Corpus initialization failed"),
-                OnDiskCorpus::new(solution.unwrap_or(PathBuf::from("./findings")))
-                    .expect("Corpus initialization failed"),
-                &mut const_feedback,
-                &mut objective,
-            )
-            .unwrap();
-
-            let mon = SimpleMonitor::new(|s| println!("{s}"));
-            let mut mgr = SimpleEventManager::new(mon);
-
-            let scheduler = QueueScheduler::new();
-
-            let mut fuzzer = StdFuzzer::new(scheduler, const_feedback, objective);
-
-            let mut executor = AFLExecutor::new(
-                udp_unsafe_ref,
-                interface_unsafe_ref,
-                db_unsafe_ref,
-                tuple_list!(coverage_observer),
-                seed,
-                timeout_hours,
-            );
-
-            if let Some(mut initial) = initial_corpus_gen {
-                state
-                    .generate_initial_inputs(&mut fuzzer, &mut executor, &mut initial, &mut mgr, 8)
-                    .expect("couldn't generate initial corpus");
-            } else {
-                if printable_input_generation {
-                    state
-                        .generate_initial_inputs(
-                            &mut fuzzer,
-                            &mut executor,
-                            &mut generator_printable,
-                            &mut mgr,
-                            8,
-                        )
-                        .expect("Failed to generate the initial corpus");
-                } else {
-                    state
-                        .generate_initial_inputs(
-                            &mut fuzzer,
-                            &mut executor,
-                            &mut generator_rand,
-                            &mut mgr,
-                            8,
-                        )
-                        .expect("Failed to generate the initial corpus");
-                }
-            }
-
-            let mutator = HavocScheduledMutator::new(havoc_mutations());
-            let mut stages = tuple_list!(StdMutationalStage::new(mutator));
-
-            fuzzer.fuzz_loop(&mut stages, &mut executor, &mut state, &mut mgr)
-        } else {
             // With coverage feedback
             let mut feedback = MaxMapFeedback::new(&coverage_observer);
             let mut objective = CrashFeedback::new();
@@ -765,7 +713,6 @@ pub async fn afl_main(
             let mut stages = tuple_list!(StdMutationalStage::new(mutator));
 
             fuzzer.fuzz_loop(&mut stages, &mut executor, &mut state, &mut mgr)
-        }
     })
     .await;
 

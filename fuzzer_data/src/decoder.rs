@@ -2,8 +2,8 @@
 //!
 //! This module provides functionality for decoding x86 instructions using the
 //! iced-x86 decoder. It maintains a mapping between instruction addresses and
-//! their decoded forms for efficient lookup. Further, the same memory
-//! allocation is reused accross different calls to the decoder.
+//! their decoded forms. This allows mapping bytes to decoded instruction stream.
+//! Further, the same memory allocation is reused accross different calls to the decoder.
 
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
@@ -75,11 +75,6 @@ impl InstructionDecoder {
     }
 
     /// Decode a sequence of instructions
-    ///
-    /// # Safety
-    ///
-    /// The input slice must remain valid until the result is dropped.
-    /// The result will invalidate any unsafe references when dropped.
     pub fn decode<'output, 'this: 'output, 'instructions: 'output>(
         &'this mut self,
         instructions: &'instructions [u8],
