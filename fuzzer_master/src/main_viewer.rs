@@ -20,6 +20,9 @@ use std::path::PathBuf;
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
+    /// If set, only coverage information will be plotted
+    #[arg(short, long)]
+    just_coverage: bool,
     /// Path to the database file
     database: Option<PathBuf>,
     /// Path for plotting output, if not provided, no plotting will be done
@@ -264,76 +267,78 @@ pub fn main() {
         .unique()
         .collect::<Vec<_>>();
 
-    println!("Coverage by seed:");
-    let mut unique_cov = BTreeSet::new();
-    for seed in seeds {
-        println!(" - {}", seed);
+    if !args.just_coverage {
+        println!("Coverage by seed:");
+        let mut unique_cov = BTreeSet::new();
+        for seed in seeds {
+            println!(" - {}", seed);
 
-        let largest_evolution = db
-            .data
-            .results
-            .iter()
-            .filter(|x| x.found_at.iter().any(|x| x.seed == seed))
-            .map(|x| x.found_at.iter().map(|x| x.evolution))
-            .flatten()
-            .max()
-            .unwrap_or(0);
-
-        let mut overall_coverage = Vec::new();
-        let mut unique_cov_counts = Vec::new();
-        for evolution in 1..largest_evolution + 1 {
-            let mut coverage = BTreeMap::new();
-            let results = db
+            let largest_evolution = db
                 .data
                 .results
                 .iter()
-                .filter(|x| {
-                    x.found_at
-                        .iter()
-                        .any(|x| x.seed == seed && x.evolution == evolution)
-                })
-                .map(|x| x.coverage.iter().filter(|x| *x.1 > 0))
-                .flatten();
+                .filter(|x| x.found_at.iter().any(|x| x.seed == seed))
+                .map(|x| x.found_at.iter().map(|x| x.evolution))
+                .flatten()
+                .max()
+                .unwrap_or(0);
 
-            let mut unique_cov_count = 0;
-            for result in results {
-                if *result.0 >= 0x1000 && cfg!(feature = "__debug_only_below_0x1000") {
-                    continue;
-                }
-                if *result.1 > 0 {
-                    *coverage.entry(*result.0).or_insert(0) += result.1;
-                    if unique_cov.insert(result.0) {
-                        unique_cov_count += 1u32;
+            let mut overall_coverage = Vec::new();
+            let mut unique_cov_counts = Vec::new();
+            for evolution in 1..largest_evolution + 1 {
+                let mut coverage = BTreeMap::new();
+                let results = db
+                    .data
+                    .results
+                    .iter()
+                    .filter(|x| {
+                        x.found_at
+                            .iter()
+                            .any(|x| x.seed == seed && x.evolution == evolution)
+                    })
+                    .map(|x| x.coverage.iter().filter(|x| *x.1 > 0))
+                    .flatten();
+
+                let mut unique_cov_count = 0;
+                for result in results {
+                    if *result.0 >= 0x1000 && cfg!(feature = "__debug_only_below_0x1000") {
+                        continue;
+                    }
+                    if *result.1 > 0 {
+                        *coverage.entry(*result.0).or_insert(0) += result.1;
+                        if unique_cov.insert(result.0) {
+                            unique_cov_count += 1u32;
+                        }
                     }
                 }
+                unique_cov_counts.push(unique_cov_count);
+                overall_coverage.push(coverage);
             }
-            unique_cov_counts.push(unique_cov_count);
-            overall_coverage.push(coverage);
-        }
-        print!("   - Delta coverage: ");
-        for (index, coverage) in unique_cov_counts.iter().enumerate() {
-            print!("+{}", coverage);
-            if index != unique_cov_counts.len() - 1 {
-                print!(", ");
+            print!("   - Delta coverage: ");
+            for (index, coverage) in unique_cov_counts.iter().enumerate() {
+                print!("+{}", coverage);
+                if index != unique_cov_counts.len() - 1 {
+                    print!(", ");
+                }
             }
-        }
-        println!();
-        print!("   - Unique coverage: ");
-        for (index, coverage) in overall_coverage.iter().enumerate() {
-            print!("{}", coverage.len());
-            if index != overall_coverage.len() - 1 {
-                print!(", ");
+            println!();
+            print!("   - Unique coverage: ");
+            for (index, coverage) in overall_coverage.iter().enumerate() {
+                print!("{}", coverage.len());
+                if index != overall_coverage.len() - 1 {
+                    print!(", ");
+                }
             }
-        }
-        println!();
-        print!("   - Total coverage: ");
-        for (index, coverage) in overall_coverage.iter().enumerate() {
-            print!("{}", coverage.iter().map(|x| *x.1 as u64).sum::<u64>());
-            if index != overall_coverage.len() - 1 {
-                print!(", ");
+            println!();
+            print!("   - Total coverage: ");
+            for (index, coverage) in overall_coverage.iter().enumerate() {
+                print!("{}", coverage.iter().map(|x| *x.1 as u64).sum::<u64>());
+                if index != overall_coverage.len() - 1 {
+                    print!(", ");
+                }
             }
+            println!();
         }
-        println!();
     }
 
     let mut acc = db.data.performance.normalize();
@@ -388,6 +393,10 @@ pub fn main() {
                 )
                 .expect("Could not write to coverage writer");
             }
+        }
+
+        if args.just_coverage {
+            return;
         }
 
         drop(writer_cov);

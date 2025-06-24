@@ -84,6 +84,12 @@ enum Cmd {
         #[arg(short, long)]
         bulk: bool,
     },
+    BulkManual {
+        #[arg(short, long)]
+        input: Vec<PathBuf>,
+        #[arg(short = 'f', long, default_value = "false")]
+        overwrite: bool,
+    },
     AFL {
         #[arg(short, long)]
         solutions: Option<PathBuf>,
@@ -227,7 +233,7 @@ async fn main() {
     if let Cmd::AFL {
         disable_feedback,
         timeout_hours,
-        corpus : _,
+        corpus: _,
         solutions,
         printable_input_generation,
         afl_corpus,
@@ -257,6 +263,12 @@ async fn main() {
 
     let start_time = Instant::now();
     let mut last_remaining_time = Instant::now();
+
+    let mut bulk_manual_queue = if let Cmd::BulkManual { input, .. } = &args.cmd {
+        input.clone()
+    } else {
+        vec![]
+    };
 
     loop {
         let timing = TimeMeasurement::begin("host::main_loop");
@@ -516,6 +528,36 @@ async fn main() {
                     &mut state_manual_execution,
                 )
                 .await
+            }
+            Cmd::BulkManual { overwrite, .. } => {
+                if bulk_manual_queue.is_empty() {
+                    CommandExitResult::ExitProgram
+                } else {
+                    let input = bulk_manual_queue.get(0).unwrap();
+                    let result = manual_execution::main(
+                        &mut udp,
+                        &interface,
+                        &mut database,
+                        input,
+                        Some(input.with_extension("out")),
+                        *overwrite,
+                        false,
+                        &mut state_manual_execution,
+                    )
+                    .await;
+                    match result {
+                        CommandExitResult::ExitProgram => {
+                            bulk_manual_queue.remove(0);
+                            state_manual_execution = ManualExecutionState::default();
+                            if bulk_manual_queue.is_empty() {
+                                CommandExitResult::ExitProgram
+                            } else {
+                                CommandExitResult::Operational
+                            }
+                        }
+                        x => x,
+                    }
+                }
             }
             Cmd::Init => {
                 let x = udp.send(OtaC2DTransport::AreYouThere).await;

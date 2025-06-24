@@ -738,6 +738,48 @@ impl Default for VmExitReason {
     }
 }
 
+impl StateDifference for VmExitReason {
+    fn difference<'a, 'b>(
+        &'a self,
+        other: &'b Self,
+    ) -> Vec<(&'static str, Box<&'a dyn Debug>, Box<&'b dyn Debug>)> {
+        let mut result: Vec<(&'static str, Box<&'a dyn Debug>, Box<&'b dyn Debug>)> = Vec::new();
+
+        match (self, other) {
+            (VmExitReason::EPTPageFault(a), VmExitReason::EPTPageFault(b)) => {
+                result.extend(a.difference(b));
+            }
+            (VmExitReason::Exception(a), VmExitReason::Exception(b)) => {
+                result.extend(a.difference(b));
+            }
+            (VmExitReason::Shutdown(a), VmExitReason::Shutdown(b)) => {
+                if a != b {
+                    result.push(("Shutdown", Box::new(a), Box::new(b)));
+                }
+            }
+            (VmExitReason::VMEntryFailure(a, b), VmExitReason::VMEntryFailure(c, d)) => {
+                if a != c || b != d {
+                    result.push(("VMEntryFailure[0]", Box::new(a), Box::new(c)));
+                    result.push(("VMEntryFailure[1]", Box::new(b), Box::new(d)));
+                }
+            }
+            (VmExitReason::Unexpected(a), VmExitReason::Unexpected(b)) => {
+                if a != b {
+                    result.push(("Unexpected", Box::new(a), Box::new(b)));
+                }
+            }
+            (x, y) if x == y => {
+                // No differences
+            }
+            (x, y) => {
+                result.push(("reason", Box::new(x), Box::new(y)));
+            }
+        }
+
+        result
+    }
+}
+
 /// Information about and why EPT page fault occurred.
 ///
 /// This structure contains detailed information about an EPT page fault,
@@ -773,6 +815,101 @@ pub struct EPTPageFaultQualification {
     pub guest_paging_verification: bool,
 }
 
+impl StateDifference for EPTPageFaultQualification {
+    fn difference<'a, 'b>(
+        &'a self,
+        other: &'b Self,
+    ) -> Vec<(&'static str, Box<&'a dyn Debug>, Box<&'b dyn Debug>)> {
+        let mut result: Vec<(&'static str, Box<&'a dyn Debug>, Box<&'b dyn Debug>)> = Vec::new();
+
+        if self.rip != other.rip {
+            result.push(("rip", Box::new(&self.rip), Box::new(&other.rip)));
+        }
+        if self.gpa != other.gpa {
+            result.push(("gpa", Box::new(&self.gpa), Box::new(&other.gpa)));
+        }
+        if self.data_read != other.data_read {
+            result.push((
+                "data_read",
+                Box::new(&self.data_read),
+                Box::new(&other.data_read),
+            ));
+        }
+        if self.data_write != other.data_write {
+            result.push((
+                "data_write",
+                Box::new(&self.data_write),
+                Box::new(&other.data_write),
+            ));
+        }
+        if self.instruction_fetch != other.instruction_fetch {
+            result.push((
+                "instruction_fetch",
+                Box::new(&self.instruction_fetch),
+                Box::new(&other.instruction_fetch),
+            ));
+        }
+        if self.was_readable != other.was_readable {
+            result.push((
+                "was_readable",
+                Box::new(&self.was_readable),
+                Box::new(&other.was_readable),
+            ));
+        }
+        if self.was_writable != other.was_writable {
+            result.push((
+                "was_writable",
+                Box::new(&self.was_writable),
+                Box::new(&other.was_writable),
+            ));
+        }
+        if self.was_executable_user != other.was_executable_user {
+            result.push((
+                "was_executable_user",
+                Box::new(&self.was_executable_user),
+                Box::new(&other.was_executable_user),
+            ));
+        }
+        if self.was_executable_supervisor != other.was_executable_supervisor {
+            result.push((
+                "was_executable_supervisor",
+                Box::new(&self.was_executable_supervisor),
+                Box::new(&other.was_executable_supervisor),
+            ));
+        }
+        if self.gla_valid != other.gla_valid {
+            result.push((
+                "gla_valid",
+                Box::new(&self.gla_valid),
+                Box::new(&other.gla_valid),
+            ));
+        }
+        if self.nmi_unblocking != other.nmi_unblocking {
+            result.push((
+                "nmi_unblocking",
+                Box::new(&self.nmi_unblocking),
+                Box::new(&other.nmi_unblocking),
+            ));
+        }
+        if self.shadow_stack_access != other.shadow_stack_access {
+            result.push((
+                "shadow_stack_access",
+                Box::new(&self.shadow_stack_access),
+                Box::new(&other.shadow_stack_access),
+            ));
+        }
+        if self.guest_paging_verification != other.guest_paging_verification {
+            result.push((
+                "guest_paging_verification",
+                Box::new(&self.guest_paging_verification),
+                Box::new(&other.guest_paging_verification),
+            ));
+        }
+
+        result
+    }
+}
+
 /// Information about why exception occurred.
 ///
 /// This structure contains information about an exception that occurred
@@ -784,6 +921,28 @@ pub struct ExceptionQualification {
     pub rip: u64,
     /// The exception code
     pub exception_code: GuestException,
+}
+
+impl StateDifference for ExceptionQualification {
+    fn difference<'a, 'b>(
+        &'a self,
+        other: &'b Self,
+    ) -> Vec<(&'static str, Box<&'a dyn Debug>, Box<&'b dyn Debug>)> {
+        let mut result: Vec<(&'static str, Box<&'a dyn Debug>, Box<&'b dyn Debug>)> = Vec::new();
+
+        if self.rip != other.rip {
+            result.push(("rip", Box::new(&self.rip), Box::new(&other.rip)));
+        }
+        if self.exception_code != other.exception_code {
+            result.push((
+                "exception_code",
+                Box::new(&self.exception_code),
+                Box::new(&other.exception_code),
+            ));
+        }
+
+        result
+    }
 }
 
 /// Guest exception types

@@ -195,9 +195,9 @@ impl PerformanceCounter {
     /// # Returns
     ///
     /// Returns a new PerformanceCounter instance
-    /// 
+    ///
     /// # Safety
-    /// 
+    ///
     /// Only one instance for each index may be used at the same time.
     pub unsafe fn from_perf_event_specifier(index: u8, event: &PerfEventSpecifier) -> Self {
         let mut result = Self::new(index);

@@ -392,7 +392,10 @@ impl Default for CoverageObserver {
     }
 }
 
-impl<I, S> Observer<I, S> for CoverageObserver where S: HasRand {
+impl<I, S> Observer<I, S> for CoverageObserver
+where
+    S: HasRand,
+{
     fn pre_exec(&mut self, _state: &mut S, _input: &I) -> Result<(), libafl::Error> {
         if let Ok(mut data) = LAST_EXECUTION_RESULT.lock() {
             if data.is_some() {
@@ -412,8 +415,10 @@ impl<I, S> Observer<I, S> for CoverageObserver where S: HasRand {
             if let Some(execution_result) = data.as_ref() {
                 if self.disable_feedback {
                     self.coverage.clear();
+                    self.coverage
+                        .insert(state.rand_mut().between(0, 0x7bff) as u16, 1);
                     for address in 0..0x7c00 {
-                        if state.rand_mut().between(0, 99) <= 1 {
+                        if state.rand_mut().between(0, 999) <= 0 {
                             self.coverage.insert(address, 1);
                         }
                     }
@@ -650,69 +655,69 @@ pub async fn afl_main(
         let mut generator_rand = RandBytesGenerator::new(nonzero!(32));
         let mut generator_printable = RandPrintablesGenerator::new(nonzero!(32));
 
-            // With coverage feedback
-            let mut feedback = MaxMapFeedback::new(&coverage_observer);
-            let mut objective = CrashFeedback::new();
+        // With coverage feedback
+        let mut feedback = MaxMapFeedback::new(&coverage_observer);
+        let mut objective = CrashFeedback::new();
 
-            let mut state = StdState::new(
-                StdRand::new(),
-                CachedOnDiskCorpus::new(corpus.unwrap_or(PathBuf::from("./corpus")), 2000)
-                    .expect("Corpus initialization failed"),
-                OnDiskCorpus::new(solution.unwrap_or(PathBuf::from("./findings")))
-                    .expect("Corpus initialization failed"),
-                &mut feedback,
-                &mut objective,
-            )
-            .unwrap();
+        let mut state = StdState::new(
+            StdRand::new(),
+            CachedOnDiskCorpus::new(corpus.unwrap_or(PathBuf::from("./corpus")), 2000)
+                .expect("Corpus initialization failed"),
+            OnDiskCorpus::new(solution.unwrap_or(PathBuf::from("./findings")))
+                .expect("Corpus initialization failed"),
+            &mut feedback,
+            &mut objective,
+        )
+        .unwrap();
 
-            let mon = SimpleMonitor::new(|s| println!("{s}"));
-            let mut mgr = SimpleEventManager::new(mon);
+        let mon = SimpleMonitor::new(|s| println!("{s}"));
+        let mut mgr = SimpleEventManager::new(mon);
 
-            let scheduler = QueueScheduler::new();
+        let scheduler = QueueScheduler::new();
 
-            let mut fuzzer = StdFuzzer::new(scheduler, feedback, objective);
+        let mut fuzzer = StdFuzzer::new(scheduler, feedback, objective);
 
-            let mut executor = AFLExecutor::new(
-                udp_unsafe_ref,
-                interface_unsafe_ref,
-                db_unsafe_ref,
-                tuple_list!(coverage_observer),
-                seed,
-                timeout_hours,
-            );
+        let mut executor = AFLExecutor::new(
+            udp_unsafe_ref,
+            interface_unsafe_ref,
+            db_unsafe_ref,
+            tuple_list!(coverage_observer),
+            seed,
+            timeout_hours,
+        );
 
-            if let Some(mut initial) = initial_corpus_gen {
+        if let Some(mut initial) = initial_corpus_gen {
+            state
+                .generate_initial_inputs(&mut fuzzer, &mut executor, &mut initial, &mut mgr, 8)
+                .expect("couldn't generate initial corpus");
+        } else {
+            if printable_input_generation {
                 state
-                    .generate_initial_inputs(&mut fuzzer, &mut executor, &mut initial, &mut mgr, 8)
-                    .expect("couldn't generate initial corpus");
+                    .generate_initial_inputs(
+                        &mut fuzzer,
+                        &mut executor,
+                        &mut generator_printable,
+                        &mut mgr,
+                        8,
+                    )
+                    .expect("Failed to generate the initial corpus");
             } else {
-                if printable_input_generation {
-                    state
-                        .generate_initial_inputs(
-                            &mut fuzzer,
-                            &mut executor,
-                            &mut generator_printable,
-                            &mut mgr,
-                            8,
-                        )
-                        .expect("Failed to generate the initial corpus");
-                } else {
-                    state
-                        .generate_initial_inputs(
-                            &mut fuzzer,
-                            &mut executor,
-                            &mut generator_rand,
-                            &mut mgr,
-                            8,
-                        )
-                        .expect("Failed to generate the initial corpus");
-                }
+                state
+                    .generate_initial_inputs(
+                        &mut fuzzer,
+                        &mut executor,
+                        &mut generator_rand,
+                        &mut mgr,
+                        8,
+                    )
+                    .expect("Failed to generate the initial corpus");
             }
+        }
 
-            let mutator = HavocScheduledMutator::new(havoc_mutations());
-            let mut stages = tuple_list!(StdMutationalStage::new(mutator));
+        let mutator = HavocScheduledMutator::new(havoc_mutations());
+        let mut stages = tuple_list!(StdMutationalStage::new(mutator));
 
-            fuzzer.fuzz_loop(&mut stages, &mut executor, &mut state, &mut mgr)
+        fuzzer.fuzz_loop(&mut stages, &mut executor, &mut state, &mut mgr)
     })
     .await;
 

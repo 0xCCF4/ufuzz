@@ -8,6 +8,8 @@ use crate::device_connection::DeviceConnection;
 use crate::fuzzer_node_bridge::FuzzerNodeInterface;
 use crate::net::{net_execute_sample, net_fuzzing_pretext, ExecuteSampleResult};
 use crate::CommandExitResult;
+use fuzzer_data::ReportExecutionProblem;
+use hypervisor::state::StateDifference;
 use iced_x86::{Decoder, DecoderOptions, Formatter, Instruction, NasmFormatter};
 use log::{error, info};
 use std::collections::VecDeque;
@@ -209,6 +211,128 @@ pub async fn main<A: AsRef<Path>, B: AsRef<Path>>(
                 serde_json::to_string_pretty(&result).unwrap()
             ));
             output_text.push_str("\nEND-EXIT\n");
+
+            output_text.push_str("\nHREs:\n");
+            let very_likely_bugs = events
+                .iter()
+                .filter(|e| matches!(e, fuzzer_data::ReportExecutionProblem::VeryLikelyBug { .. }));
+            let serialized_mismatches = events.iter().filter(|e| {
+                matches!(
+                    e,
+                    fuzzer_data::ReportExecutionProblem::SerializedMismatch { .. }
+                )
+            });
+            let state_trace_mismatches = events.iter().filter(|e| {
+                matches!(
+                    e,
+                    fuzzer_data::ReportExecutionProblem::StateTraceMismatch { .. }
+                )
+            });
+            let coverage_mismatches = events.iter().filter(|e| {
+                matches!(e, fuzzer_data::ReportExecutionProblem::CoverageProblem { .. })
+            });
+            for event in very_likely_bugs {
+                output_text.push_str(&format!(
+                    "- Very likely bug: {}\n",
+                    serde_json::to_string_pretty(event).unwrap()
+                ));
+            }
+            for event in serialized_mismatches {
+                if let ReportExecutionProblem::SerializedMismatch {
+                    serialized_exit,
+                    serialized_state,
+                } = event
+                {
+                    output_text.push_str("- Serialization Problem: \n");
+                    if let Some(exit) = serialized_exit {
+                        let difference = result.exit.difference(exit);
+                        if difference.is_empty() {
+                            output_text.push_str("   Exit: No differences found\n");
+                        }
+                        for diff in difference {
+                            output_text.push_str(&format!(
+                                "   Exit: {}: {:x?} -> {:x?}\n",
+                                diff.0, diff.1, diff.2
+                            ));
+                        }
+                    }
+                    if let Some(state) = serialized_state {
+                        let difference = result.state.difference(state);
+                        if difference.is_empty() {
+                            output_text.push_str("   State: No differences found\n");
+                        }
+                        for diff in difference {
+                            output_text.push_str(&format!(
+                                "   State: {}: {:x?} -> {:x?}\n",
+                                diff.0, diff.1, diff.2
+                            ));
+                        }
+                    }
+                }
+            }
+            for event in state_trace_mismatches {
+                if let ReportExecutionProblem::StateTraceMismatch {
+                    index,
+                    normal,
+                    serialized,
+                } = event
+                {
+                    let rip_normal = normal.as_ref().map(|x| x.standard_registers.rip).map(|x| format!("{:x}", x)).unwrap_or_default();
+                    let rip_serialized = serialized.as_ref().map(|x| x.standard_registers.rip).map(|x| format!("{:x}", x)).unwrap_or_default();
+                    output_text.push_str(&format!("- State Trace Mismatch [{index}] [{rip_normal}:{rip_serialized}]:\n"));
+                    if let (Some(normal), Some(serialized)) = (normal, serialized) {
+                        let difference = normal.difference(serialized);
+                        if difference.is_empty() {
+                            output_text.push_str("   No differences found\n");
+                        } else {
+                            for diff in difference {
+                                output_text.push_str(&format!(
+                                    "   {}: {:x?} -> {:x?}\n",
+                                    diff.0, diff.1, diff.2
+                                ));
+                            }
+                        }
+                    } else {
+                        output_text.push_str(&format!(
+                            "   Trace divergence {}:{}\n",
+                            normal.is_some(),
+                            serialized.is_some()
+                        ));
+                    }
+                }
+            }
+            for event in coverage_mismatches {
+                if let ReportExecutionProblem::CoverageProblem { address, coverage_exit, coverage_state } = event {
+                    output_text.push_str(&format!(
+                        "- Coverage Problem at {:04x}:\n",
+                        address
+                    ));
+                    if let Some(exit) = coverage_exit {
+                        let difference = result.exit.difference(exit);
+                        if difference.is_empty() {
+                            output_text.push_str("   Exit: No differences found\n");
+                        }
+                        for diff in difference {
+                            output_text.push_str(&format!(
+                                "   Exit: {}: {:x?} -> {:x?}\n",
+                                diff.0, diff.1, diff.2
+                            ));
+                        }
+                    }
+                    if let Some(state) = coverage_state {
+                        let difference = result.state.difference(state);
+                        if difference.is_empty() {
+                            output_text.push_str("   State: No differences found\n");
+                        }
+                        for diff in difference {
+                            output_text.push_str(&format!(
+                                "   State: {}: {:x?} -> {:x?}\n",
+                                diff.0, diff.1, diff.2
+                            ));
+                        }
+                    }
+                }
+            }
 
             output_text.push_str("\n\nEvents:\n");
             output_text.push_str(&format!(

@@ -3,7 +3,6 @@
 //! This module defines x86-specific data structures used in the hypervisor,
 //! particularly for task state management and hardware virtualization.
 
-
 /// Task State Segment (TSS) structure
 #[derive(derivative::Derivative, Default, Clone)]
 #[derivative(Debug)]
