@@ -482,6 +482,27 @@ unsafe fn main() -> Status {
 
                     drop(_guard);
                 }
+                OtaC2DTransport::TraceSample {
+                    code,
+                    max_iterations: max_instructions,
+                } => {
+                    let exit = executor.state_trace_sample(
+                        code.as_slice(),
+                        &mut state_trace_scratchpad_normal,
+                        max_instructions.max(u16::MAX as u64) as usize,
+                    );
+                    for iteration in state_trace_scratchpad_normal.state.iter() {
+                        if let Err(err) =
+                            udp.send(OtaD2CTransport::TraceResult(iteration.clone().into()))
+                        {
+                            error!("Failed to send trace result: {:?}", err);
+                        }
+                    }
+                    if let Err(err) = udp.send(OtaD2CTransport::TraceResult(exit.into())) {
+                        error!("Failed to send trace exit: {:?}", err);
+                    }
+                    state_trace_scratchpad_normal.clear();
+                }
                 OtaC2DTransport::UCodeSpeculation { .. }
                 | OtaC2DTransport::TestIfPMCStable { .. } => {
                     let _ = udp.log_reliable(Level::Error, "Method not supported");
@@ -770,7 +791,7 @@ pub fn rate_sample_from_execution(
     decoder: &mut InstructionDecoder,
     execution_result: &ExecutionResult,
 ) -> GeneticSampleRating {
-    let number_of_instructions = decoder.decode(code).len();
+    let number_of_instructions = decoder.decode(code, 0).len();
 
     // expects existing entries to all have values >0
     let unique_address_coverage = execution_result.coverage.keys().count();

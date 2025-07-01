@@ -6,16 +6,22 @@
 use crate::database::Database;
 use crate::device_connection::DeviceConnection;
 use crate::fuzzer_node_bridge::FuzzerNodeInterface;
-use crate::net::{net_execute_sample, net_fuzzing_pretext, ExecuteSampleResult};
+use crate::net::{
+    net_execute_sample, net_execute_sample_traced, net_fuzzing_pretext, ExecuteSampleResult,
+};
 use crate::CommandExitResult;
+use fuzzer_data::decoder::InstructionDecoder;
 use fuzzer_data::ReportExecutionProblem;
 use hypervisor::state::StateDifference;
 use iced_x86::{Decoder, DecoderOptions, Formatter, Instruction, NasmFormatter};
+use itertools::Itertools;
 use log::{error, info};
 use std::collections::VecDeque;
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::io;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 /// State of manual execution process
 #[derive(Debug, Default)]
@@ -46,6 +52,7 @@ pub async fn main<A: AsRef<Path>, B: AsRef<Path>>(
     overwrite: bool,
     bulk: bool,
     state: &mut ManualExecutionState,
+    max_iterations: u16,
 ) -> CommandExitResult {
     if matches!(state, ManualExecutionState::NotStarted) {
         if !input.as_ref().exists() {
@@ -54,7 +61,7 @@ pub async fn main<A: AsRef<Path>, B: AsRef<Path>>(
         }
 
         if let Some(output) = &output {
-            if output.as_ref().exists() && !overwrite {
+            if output.as_ref().exists() && !overwrite && !output.as_ref().is_dir() {
                 print!("Output file already exists. Overwrite? (y/n): ");
                 io::stdout().flush().unwrap();
 
@@ -66,7 +73,7 @@ pub async fn main<A: AsRef<Path>, B: AsRef<Path>>(
             }
         }
 
-        let input_buf = match std::fs::read(input) {
+        let input_buf = match std::fs::read(&input) {
             Ok(buf) => buf,
             Err(e) => {
                 eprintln!("Failed to read input file: {}", e);
@@ -132,6 +139,8 @@ pub async fn main<A: AsRef<Path>, B: AsRef<Path>>(
         ManualExecutionState::Started { output, samples } => (output, samples),
     };
 
+    let mut decompiler = InstructionDecoder::new();
+
     while let Some(sample) = state.1.front() {
         info!("Sample queue size: {}", state.1.len());
         let (result, events) = match net_execute_sample(udp, interface, db, &sample).await {
@@ -147,7 +156,14 @@ pub async fn main<A: AsRef<Path>, B: AsRef<Path>>(
         let sample = state.1.pop_front().unwrap();
 
         if let Some(output) = state.0 {
-            let mut output_text = "Disassembly:\n".to_string();
+            let mut hasher = DefaultHasher::new();
+            sample.hash(&mut hasher);
+            let identifier = hasher.finish();
+
+            let mut output_text = format!("IdentifierUID: {identifier:x}\n");
+            output_text.push_str(&format!("Sample: {}\n", sample.iter().map(|x| format!("{:02x} ", x)).collect::<String>()));
+
+            output_text.push_str("\nDisassembly:\n");
             disassemble_code(&sample, &mut output_text);
 
             if let Some(serialized) = result.serialized.as_ref() {
@@ -205,17 +221,13 @@ pub async fn main<A: AsRef<Path>, B: AsRef<Path>>(
             println!("  - Memory override: {}", count_mem_override);
             println!("  - Other: {}", other);
 
-            output_text.push_str("\n\nExit result:\n");
-            output_text.push_str(&format!(
-                "{}",
-                serde_json::to_string_pretty(&result).unwrap()
-            ));
-            output_text.push_str("\nEND-EXIT\n");
-
             output_text.push_str("\nHREs:\n");
             let very_likely_bugs = events
                 .iter()
                 .filter(|e| matches!(e, fuzzer_data::ReportExecutionProblem::VeryLikelyBug { .. }));
+            let access_to_coverage_area = events
+                .iter()
+                .filter(|e| matches!(e, fuzzer_data::ReportExecutionProblem::AccessCoverageArea));
             let serialized_mismatches = events.iter().filter(|e| {
                 matches!(
                     e,
@@ -229,11 +241,20 @@ pub async fn main<A: AsRef<Path>, B: AsRef<Path>>(
                 )
             });
             let coverage_mismatches = events.iter().filter(|e| {
-                matches!(e, fuzzer_data::ReportExecutionProblem::CoverageProblem { .. })
+                matches!(
+                    e,
+                    fuzzer_data::ReportExecutionProblem::CoverageProblem { .. }
+                )
             });
             for event in very_likely_bugs {
                 output_text.push_str(&format!(
                     "- Very likely bug: {}\n",
+                    serde_json::to_string_pretty(event).unwrap()
+                ));
+            }
+            for event in access_to_coverage_area {
+                output_text.push_str(&format!(
+                    "- Memory override CA: {}\n",
                     serde_json::to_string_pretty(event).unwrap()
                 ));
             }
@@ -270,6 +291,23 @@ pub async fn main<A: AsRef<Path>, B: AsRef<Path>>(
                     }
                 }
             }
+
+            output_text.push_str("\n\nTrace:\n");
+            do_trace(udp, &sample, max_iterations, &mut output_text, &mut decompiler).await;
+            output_text.push_str("\n\nSerialized-Trace:\n");
+            if let Some(serialized) = result.serialized.as_ref() {
+                do_trace(udp, serialized, max_iterations, &mut output_text, &mut decompiler).await;
+            } else {
+                output_text.push_str("No serialized trace available\n");
+            }
+
+            output_text.push_str("\n\nExit result:\n");
+            output_text.push_str(&format!(
+                "{}",
+                serde_json::to_string_pretty(&result).unwrap()
+            ));
+            output_text.push_str("\nEND-EXIT\n");
+
             for event in state_trace_mismatches {
                 if let ReportExecutionProblem::StateTraceMismatch {
                     index,
@@ -277,9 +315,19 @@ pub async fn main<A: AsRef<Path>, B: AsRef<Path>>(
                     serialized,
                 } = event
                 {
-                    let rip_normal = normal.as_ref().map(|x| x.standard_registers.rip).map(|x| format!("{:x}", x)).unwrap_or_default();
-                    let rip_serialized = serialized.as_ref().map(|x| x.standard_registers.rip).map(|x| format!("{:x}", x)).unwrap_or_default();
-                    output_text.push_str(&format!("- State Trace Mismatch [{index}] [{rip_normal}:{rip_serialized}]:\n"));
+                    let rip_normal = normal
+                        .as_ref()
+                        .map(|x| x.standard_registers.rip)
+                        .map(|x| format!("{:x}", x))
+                        .unwrap_or_default();
+                    let rip_serialized = serialized
+                        .as_ref()
+                        .map(|x| x.standard_registers.rip)
+                        .map(|x| format!("{:x}", x))
+                        .unwrap_or_default();
+                    output_text.push_str(&format!(
+                        "- State Trace Mismatch [{index}] [{rip_normal}:{rip_serialized}]:\n"
+                    ));
                     if let (Some(normal), Some(serialized)) = (normal, serialized) {
                         let difference = normal.difference(serialized);
                         if difference.is_empty() {
@@ -302,11 +350,13 @@ pub async fn main<A: AsRef<Path>, B: AsRef<Path>>(
                 }
             }
             for event in coverage_mismatches {
-                if let ReportExecutionProblem::CoverageProblem { address, coverage_exit, coverage_state } = event {
-                    output_text.push_str(&format!(
-                        "- Coverage Problem at {:04x}:\n",
-                        address
-                    ));
+                if let ReportExecutionProblem::CoverageProblem {
+                    address,
+                    coverage_exit,
+                    coverage_state,
+                } = event
+                {
+                    output_text.push_str(&format!("- Coverage Problem at {:04x}:\n", address));
                     if let Some(exit) = coverage_exit {
                         let difference = result.exit.difference(exit);
                         if difference.is_empty() {
@@ -346,14 +396,112 @@ pub async fn main<A: AsRef<Path>, B: AsRef<Path>>(
                 println!(" - {:04x}: {:04x}", c.0, c.1);
             }
 
-            if let Err(e) = std::fs::write(output, output_text) {
-                eprintln!("Failed to write output file: {}", e);
+            let target_file = if output.is_file() || !output.exists() {
+                output.clone()
+            } else if output.is_dir() {
+                let file = find_file_with_identifier(&output, identifier);
+                match file {
+                    Ok(Some(file)) => {
+                        file
+                    }
+                    Ok(None) => {
+                        output.join(
+                            input.as_ref().with_extension("out")
+                                .file_name().unwrap().to_str().unwrap())
+                    }
+                    Err(e) => {
+                        error!("Failed to find or create output file: {}", e);
+                        return CommandExitResult::ExitProgram;
+                    }
+                }
+            } else {
+                error!("Output path is neither a file nor a directory");
+                return CommandExitResult::ExitProgram;
+            };
+            info!("Writing output to: {:?}", target_file);
+            if let Err(e) = std::fs::write(target_file, output_text) {
+                error!("Failed to write output file: {}", e);
                 return CommandExitResult::ExitProgram;
             }
         }
     }
 
     CommandExitResult::ExitProgram
+}
+
+fn find_file_with_identifier<A: AsRef<Path>>(folder: A, identifier: u64) -> io::Result<Option<PathBuf>> {
+    let folder = folder.as_ref();
+    if !folder.is_dir() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "Provided path is not a directory",
+        ));
+    }
+
+    for entry in std::fs::read_dir(folder)? {
+        let entry = entry?;
+        if entry.file_type()?.is_file() {
+            let file_content = std::fs::read_to_string(entry.path())?;
+            let identifier_line = file_content
+                .lines()
+                .find(|line| line.starts_with("IdentifierUID: "))
+                .and_then(|line| u64::from_str_radix(line.trim_start_matches("Identifier: ").trim(), 16).ok());
+            if let Some(id) = identifier_line {
+                if id == identifier {
+                    return Ok(Some(entry.path()));
+                }
+            }
+        }
+    }
+
+    Ok(None)
+}
+
+async fn do_trace(udp: &mut DeviceConnection, sample: &[u8], max_iterations: u16, output_text: &mut String, decompiler: &mut InstructionDecoder) {
+    let trace = match net_execute_sample_traced(
+        udp,
+        &sample,
+        max_iterations as u64,
+        Duration::from_secs(60),
+    )
+        .await
+    {
+        ExecuteSampleResult::Success(trace) => Some(trace),
+        x => {
+            error!("Failed to execute sample with tracing: {:?}", x);
+            None
+        }
+    };
+
+    if let Some(trace) = trace {
+        for (i, state) in trace.0.iter().enumerate() {
+            let rip = state.standard_registers.rip;
+
+            let shifted_code = sample.iter()
+                .chain([0x90].iter().cycle())
+                .skip(rip as usize)
+                .take(64)
+                .cloned()
+                .collect_vec();
+            let result = decompiler.decode(shifted_code.as_slice(), rip);
+            let first_instruction = result
+                .get(0)
+                .map(|x| {
+                    if x.instruction.is_invalid() {
+                        "<INVALID>".to_string()
+                    } else {
+                        format!("{}", x.instruction.op_code().instruction_string())
+                    }
+                })
+                .unwrap_or("-".to_string());
+
+            output_text.push_str(&format!(
+                "{i:>4}: {:04x}: {}: {:x?}\n",
+                state.standard_registers.rip, first_instruction, state
+            ))
+        }
+        output_text.push_str(&format!(" == {:x?} ==\n", trace.1));
+    }
 }
 
 /// Disassembles code and formats it for analysis

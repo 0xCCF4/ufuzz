@@ -78,8 +78,9 @@ impl InstructionDecoder {
     pub fn decode<'output, 'this: 'output, 'instructions: 'output>(
         &'this mut self,
         instructions: &'instructions [u8],
+        location: u64,
     ) -> InstructionDecodeResult<'output> {
-        let mut decoder = Decoder::with_ip(64, instructions, 0, DecoderOptions::NONE);
+        let mut decoder = Decoder::with_ip(64, instructions, location, DecoderOptions::NONE);
 
         let mut instruction_start_index = 0;
 

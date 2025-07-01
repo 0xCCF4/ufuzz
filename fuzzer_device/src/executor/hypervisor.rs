@@ -363,11 +363,10 @@ impl Hypervisor {
         trace.push(state.clone());
 
         let mut last_exit = VmExitReason::Unexpected(0);
-        for _ in 0..(if max_trace_length == 0 {
-            usize::MAX
-        } else {
-            max_trace_length
-        }) {
+        if max_trace_length == 0 {
+            return last_exit;
+        }
+        for _ in 0..max_trace_length {
             last_exit = self.vm.vt.run();
             self.vm.vt.save_state(&mut state);
             trace.push(state.clone());

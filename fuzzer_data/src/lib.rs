@@ -87,6 +87,30 @@ pub struct ExecutionResult {
     pub fitness: GeneticSampleRating,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum TraceResult {
+    Finished(
+        /// Exit reason from execution
+        VmExitReason,
+    ),
+    Running(
+        /// Current VM state
+        VmState,
+    ),
+}
+
+impl From<VmState> for TraceResult {
+    fn from(state: VmState) -> Self {
+        TraceResult::Running(state)
+    }
+}
+
+impl From<VmExitReason> for TraceResult {
+    fn from(exit: VmExitReason) -> Self {
+        TraceResult::Finished(exit)
+    }
+}
+
 /// Unreliable device-to-controller messages
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum OtaD2CUnreliable {
@@ -168,6 +192,8 @@ pub enum OtaD2CTransport {
     },
     /// Result of microcode speculation test
     UCodeSpeculationResult(SpeculationResult),
+    /// Tracing result
+    TraceResult(TraceResult),
 }
 
 /// Result of a speculation test
@@ -220,6 +246,13 @@ pub enum OtaC2DTransport {
     ExecuteSample {
         /// Code to execute
         code: Code,
+    },
+    /// Trace a code sample
+    TraceSample {
+        /// Code to trace
+        code: Code,
+        /// Maximum number of instructions to trace
+        max_iterations: u64,
     },
     /// Test microcode speculation
     UCodeSpeculation {

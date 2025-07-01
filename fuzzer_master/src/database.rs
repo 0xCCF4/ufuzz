@@ -186,7 +186,17 @@ impl DatabaseData {
     pub fn merge(&mut self, other: DatabaseData) {
         self.blacklisted_addresses
             .extend(other.blacklisted_addresses);
-        self.results.extend(other.results);
+
+        for result in other.results {
+            match self.results.iter_mut().find(|x| x.code == result.code) {
+                Some(existing) => {
+                    existing.found_at.extend(result.found_at);
+                    existing.found_on.extend(result.found_on);
+                }
+                None => self.results.push(result),
+            }
+        }
+
         self.performance.data.extend(other.performance.data);
         self.device_performance
             .data

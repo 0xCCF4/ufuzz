@@ -10,7 +10,7 @@ use crate::manual_execution::disassemble_code;
 use crate::{wait_for_device, CommandExitResult, WaitForDeviceResult};
 use fuzzer_data::{
     Code, ExecutionResult, Ota, OtaC2DTransport, OtaD2CTransport, ReportExecutionProblem,
-    SpeculationResult,
+    SpeculationResult, TraceResult,
 };
 use hypervisor::state::VmExitReason;
 use itertools::Itertools;
@@ -147,6 +147,62 @@ pub async fn net_execute_sample(
     }
 
     ExecuteSampleResult::Success((result, events))
+}
+
+/// Executes a code sample tracing on the device
+///
+/// # Arguments
+///
+/// * `net` - Network connection to the device
+/// * `sample` - Code sample to execute
+/// * `max_iterations` - Maximum number of iterations to execute
+///
+/// # Returns
+///
+/// * `Vec<VmState>` states encountered during execution
+/// * `VmExitReason` indicating the exit reason
+pub async fn net_execute_sample_traced(
+    net: &mut DeviceConnection,
+    sample: &[u8],
+    max_iterations: u64,
+    timeout: Duration,
+) -> ExecuteSampleResult<(Vec<hypervisor::state::VmState>, VmExitReason)> {
+    if let Err(err) = net
+        .send(OtaC2DTransport::TraceSample {
+            code: sample.to_vec(),
+            max_iterations,
+        })
+        .await
+    {
+        error!("Failed to execute sample: {:?}", err);
+        return ExecuteSampleResult::Timeout;
+    }
+
+    let mut states = Vec::new();
+
+    loop {
+        let packet = net.receive(Some(timeout)).await;
+
+        if let Some(packet) = packet {
+            if let Ota::Transport { content, .. } = packet {
+                match content {
+                    OtaD2CTransport::TraceResult(result) => match result {
+                        TraceResult::Running(state) => {
+                            states.push(state);
+                        }
+                        TraceResult::Finished(exit) => {
+                            return ExecuteSampleResult::Success((states, exit));
+                        }
+                    },
+                    _ => {
+                        warn!("Unexpected packet: {:?}", content);
+                    }
+                }
+            }
+        } else {
+            return ExecuteSampleResult::Timeout;
+        }
+    }
 }
 
 /// Receives excluded addresses from the device (if the agent did exclude an address last run)

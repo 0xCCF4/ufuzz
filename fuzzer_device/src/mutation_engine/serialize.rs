@@ -98,7 +98,7 @@ impl Serializer {
             pub override_instruction: Option<Vec<u8>>,
         }
 
-        let decoded = self.instruction_decoder.decode(code);
+        let decoded = self.instruction_decoder.decode(code, 0);
 
         let mut target_program = Vec::with_capacity(decoded.len() * 2);
 
