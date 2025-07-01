@@ -30,7 +30,7 @@ use coverage::harness::iteration_harness::IterationHarness;
 use coverage::interface_definition::{ComInterfaceDescription, CoverageCount};
 use custom_processing_unit::lmfence;
 use data_types::addresses::{Address, UCInstructionAddress};
-use fuzzer_data::ReportExecutionProblem;
+use fuzzer_data::{MemoryAccess, ReportExecutionProblem};
 use log::trace;
 #[cfg(feature = "__debug_print_progress_net")]
 use log::Level;
@@ -492,13 +492,36 @@ impl SampleExecutor {
     pub fn state_trace_sample(
         &mut self,
         sample: &[u8],
-        trace_result: &mut StateTrace,
+        trace_result: &mut StateTrace<VmState>,
         max_trace_length: usize,
     ) -> VmExitReason {
         self.hypervisor.load_code_blob(sample);
         self.hypervisor.prepare_vm_state();
         self.hypervisor
             .state_trace_vm(trace_result, max_trace_length)
+    }
+
+    /// Traces the state changes during sample execution and record memory accesses
+    ///
+    /// # Arguments
+    ///
+    /// * `sample` - The code sample to trace
+    /// * `trace_result` - Where to store the state trace
+    /// * `max_trace_length` - Maximum number of states to trace
+    ///
+    /// # Returns
+    ///
+    /// * `VmExitReason` - Reason for VM exit
+    pub fn state_trace_sample_mem(
+        &mut self,
+        sample: &[u8],
+        trace_result: &mut StateTrace<(VmState, Vec<MemoryAccess>)>,
+        max_trace_length: usize,
+    ) -> VmExitReason {
+        self.hypervisor.load_code_blob(sample);
+        self.hypervisor.prepare_vm_state();
+        self.hypervisor
+            .state_trace_vm_memory_introspection(trace_result, max_trace_length)
     }
 
     /// Performs a self-check of the executor

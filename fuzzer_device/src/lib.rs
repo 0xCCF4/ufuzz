@@ -188,28 +188,27 @@ impl Trace {
 /// This structure tracks the sequence of VM states during execution,
 /// allowing for state comparison and analysis.
 #[derive(Default, Clone)]
-pub struct StateTrace {
+pub struct StateTrace<A> {
     /// Sequence of VM states in execution order
-    pub state: Vec<VmState>,
+    pub state: Vec<A>,
 }
 
-impl StateTrace {
+impl<A> StateTrace<A>
+where
+    A: PartialEq,
+{
     /// Creates a new state trace from a sequence of VM states
-    pub fn new(state: Vec<VmState>) -> Self {
+    pub fn new(state: Vec<A>) -> Self {
         Self { state }
     }
 
     /// Adds a VM state to the trace
-    pub fn push(&mut self, state: VmState) {
+    pub fn push(&mut self, state: A) {
         self.state.push(state);
     }
 
     /// Finds the first difference between two state traces using a custom comparison function
-    fn difference<A: Fn(&VmState, &VmState) -> bool>(
-        &self,
-        other: &Self,
-        equal: A,
-    ) -> Option<usize> {
+    fn difference<F: Fn(&A, &A) -> bool>(&self, other: &Self, equal: F) -> Option<usize> {
         for (i, state) in self.state.iter().enumerate() {
             let other = other.state.get(i);
 
@@ -236,6 +235,18 @@ impl StateTrace {
         self.difference(other, |a, b| a == b)
     }
 
+    /// Clears the state trace
+    pub fn clear(&mut self) {
+        self.state.clear();
+    }
+
+    /// Returns the number of states in the trace
+    pub fn len(&self) -> usize {
+        self.state.len()
+    }
+}
+
+impl StateTrace<VmState> {
     /// Finds the first difference between two state traces ignoring addresses
     ///
     /// Returns the index of the first state that differs between the traces,
@@ -247,34 +258,5 @@ impl StateTrace {
     /// Gets a VM state at a specific index
     pub fn get(&self, index: usize) -> Option<&VmState> {
         self.state.get(index)
-    }
-
-    /// Clears the state trace
-    pub fn clear(&mut self) {
-        self.state.clear();
-    }
-
-    /// Converts the state trace to an instruction trace
-    ///
-    /// Extracts instruction pointers from VM states and stores them in the provided trace.
-    pub fn to_trace(&self, trace: &mut Trace) {
-        trace.clear();
-        for state in self.state.iter() {
-            trace.push(state.standard_registers.rip);
-        }
-    }
-
-    /// Returns a vector of instruction pointers from the state trace
-    pub fn trace_vec(&self) -> Vec<u64> {
-        let mut trace = Vec::with_capacity(self.state.len());
-        for state in self.state.iter() {
-            trace.push(state.standard_registers.rip);
-        }
-        trace
-    }
-
-    /// Returns the number of states in the trace
-    pub fn len(&self) -> usize {
-        self.state.len()
     }
 }

@@ -193,6 +193,8 @@ pub enum NestedPagingStructureEntryType {
     Rx,
     /// Read only
     R,
+    /// Write only
+    W,
     /// Read and write
     Rw,
     /// Read, write, and execute

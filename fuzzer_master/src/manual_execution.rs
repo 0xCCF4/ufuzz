@@ -53,6 +53,7 @@ pub async fn main<A: AsRef<Path>, B: AsRef<Path>>(
     bulk: bool,
     state: &mut ManualExecutionState,
     max_iterations: u16,
+    print_mem_access: bool,
 ) -> CommandExitResult {
     if matches!(state, ManualExecutionState::NotStarted) {
         if !input.as_ref().exists() {
@@ -161,7 +162,13 @@ pub async fn main<A: AsRef<Path>, B: AsRef<Path>>(
             let identifier = hasher.finish();
 
             let mut output_text = format!("IdentifierUID: {identifier:x}\n");
-            output_text.push_str(&format!("Sample: {}\n", sample.iter().map(|x| format!("{:02x} ", x)).collect::<String>()));
+            output_text.push_str(&format!(
+                "Sample: {}\n",
+                sample
+                    .iter()
+                    .map(|x| format!("{:02x} ", x))
+                    .collect::<String>()
+            ));
 
             output_text.push_str("\nDisassembly:\n");
             disassemble_code(&sample, &mut output_text);
@@ -293,10 +300,26 @@ pub async fn main<A: AsRef<Path>, B: AsRef<Path>>(
             }
 
             output_text.push_str("\n\nTrace:\n");
-            do_trace(udp, &sample, max_iterations, &mut output_text, &mut decompiler).await;
+            do_trace(
+                udp,
+                &sample,
+                max_iterations,
+                &mut output_text,
+                &mut decompiler,
+                print_mem_access,
+            )
+            .await;
             output_text.push_str("\n\nSerialized-Trace:\n");
             if let Some(serialized) = result.serialized.as_ref() {
-                do_trace(udp, serialized, max_iterations, &mut output_text, &mut decompiler).await;
+                do_trace(
+                    udp,
+                    serialized,
+                    max_iterations,
+                    &mut output_text,
+                    &mut decompiler,
+                    print_mem_access,
+                )
+                .await;
             } else {
                 output_text.push_str("No serialized trace available\n");
             }
@@ -401,14 +424,16 @@ pub async fn main<A: AsRef<Path>, B: AsRef<Path>>(
             } else if output.is_dir() {
                 let file = find_file_with_identifier(&output, identifier);
                 match file {
-                    Ok(Some(file)) => {
-                        file
-                    }
-                    Ok(None) => {
-                        output.join(
-                            input.as_ref().with_extension("out")
-                                .file_name().unwrap().to_str().unwrap())
-                    }
+                    Ok(Some(file)) => file,
+                    Ok(None) => output.join(
+                        input
+                            .as_ref()
+                            .with_extension("out")
+                            .file_name()
+                            .unwrap()
+                            .to_str()
+                            .unwrap(),
+                    ),
                     Err(e) => {
                         error!("Failed to find or create output file: {}", e);
                         return CommandExitResult::ExitProgram;
@@ -429,7 +454,10 @@ pub async fn main<A: AsRef<Path>, B: AsRef<Path>>(
     CommandExitResult::ExitProgram
 }
 
-fn find_file_with_identifier<A: AsRef<Path>>(folder: A, identifier: u64) -> io::Result<Option<PathBuf>> {
+fn find_file_with_identifier<A: AsRef<Path>>(
+    folder: A,
+    identifier: u64,
+) -> io::Result<Option<PathBuf>> {
     let folder = folder.as_ref();
     if !folder.is_dir() {
         return Err(io::Error::new(
@@ -445,7 +473,9 @@ fn find_file_with_identifier<A: AsRef<Path>>(folder: A, identifier: u64) -> io::
             let identifier_line = file_content
                 .lines()
                 .find(|line| line.starts_with("IdentifierUID: "))
-                .and_then(|line| u64::from_str_radix(line.trim_start_matches("Identifier: ").trim(), 16).ok());
+                .and_then(|line| {
+                    u64::from_str_radix(line.trim_start_matches("Identifier: ").trim(), 16).ok()
+                });
             if let Some(id) = identifier_line {
                 if id == identifier {
                     return Ok(Some(entry.path()));
@@ -457,14 +487,22 @@ fn find_file_with_identifier<A: AsRef<Path>>(folder: A, identifier: u64) -> io::
     Ok(None)
 }
 
-async fn do_trace(udp: &mut DeviceConnection, sample: &[u8], max_iterations: u16, output_text: &mut String, decompiler: &mut InstructionDecoder) {
+async fn do_trace(
+    udp: &mut DeviceConnection,
+    sample: &[u8],
+    max_iterations: u16,
+    output_text: &mut String,
+    decompiler: &mut InstructionDecoder,
+    print_mem_access: bool,
+) {
     let trace = match net_execute_sample_traced(
         udp,
         &sample,
         max_iterations as u64,
         Duration::from_secs(60),
+        print_mem_access,
     )
-        .await
+    .await
     {
         ExecuteSampleResult::Success(trace) => Some(trace),
         x => {
@@ -474,10 +512,11 @@ async fn do_trace(udp: &mut DeviceConnection, sample: &[u8], max_iterations: u16
     };
 
     if let Some(trace) = trace {
-        for (i, state) in trace.0.iter().enumerate() {
+        for (index, state, mem) in trace.0.iter() {
             let rip = state.standard_registers.rip;
 
-            let shifted_code = sample.iter()
+            let shifted_code = sample
+                .iter()
                 .chain([0x90].iter().cycle())
                 .skip(rip as usize)
                 .take(64)
@@ -490,15 +529,30 @@ async fn do_trace(udp: &mut DeviceConnection, sample: &[u8], max_iterations: u16
                     if x.instruction.is_invalid() {
                         "<INVALID>".to_string()
                     } else {
-                        format!("{}", x.instruction.op_code().instruction_string())
+                        format!("{:<9}", x.instruction.op_code().instruction_string())
                     }
                 })
                 .unwrap_or("-".to_string());
 
             output_text.push_str(&format!(
-                "{i:>4}: {:04x}: {}: {:x?}\n",
+                "{index:>4}: {:04x}: {}: {:x?}\n",
                 state.standard_registers.rip, first_instruction, state
-            ))
+            ));
+
+            if print_mem_access {
+                for m in mem {
+                    let word = match (m.write, m.read) {
+                        (true, true) => "R+W",
+                        (true, false) => "W",
+                        (false, true) => "R",
+                        (false, false) => "?",
+                    };
+                    output_text.push_str(&format!(
+                        "    - Memory {word:<3} towards [{:4x}]\n",
+                        m.address
+                    ));
+                }
+            }
         }
         output_text.push_str(&format!(" == {:x?} ==\n", trace.1));
     }

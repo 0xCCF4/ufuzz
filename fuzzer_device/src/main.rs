@@ -18,7 +18,10 @@ use coverage::interface_definition::{CoverageCount, COM_INTERFACE_DESCRIPTION};
 use data_types::addresses::{Address, UCInstructionAddress};
 use fuzzer_data::decoder::InstructionDecoder;
 use fuzzer_data::genetic_pool::{GeneticPool, GeneticPoolSettings, GeneticSampleRating};
-use fuzzer_data::{genetic_pool, OtaC2D, OtaC2DTransport, OtaD2CTransport, ReportExecutionProblem};
+use fuzzer_data::{
+    genetic_pool, MemoryAccess, OtaC2D, OtaC2DTransport, OtaD2CTransport, ReportExecutionProblem,
+    TraceResult,
+};
 use fuzzer_device::cmos::CMOS;
 use fuzzer_device::controller_connection::{
     ConnectionError, ConnectionSettings, ControllerConnection,
@@ -30,6 +33,7 @@ use fuzzer_device::perf_monitor::PerfMonitor;
 use fuzzer_device::{
     disassemble_code, PersistentApplicationData, PersistentApplicationState, StateTrace,
 };
+use hypervisor::state::VmState;
 use itertools::Itertools;
 use log::{debug, error, info, trace, warn, Level};
 use performance_timing::measurements::MeasureValues;
@@ -172,6 +176,8 @@ unsafe fn main() -> Status {
         let mut execution_result = ExecutionResult::default();
         let mut state_trace_scratchpad_normal = StateTrace::default();
         let mut state_trace_scratchpad_serialized = StateTrace::default();
+        let mut state_trace_with_memory: StateTrace<(VmState, Vec<MemoryAccess>)> =
+            StateTrace::default();
         let mut decoder = InstructionDecoder::new();
 
         if let Err(err) = udp.send(OtaD2CTransport::ResetSession) {
@@ -485,23 +491,53 @@ unsafe fn main() -> Status {
                 OtaC2DTransport::TraceSample {
                     code,
                     max_iterations: max_instructions,
+                    record_memory_access,
                 } => {
-                    let exit = executor.state_trace_sample(
-                        code.as_slice(),
-                        &mut state_trace_scratchpad_normal,
-                        max_instructions.max(u16::MAX as u64) as usize,
-                    );
-                    for iteration in state_trace_scratchpad_normal.state.iter() {
-                        if let Err(err) =
-                            udp.send(OtaD2CTransport::TraceResult(iteration.clone().into()))
+                    if record_memory_access {
+                        let exit = executor.state_trace_sample_mem(
+                            code.as_slice(),
+                            &mut state_trace_with_memory,
+                            max_instructions.max(u16::MAX as u64) as usize,
+                        );
+                        for (i, (state, memory_accesses)) in
+                            state_trace_with_memory.state.iter().enumerate()
                         {
-                            error!("Failed to send trace result: {:?}", err);
+                            if let Err(err) =
+                                udp.send(OtaD2CTransport::TraceResult(TraceResult::Running {
+                                    memory_accesses: memory_accesses.clone(),
+                                    state: state.clone(),
+                                    index: i as u16,
+                                }))
+                            {
+                                error!("Failed to send trace result: {:?}", err);
+                            }
                         }
+                        if let Err(err) = udp.send(OtaD2CTransport::TraceResult(exit.into())) {
+                            error!("Failed to send trace exit: {:?}", err);
+                        }
+                        state_trace_scratchpad_normal.clear();
+                    } else {
+                        let exit = executor.state_trace_sample(
+                            code.as_slice(),
+                            &mut state_trace_scratchpad_normal,
+                            max_instructions.max(u16::MAX as u64) as usize,
+                        );
+                        for (i, state) in state_trace_scratchpad_normal.state.iter().enumerate() {
+                            if let Err(err) =
+                                udp.send(OtaD2CTransport::TraceResult(TraceResult::Running {
+                                    memory_accesses: Vec::new(),
+                                    state: state.clone(),
+                                    index: i as u16,
+                                }))
+                            {
+                                error!("Failed to send trace result: {:?}", err);
+                            }
+                        }
+                        if let Err(err) = udp.send(OtaD2CTransport::TraceResult(exit.into())) {
+                            error!("Failed to send trace exit: {:?}", err);
+                        }
+                        state_trace_scratchpad_normal.clear();
                     }
-                    if let Err(err) = udp.send(OtaD2CTransport::TraceResult(exit.into())) {
-                        error!("Failed to send trace exit: {:?}", err);
-                    }
-                    state_trace_scratchpad_normal.clear();
                 }
                 OtaC2DTransport::UCodeSpeculation { .. }
                 | OtaC2DTransport::TestIfPMCStable { .. } => {
@@ -553,8 +589,10 @@ fn genetic_pool_fuzzing(
     let ground_truth_coverage =
         ground_truth_coverage(executor, &mut execution_result, cmos, &mut random);
 
-    let mut state_trace_scratchpad_normal = StateTrace::default();
-    let mut state_trace_scratchpad_serialized = StateTrace::default();
+    let mut state_trace_scratchpad_normal: StateTrace<VmState> = StateTrace::default();
+    let mut state_trace_scratchpad_serialized: StateTrace<VmState> = StateTrace::default();
+    let mut state_trace_with_memory: StateTrace<(VmState, Vec<MemoryAccess>)> =
+        StateTrace::default();
     let mut decoder = InstructionDecoder::new();
 
     // Main fuzzing loop

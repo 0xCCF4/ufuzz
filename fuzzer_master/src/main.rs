@@ -85,6 +85,8 @@ enum Cmd {
         bulk: bool,
         #[arg(short, long, default_value = "1000")]
         max_iterations: u16,
+        #[arg(short, long)]
+        print_mem_access: bool,
     },
     BulkManual {
         input: Vec<PathBuf>,
@@ -511,6 +513,7 @@ async fn main() {
                 overwrite,
                 bulk,
                 max_iterations,
+                print_mem_access,
             } => {
                 manual_execution::main(
                     &mut udp,
@@ -531,10 +534,13 @@ async fn main() {
                     *bulk,
                     &mut state_manual_execution,
                     *max_iterations,
+                    *print_mem_access,
                 )
                 .await
             }
-            Cmd::BulkManual { overwrite, output, .. } => {
+            Cmd::BulkManual {
+                overwrite, output, ..
+            } => {
                 if bulk_manual_queue.is_empty() {
                     CommandExitResult::ExitProgram
                 } else {
@@ -544,11 +550,17 @@ async fn main() {
                         &interface,
                         &mut database,
                         input,
-                        Some(output.as_ref().cloned().unwrap_or_else(|| input.with_extension("out"))),
+                        Some(
+                            output
+                                .as_ref()
+                                .cloned()
+                                .unwrap_or_else(|| input.with_extension("out")),
+                        ),
                         *overwrite,
                         false,
                         &mut state_manual_execution,
                         0,
+                        false,
                     )
                     .await;
                     match result {

@@ -1,8 +1,10 @@
 use crate::{StateTrace, Trace};
 use alloc::boxed::Box;
+use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 use core::pin::Pin;
 use coverage::interface_definition::ComInterfaceDescription;
+use fuzzer_data::MemoryAccess;
 use hypervisor::error::HypervisorError;
 use hypervisor::hardware_vt::NestedPagingStructureEntryType;
 use hypervisor::state::{ExceptionQualification, GuestException, GuestRegisters, VmExitReason};
@@ -12,6 +14,7 @@ use hypervisor::x86_instructions::sgdt;
 use hypervisor::Page;
 use iced_x86::code_asm;
 use iced_x86::code_asm::CodeAssembler;
+use itertools::Itertools;
 use log::error;
 #[cfg(feature = "__debug_performance_trace")]
 use performance_timing::track_time;
@@ -350,7 +353,7 @@ impl Hypervisor {
 
     pub fn state_trace_vm(
         &mut self,
-        trace: &mut StateTrace,
+        trace: &mut StateTrace<VmState>,
         max_trace_length: usize,
     ) -> VmExitReason {
         self.vm.vt.enable_tracing();
@@ -386,6 +389,174 @@ impl Hypervisor {
         }
 
         self.vm.vt.disable_tracing();
+        last_exit
+    }
+
+    pub fn state_trace_vm_memory_introspection(
+        &mut self,
+        trace: &mut StateTrace<(VmState, Vec<MemoryAccess>)>,
+        max_trace_length: usize,
+    ) -> VmExitReason {
+        pub const MAX_INDEX: usize = CODE_ENTRY_PAGE_INDEX;
+
+        fn reset_permissions(vm: &mut Hypervisor) {
+            let execute_permission = vm
+                .vm
+                .vt
+                .nps_entry_flags(NestedPagingStructureEntryType::X)
+                .permission;
+            let no_permission = vm
+                .vm
+                .vt
+                .nps_entry_flags(NestedPagingStructureEntryType::None)
+                .permission;
+
+            for index in 0..MAX_INDEX + 1 {
+                let translation = vm.vm.get_translation(index << BASE_PAGE_SHIFT).unwrap();
+                let permissions = translation.permission() as u8;
+
+                let executable = permissions & execute_permission != 0;
+
+                if executable {
+                    translation.set_permission(execute_permission as u64);
+                } else {
+                    translation.set_permission(no_permission as u64);
+                }
+            }
+
+            vm.vm.vt.invalidate_caches();
+        }
+
+        let page_permissions = (0..MAX_INDEX + 1)
+            .map(|index| {
+                self.vm
+                    .get_translation(index << BASE_PAGE_SHIFT)
+                    .unwrap()
+                    .permission() as u8
+            })
+            .collect_vec();
+
+        reset_permissions(self);
+
+        self.vm.vt.enable_tracing();
+
+        trace.clear();
+
+        let mut eti_count = 0;
+
+        let mut state = self.initial_state.clone();
+        trace.push((state.clone(), Vec::new()));
+
+        let mut last_exit = VmExitReason::Unexpected(0);
+        if max_trace_length == 0 {
+            return last_exit;
+        }
+        let mut memory_accesses = BTreeMap::new();
+        for _ in 0..max_trace_length {
+            let exit = self.vm.vt.run();
+
+            if exit == VmExitReason::MonitorTrap {
+                eti_count = 0;
+
+                if !memory_accesses.is_empty() {
+                    reset_permissions(self);
+                }
+
+                last_exit = exit;
+                self.vm.vt.save_state(&mut state);
+                trace.push((
+                    state.clone(),
+                    memory_accesses.values().cloned().collect_vec(),
+                ));
+                memory_accesses.clear();
+
+                continue;
+            } else if exit == VmExitReason::ExternalInterrupt {
+                eti_count += 1;
+                if eti_count > 100 {
+                    break;
+                }
+                continue;
+            } else if let VmExitReason::EPTPageFault(qualification) = &exit {
+                let normalized_address = qualification.gpa as u64 % (1u64 << 30); // map to 1GB address space
+                let normalized_page = normalized_address >> BASE_PAGE_SHIFT;
+                if normalized_page > MAX_INDEX as u64 {
+                    last_exit = exit;
+                    self.vm.vt.save_state(&mut state);
+                    trace.push((
+                        state.clone(),
+                        memory_accesses.values().cloned().collect_vec(),
+                    ));
+                    break;
+                }
+
+                if !qualification.was_writable && qualification.data_write {
+                    let entry = memory_accesses
+                        .entry(normalized_address)
+                        .or_insert(MemoryAccess {
+                            address: normalized_address,
+                            read: false,
+                            write: false,
+                        });
+                    entry.write = true;
+
+                    let write_permission = self
+                        .vm
+                        .vt
+                        .nps_entry_flags(NestedPagingStructureEntryType::W)
+                        .permission;
+
+                    let entry = self
+                        .vm
+                        .get_translation((normalized_page << BASE_PAGE_SHIFT) as usize)
+                        .unwrap();
+                    entry.set_permission(entry.permission() | write_permission as u64);
+                    self.vm.vt.invalidate_caches();
+                } else if !qualification.was_readable && qualification.data_read {
+                    let entry = memory_accesses
+                        .entry(normalized_address)
+                        .or_insert(MemoryAccess {
+                            address: normalized_address,
+                            read: false,
+                            write: false,
+                        });
+                    entry.read = true;
+
+                    let read_permission = self
+                        .vm
+                        .vt
+                        .nps_entry_flags(NestedPagingStructureEntryType::R)
+                        .permission;
+
+                    let entry = self
+                        .vm
+                        .get_translation((normalized_page << BASE_PAGE_SHIFT) as usize)
+                        .unwrap();
+                    entry.set_permission(entry.permission() | read_permission as u64);
+                    self.vm.vt.invalidate_caches();
+                } else {
+                    last_exit = exit;
+                    self.vm.vt.save_state(&mut state);
+                    trace.push((
+                        state.clone(),
+                        memory_accesses.values().cloned().collect_vec(),
+                    ));
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+
+        self.vm.vt.disable_tracing();
+
+        // restore permissions
+        for (index, permission) in page_permissions.into_iter().enumerate() {
+            let translation = self.vm.get_translation(index << BASE_PAGE_SHIFT).unwrap();
+            translation.set_permission(permission as u64);
+        }
+        self.vm.vt.invalidate_caches();
+
         last_exit
     }
 

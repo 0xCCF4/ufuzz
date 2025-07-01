@@ -786,7 +786,11 @@ impl hardware_vt::HardwareVt for Vmx {
                 permission: 0b100,
                 memory_type: 0,
             },
-
+            // W
+            NestedPagingStructureEntryType::W => NestedPagingStructureEntryFlags {
+                permission: 0b010,
+                memory_type: 0,
+            },
             // R
             NestedPagingStructureEntryType::R => NestedPagingStructureEntryFlags {
                 permission: 0b001,

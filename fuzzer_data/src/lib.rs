@@ -87,22 +87,29 @@ pub struct ExecutionResult {
     pub fitness: GeneticSampleRating,
 }
 
+/// Memory access traced
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct MemoryAccess {
+    /// Address accessed
+    pub address: u64,
+    /// Read
+    pub read: bool,
+    /// Write
+    pub write: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum TraceResult {
     Finished(
         /// Exit reason from execution
         VmExitReason,
     ),
-    Running(
+    Running {
         /// Current VM state
-        VmState,
-    ),
-}
-
-impl From<VmState> for TraceResult {
-    fn from(state: VmState) -> Self {
-        TraceResult::Running(state)
-    }
+        index: u16,
+        state: VmState,
+        memory_accesses: Vec<MemoryAccess>,
+    },
 }
 
 impl From<VmExitReason> for TraceResult {
@@ -253,6 +260,8 @@ pub enum OtaC2DTransport {
         code: Code,
         /// Maximum number of instructions to trace
         max_iterations: u64,
+        /// Whether to record memory accesses
+        record_memory_access: bool,
     },
     /// Test microcode speculation
     UCodeSpeculation {

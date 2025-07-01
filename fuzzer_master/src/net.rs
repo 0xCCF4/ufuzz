@@ -9,10 +9,10 @@ use crate::genetic_breeding::SAMPLE_TIMEOUT;
 use crate::manual_execution::disassemble_code;
 use crate::{wait_for_device, CommandExitResult, WaitForDeviceResult};
 use fuzzer_data::{
-    Code, ExecutionResult, Ota, OtaC2DTransport, OtaD2CTransport, ReportExecutionProblem,
-    SpeculationResult, TraceResult,
+    Code, ExecutionResult, MemoryAccess, Ota, OtaC2DTransport, OtaD2CTransport,
+    ReportExecutionProblem, SpeculationResult, TraceResult,
 };
-use hypervisor::state::VmExitReason;
+use hypervisor::state::{VmExitReason, VmState};
 use itertools::Itertools;
 use log::{error, info, trace, warn};
 use performance_timing::measurements::MeasureValues;
@@ -166,11 +166,13 @@ pub async fn net_execute_sample_traced(
     sample: &[u8],
     max_iterations: u64,
     timeout: Duration,
-) -> ExecuteSampleResult<(Vec<hypervisor::state::VmState>, VmExitReason)> {
+    record_memory_access: bool,
+) -> ExecuteSampleResult<(Vec<(u16, VmState, Vec<MemoryAccess>)>, VmExitReason)> {
     if let Err(err) = net
         .send(OtaC2DTransport::TraceSample {
             code: sample.to_vec(),
             max_iterations,
+            record_memory_access,
         })
         .await
     {
@@ -187,8 +189,12 @@ pub async fn net_execute_sample_traced(
             if let Ota::Transport { content, .. } = packet {
                 match content {
                     OtaD2CTransport::TraceResult(result) => match result {
-                        TraceResult::Running(state) => {
-                            states.push(state);
+                        TraceResult::Running {
+                            index,
+                            state,
+                            memory_accesses,
+                        } => {
+                            states.push((index, state, memory_accesses));
                         }
                         TraceResult::Finished(exit) => {
                             return ExecuteSampleResult::Success((states, exit));
