@@ -453,16 +453,15 @@ impl Hypervisor {
         }
         let mut memory_accesses = BTreeMap::new();
         for _ in 0..max_trace_length {
-            let exit = self.vm.vt.run();
+            last_exit = self.vm.vt.run();
 
-            if exit == VmExitReason::MonitorTrap {
+            if last_exit == VmExitReason::MonitorTrap {
                 eti_count = 0;
 
                 if !memory_accesses.is_empty() {
                     reset_permissions(self);
                 }
 
-                last_exit = exit;
                 self.vm.vt.save_state(&mut state);
                 trace.push((
                     state.clone(),
@@ -471,17 +470,21 @@ impl Hypervisor {
                 memory_accesses.clear();
 
                 continue;
-            } else if exit == VmExitReason::ExternalInterrupt {
+            } else if last_exit == VmExitReason::ExternalInterrupt {
                 eti_count += 1;
                 if eti_count > 100 {
+                    self.vm.vt.save_state(&mut state);
+                    trace.push((
+                        state.clone(),
+                        memory_accesses.values().cloned().collect_vec(),
+                    ));
                     break;
                 }
                 continue;
-            } else if let VmExitReason::EPTPageFault(qualification) = &exit {
+            } else if let VmExitReason::EPTPageFault(qualification) = &last_exit {
                 let normalized_address = qualification.gpa as u64 % (1u64 << 30); // map to 1GB address space
                 let normalized_page = normalized_address >> BASE_PAGE_SHIFT;
                 if normalized_page > MAX_INDEX as u64 {
-                    last_exit = exit;
                     self.vm.vt.save_state(&mut state);
                     trace.push((
                         state.clone(),
@@ -490,7 +493,23 @@ impl Hypervisor {
                     break;
                 }
 
-                if !qualification.was_writable && qualification.data_write {
+                let write_permission = self
+                    .vm
+                    .vt
+                    .nps_entry_flags(NestedPagingStructureEntryType::W)
+                    .permission;
+
+                let read_permission = self
+                    .vm
+                    .vt
+                    .nps_entry_flags(NestedPagingStructureEntryType::R)
+                    .permission;
+
+                if !qualification.was_writable
+                    && qualification.data_write
+                    && *page_permissions.get(normalized_page as usize).unwrap() & write_permission
+                        > 0
+                {
                     let entry = memory_accesses
                         .entry(normalized_address)
                         .or_insert(MemoryAccess {
@@ -500,19 +519,17 @@ impl Hypervisor {
                         });
                     entry.write = true;
 
-                    let write_permission = self
-                        .vm
-                        .vt
-                        .nps_entry_flags(NestedPagingStructureEntryType::W)
-                        .permission;
-
                     let entry = self
                         .vm
                         .get_translation((normalized_page << BASE_PAGE_SHIFT) as usize)
                         .unwrap();
                     entry.set_permission(entry.permission() | write_permission as u64);
                     self.vm.vt.invalidate_caches();
-                } else if !qualification.was_readable && qualification.data_read {
+                } else if !qualification.was_readable
+                    && qualification.data_read
+                    && *page_permissions.get(normalized_page as usize).unwrap() & read_permission
+                        > 0
+                {
                     let entry = memory_accesses
                         .entry(normalized_address)
                         .or_insert(MemoryAccess {
@@ -522,12 +539,6 @@ impl Hypervisor {
                         });
                     entry.read = true;
 
-                    let read_permission = self
-                        .vm
-                        .vt
-                        .nps_entry_flags(NestedPagingStructureEntryType::R)
-                        .permission;
-
                     let entry = self
                         .vm
                         .get_translation((normalized_page << BASE_PAGE_SHIFT) as usize)
@@ -535,7 +546,6 @@ impl Hypervisor {
                     entry.set_permission(entry.permission() | read_permission as u64);
                     self.vm.vt.invalidate_caches();
                 } else {
-                    last_exit = exit;
                     self.vm.vt.save_state(&mut state);
                     trace.push((
                         state.clone(),
@@ -544,6 +554,11 @@ impl Hypervisor {
                     break;
                 }
             } else {
+                self.vm.vt.save_state(&mut state);
+                trace.push((
+                    state.clone(),
+                    memory_accesses.values().cloned().collect_vec(),
+                ));
                 break;
             }
         }
@@ -637,6 +652,7 @@ impl Hypervisor {
     fn generate_code_entry(code_entry: u64, current_rip: u64) -> Vec<u8> {
         let mut assembler = CodeAssembler::new(64).unwrap();
 
+        assembler.finit().unwrap();
         assembler.wbinvd().unwrap();
         assembler.mfence().unwrap();
         assembler.lfence().unwrap();

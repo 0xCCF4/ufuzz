@@ -220,6 +220,7 @@ where
                     &thread_context.interface,
                     thread_context.database,
                     thread_context.input.as_ref(),
+                    true,
                 )
                 .await
                 {
@@ -309,9 +310,11 @@ where
                     | VmExitReason::Rdseed
                     | VmExitReason::Rdtsc
                     | VmExitReason::Rdpmc
+                    | VmExitReason::VMCommand(_)
                     | VmExitReason::Cr8Write
                     | VmExitReason::IoWrite
                     | VmExitReason::MsrUse
+                    | VmExitReason::Invd
                     | VmExitReason::Shutdown(_)
                     | VmExitReason::MonitorTrap
                     | VmExitReason::EPTPageFault(_) => ExitKind::Ok,

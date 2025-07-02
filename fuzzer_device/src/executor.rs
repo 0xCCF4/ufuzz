@@ -106,6 +106,7 @@ impl SampleExecutor {
         cmos: &mut cmos::CMOS<PersistentApplicationData>,
         random: &mut R,
         mut net: Option<&mut ControllerConnection>,
+        collect_coverage: bool,
     ) -> ExecutionSampleResult {
         // try to disable Non-Maskable Interrupts
         let nmi_guard = NMIGuard::disable_nmi(true);
@@ -182,151 +183,153 @@ impl SampleExecutor {
         }
 
         if let Some(coverage) = self.coverage.as_mut() {
-            // plan the following executions to collect coverage
-            let execution_plan = coverage.planner.execute_for_all_addresses(
-                |addresses: &[UCInstructionAddress]| {
-                    if addresses.len() == 1 {
-                        cmos.data_mut_or_insert().state =
-                            PersistentApplicationState::CollectingCoverage(
-                                addresses[0].address() as u16
-                            );
-                    } else {
-                        todo!("Implement multi-address coverage collection");
-                    }
+            if collect_coverage {
+                // plan the following executions to collect coverage
+                let execution_plan = coverage.planner.execute_for_all_addresses(
+                    |addresses: &[UCInstructionAddress]| {
+                        if addresses.len() == 1 {
+                            cmos.data_mut_or_insert().state =
+                                PersistentApplicationState::CollectingCoverage(
+                                    addresses[0].address() as u16
+                                );
+                        } else {
+                            todo!("Implement multi-address coverage collection");
+                        }
 
-                    #[cfg(feature = "__debug_print_progress_print")]
-                    print!("{}\r", addresses[0]);
+                        #[cfg(feature = "__debug_print_progress_print")]
+                        print!("{}\r", addresses[0]);
 
-                    let mut iteration: usize = 0;
-                    loop {
-                        iteration += 1;
+                        let mut iteration: usize = 0;
+                        loop {
+                            iteration += 1;
 
-                        // prepare hypervisor for execution
-                        self.hypervisor.prepare_vm_state();
+                            // prepare hypervisor for execution
+                            self.hypervisor.prepare_vm_state();
 
-                        let result =
-                            coverage
-                                .collector
-                                .execute_coverage_collection(addresses, || {
-                                    // execute the sample within the hypervisor
-                                    let vm_exit =
-                                        self.hypervisor.run_with_callback(true, disable_all_hooks);
-                                    // hooks are now disabled, so coverage collection stopped
+                            let result =
+                                coverage
+                                    .collector
+                                    .execute_coverage_collection(addresses, || {
+                                        // execute the sample within the hypervisor
+                                        let vm_exit =
+                                            self.hypervisor.run_with_callback(true, disable_all_hooks);
+                                        // hooks are now disabled, so coverage collection stopped
 
-                                    if addresses.len() == 1 {
-                                        cmos.data_mut_or_insert().state =
-                                            PersistentApplicationState::Idle;
-                                    }
+                                        if addresses.len() == 1 {
+                                            cmos.data_mut_or_insert().state =
+                                                PersistentApplicationState::Idle;
+                                        }
 
-                                    let mut state = self.hypervisor.initial_state.clone();
-                                    self.hypervisor.capture_state(&mut state);
+                                        let mut state = self.hypervisor.initial_state.clone();
+                                        self.hypervisor.capture_state(&mut state);
 
-                                    let addresses: Vec<UCInstructionAddress> = addresses.to_vec(); // todo optimize
+                                        let addresses: Vec<UCInstructionAddress> = addresses.to_vec(); // todo optimize
 
-                                    (addresses, vm_exit, state) // disable hooks after execution to not capture conditional logic of the vm exit handler
-                                });
+                                        (addresses, vm_exit, state) // disable hooks after execution to not capture conditional logic of the vm exit handler
+                                    });
 
-                        match result {
-                            Err(error) => {
-                                return Err(error);
-                            }
-                            Ok(result) => {
-                                if result.result.1 == VmExitReason::ExternalInterrupt {
-                                    #[cfg(
-                                        feature = "__debug_print_external_interrupt_notification"
-                                    )]
-                                    trace!(
-                                        "External interrupt detected. Retrying... {}",
-                                        iteration
-                                    );
-                                    if iteration < 10 {
-                                        continue;
+                            match result {
+                                Err(error) => {
+                                    return Err(error);
+                                }
+                                Ok(result) => {
+                                    if result.result.1 == VmExitReason::ExternalInterrupt {
+                                        #[cfg(
+                                            feature = "__debug_print_external_interrupt_notification"
+                                        )]
+                                        trace!(
+                                            "External interrupt detected. Retrying... {}",
+                                            iteration
+                                        );
+                                        if iteration < 10 {
+                                            continue;
+                                        } else {
+                                            return Ok(result);
+                                        }
                                     } else {
                                         return Ok(result);
                                     }
-                                } else {
-                                    return Ok(result);
                                 }
                             }
                         }
-                    }
-                },
-            );
+                    },
+                );
 
-            // execute the planned coverage collection
-            for iteration in execution_plan {
-                // save the vm current state
-                match iteration {
-                    Err(error) => {
-                        execution_result
-                            .events
-                            .push(ExecutionEvent::CoverageCollectionError { error });
-                    }
-                    Ok(CoverageExecutionResult {
-                        result: (hooked_addresses, mut current_vm_exit, current_vm_state),
-                        hooks: coverage_information,
-                    }) => {
-                        #[cfg(feature = "__debug_print_progress_net")]
-                        if let Some(ref mut net) = net {
-                            let _ = net.log_unreliable(
-                                Level::Warn,
-                                format!(
-                                    "Address: {:04x?}: {:x?}",
-                                    hooked_addresses, coverage_information
-                                ),
-                            );
+                // execute the planned coverage collection
+                for iteration in execution_plan {
+                    // save the vm current state
+                    match iteration {
+                        Err(error) => {
+                            execution_result
+                                .events
+                                .push(ExecutionEvent::CoverageCollectionError { error });
                         }
-
-                        if let VmExitReason::EPTPageFault(fault) = &mut current_vm_exit {
-                            if fault.gpa >= self.coverage_interface.base as usize
-                                && fault.gpa < (self.coverage_interface.base as usize + 4096)
-                            {
-                                // since in normal execution this is the setting
-                                fault.was_writable = false;
-                                fault.was_readable = false;
+                        Ok(CoverageExecutionResult {
+                            result: (hooked_addresses, mut current_vm_exit, current_vm_state),
+                            hooks: coverage_information,
+                        }) => {
+                            #[cfg(feature = "__debug_print_progress_net")]
+                            if let Some(ref mut net) = net {
+                                let _ = net.log_unreliable(
+                                    Level::Warn,
+                                    format!(
+                                        "Address: {:04x?}: {:x?}",
+                                        hooked_addresses, coverage_information
+                                    ),
+                                );
                             }
-                        }
 
-                        // first check if the result of the execution is the same for the current iteration
-                        let exit = if &execution_result.exit != &current_vm_exit {
-                            Some(current_vm_exit)
-                        } else {
-                            None
-                        };
-                        let state = if &execution_result.state != &current_vm_state {
-                            Some(current_vm_state)
-                        } else {
-                            None
-                        };
+                            if let VmExitReason::EPTPageFault(fault) = &mut current_vm_exit {
+                                if fault.gpa >= self.coverage_interface.base as usize
+                                    && fault.gpa < (self.coverage_interface.base as usize + 4096)
+                                {
+                                    // since in normal execution this is the setting
+                                    fault.was_writable = false;
+                                    fault.was_readable = false;
+                                }
+                            }
 
-                        if exit.is_some() || state.is_some() {
-                            execution_result.events.push(
-                                ExecutionEvent::VmMismatchCoverageCollection {
-                                    address: hooked_addresses[0].address() as u16,
-                                    coverage_exit: exit,
-                                    coverage_state: state,
-                                },
-                            );
-                        }
+                            // first check if the result of the execution is the same for the current iteration
+                            let exit = if &execution_result.exit != &current_vm_exit {
+                                Some(current_vm_exit)
+                            } else {
+                                None
+                            };
+                            let state = if &execution_result.state != &current_vm_state {
+                                Some(current_vm_state)
+                            } else {
+                                None
+                            };
 
-                        // extract the coverage information
-                        for ucode_location in coverage_information {
-                            if let ExecutionResultEntry::Covered {
-                                address,
-                                count,
-                                last_rip: _,
-                            } = ucode_location
-                            {
-                                let entry =
-                                    execution_result.coverage.entry(ucode_location.address());
+                            if exit.is_some() || state.is_some() {
+                                execution_result.events.push(
+                                    ExecutionEvent::VmMismatchCoverageCollection {
+                                        address: hooked_addresses[0].address() as u16,
+                                        coverage_exit: exit,
+                                        coverage_state: state,
+                                    },
+                                );
+                            }
 
-                                match entry {
-                                    btree_map::Entry::Occupied(mut entry) => {
-                                        error!("Address {:?} was already analyzed for coverage. This should not have happened. This is an implementation problem!", address);
-                                        *entry.get_mut() = count; // just replace the count
-                                    }
-                                    btree_map::Entry::Vacant(entry) => {
-                                        entry.insert(count);
+                            // extract the coverage information
+                            for ucode_location in coverage_information {
+                                if let ExecutionResultEntry::Covered {
+                                    address,
+                                    count,
+                                    last_rip: _,
+                                } = ucode_location
+                                {
+                                    let entry =
+                                        execution_result.coverage.entry(ucode_location.address());
+
+                                    match entry {
+                                        btree_map::Entry::Occupied(mut entry) => {
+                                            error!("Address {:?} was already analyzed for coverage. This should not have happened. This is an implementation problem!", address);
+                                            *entry.get_mut() = count; // just replace the count
+                                        }
+                                        btree_map::Entry::Vacant(entry) => {
+                                            entry.insert(count);
+                                        }
                                     }
                                 }
                             }

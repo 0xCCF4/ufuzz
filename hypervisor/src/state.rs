@@ -651,6 +651,10 @@ pub enum VmExitReason {
     VMEntryFailure(u32, u64),
     /// Monitor trap flag
     MonitorTrap,
+    /// VM commands: VMCALL, VMLAUNCH, VMPTRLD, VMPTRST, VMREAD, VMRESUME, VMWRITE, VMXOFF, VMXON
+    VMCommand(u16),
+    /// Invd instructions
+    Invd,
 }
 
 impl VmExitReason {
@@ -684,6 +688,14 @@ impl VmExitReason {
             VmExitReason::MsrUse => matches!(other, VmExitReason::MsrUse),
             VmExitReason::ExternalInterrupt => matches!(other, VmExitReason::ExternalInterrupt),
             VmExitReason::TimerExpiration => matches!(other, VmExitReason::TimerExpiration),
+            VmExitReason::Invd => matches!(other, VmExitReason::Invd),
+            VmExitReason::VMCommand(x) => {
+                if let VmExitReason::VMCommand(y) = other {
+                    x == y
+                } else {
+                    false
+                }
+            }
             VmExitReason::Shutdown(a) => {
                 if let VmExitReason::Shutdown(b) = other {
                     a == b

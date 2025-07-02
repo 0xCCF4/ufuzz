@@ -152,7 +152,7 @@ pub async fn main(
                 }
 
                 let (result, events) =
-                    match net_execute_sample(net, interface, database, sample.code()).await {
+                    match net_execute_sample(net, interface, database, sample.code(), true).await {
                         ExecuteSampleResult::Timeout => return CommandExitResult::ForceReconnect,
                         ExecuteSampleResult::Rerun => return CommandExitResult::Operational,
                         ExecuteSampleResult::Success((a, b)) => (a, b),

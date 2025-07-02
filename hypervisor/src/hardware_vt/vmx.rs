@@ -661,6 +661,7 @@ impl hardware_vt::HardwareVt for Vmx {
         const VMX_EXIT_REASON_TRIPLE_FAULT: u16 = 2;
         const VMX_EXIT_REASON_CPUID: u16 = 10;
         const VMX_EXIT_REASON_HLT: u16 = 12;
+        const VMX_EXIT_READONS_INVD: u16 = 13;
         const VMX_EXIT_REASON_RDTSC: u16 = 16;
         const VMX_EXIT_REASON_IO: u16 = 30;
         const VMX_EXIT_REASON_RDMSR: u16 = 31;
@@ -741,6 +742,8 @@ impl hardware_vt::HardwareVt for Vmx {
             VMX_EXIT_REASON_RDSEED => VmExitReason::Rdseed,
             VMX_EXIT_REASON_RDTSC => VmExitReason::Rdtsc,
             VMX_EXIT_REASON_MONITOR_TRAP_FLAG => VmExitReason::MonitorTrap,
+            VMX_EXIT_READONS_INVD => VmExitReason::Invd,
+            x if x >= 18 && x <= 27 => VmExitReason::VMCommand(x),
             // Anything else.
             _ => VmExitReason::Unexpected(vmread(vmcs::ro::EXIT_REASON)),
         };

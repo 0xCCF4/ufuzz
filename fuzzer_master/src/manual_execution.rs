@@ -10,10 +10,10 @@ use crate::net::{
     net_execute_sample, net_execute_sample_traced, net_fuzzing_pretext, ExecuteSampleResult,
 };
 use crate::CommandExitResult;
-use fuzzer_data::decoder::InstructionDecoder;
+use fuzzer_data::decoder::{InstructionDecoder, InstructionWithBytes};
 use fuzzer_data::ReportExecutionProblem;
 use hypervisor::state::StateDifference;
-use iced_x86::{Decoder, DecoderOptions, Formatter, Instruction, NasmFormatter};
+use iced_x86::{Formatter, NasmFormatter};
 use itertools::Itertools;
 use log::{error, info};
 use std::collections::VecDeque;
@@ -54,6 +54,7 @@ pub async fn main<A: AsRef<Path>, B: AsRef<Path>>(
     state: &mut ManualExecutionState,
     max_iterations: u16,
     print_mem_access: bool,
+    collect_coverage: bool,
 ) -> CommandExitResult {
     if matches!(state, ManualExecutionState::NotStarted) {
         if !input.as_ref().exists() {
@@ -144,11 +145,12 @@ pub async fn main<A: AsRef<Path>, B: AsRef<Path>>(
 
     while let Some(sample) = state.1.front() {
         info!("Sample queue size: {}", state.1.len());
-        let (result, events) = match net_execute_sample(udp, interface, db, &sample).await {
-            ExecuteSampleResult::Timeout => return CommandExitResult::RetryOrReconnect,
-            ExecuteSampleResult::Rerun => return CommandExitResult::Operational,
-            ExecuteSampleResult::Success((a, b)) => (a, b),
-        };
+        let (result, events) =
+            match net_execute_sample(udp, interface, db, &sample, collect_coverage).await {
+                ExecuteSampleResult::Timeout => return CommandExitResult::RetryOrReconnect,
+                ExecuteSampleResult::Rerun => return CommandExitResult::Operational,
+                ExecuteSampleResult::Success((a, b)) => (a, b),
+            };
 
         db.push_results(sample.to_vec(), result.clone(), events.clone(), 0, 0);
         let _ = db.save().await.map_err(|e| {
@@ -512,7 +514,11 @@ async fn do_trace(
     };
 
     if let Some(trace) = trace {
-        for (index, state, mem) in trace.0.iter() {
+        for (i, (index, state, _)) in trace.0.iter().enumerate() {
+            if i == trace.0.len() - 1 {
+                output_text.push_str(&format!(" == {:x?} ==\n", trace.1));
+            }
+
             let rip = state.standard_registers.rip;
 
             let shifted_code = sample
@@ -535,26 +541,30 @@ async fn do_trace(
                 .unwrap_or("-".to_string());
 
             output_text.push_str(&format!(
-                "{index:>4}: {:04x}: {}: {:x?}\n",
+                " {index:>4}: {:04x}: {}: {:x?}\n",
                 state.standard_registers.rip, first_instruction, state
             ));
 
             if print_mem_access {
-                for m in mem {
-                    let word = match (m.write, m.read) {
-                        (true, true) => "R+W",
-                        (true, false) => "W",
-                        (false, true) => "R",
-                        (false, false) => "?",
-                    };
-                    output_text.push_str(&format!(
-                        "    - Memory {word:<3} towards [{:4x}]\n",
-                        m.address
-                    ));
+                if let Some(mem) = trace.0.get(i + 1).as_ref() {
+                    for m in &mem.2 {
+                        let word = match (m.write, m.read) {
+                            (true, true) => "R+W",
+                            (true, false) => "W",
+                            (false, true) => "R",
+                            (false, false) => "?",
+                        };
+                        output_text.push_str(&format!(
+                            "    - Memory {word:<3} towards [{:4x}]\n",
+                            m.address
+                        ));
+                    }
                 }
             }
         }
-        output_text.push_str(&format!(" == {:x?} ==\n", trace.1));
+        if trace.0.is_empty() {
+            output_text.push_str(&format!(" == {:x?} ==\n", trace.1));
+        }
     }
 }
 
@@ -568,7 +578,28 @@ async fn do_trace(
 /// * `code` - Code sample to disassemble
 /// * `out` - String buffer to write disassembly to
 pub fn disassemble_code(code: &[u8], out: &mut String) {
-    let mut decoder = Decoder::with_ip(64, code, 0, DecoderOptions::NONE);
+    fn format_instruction(
+        instruction: &InstructionWithBytes,
+        formatter: &mut NasmFormatter,
+        output: &mut String,
+    ) {
+        let mut mm = String::new();
+        let mut hexdecode = String::new();
+
+        formatter.format(&instruction.instruction, &mut mm);
+
+        // Eg. "00007FFAC46ACDB2 488DAC2400FFFFFF     lea       rbp,[rsp-100h]"
+        for b in instruction.bytes.iter() {
+            hexdecode.push_str(&format!("{:02X}", b));
+        }
+        output.push_str(&format!(
+            " {:04X} {hexdecode:<20} {mm}\n",
+            instruction.instruction.ip()
+        ));
+    }
+
+    let mut decoder = InstructionDecoder::new();
+    let code = decoder.decode(code, 0);
     let mut formatter = NasmFormatter::new();
 
     formatter.options_mut().set_digit_separator("`");
@@ -576,25 +607,33 @@ pub fn disassemble_code(code: &[u8], out: &mut String) {
     formatter.options_mut().set_show_useless_prefixes(true);
 
     let mut output = String::new();
-    let mut instruction = Instruction::default();
 
-    while decoder.can_decode() {
-        decoder.decode_out(&mut instruction);
-        output.clear();
-        formatter.format(&instruction, &mut output);
-
-        // Eg. "00007FFAC46ACDB2 488DAC2400FFFFFF     lea       rbp,[rsp-100h]"
-        out.push_str(&format!("{:016X} ", instruction.ip()));
-        let start_index = (instruction.ip() - 0) as usize;
-        let instr_bytes = &code[start_index..start_index + instruction.len()];
-        for b in instr_bytes.iter() {
-            out.push_str(&format!("{:02X}", b));
-        }
-        if instr_bytes.len() < 10 {
-            for _ in 0..10 - instr_bytes.len() {
-                out.push_str("  ");
-            }
-        }
-        out.push_str(&format!(" {}\n", output));
+    for i in 0..code.len() - 1 {
+        let instruction = code.get(i).unwrap();
+        format_instruction(&instruction, &mut formatter, &mut output);
     }
+
+    if code.len() > 0 {
+        let last_instruction = code.get(code.len() - 1).unwrap();
+        if !last_instruction.instruction.is_invalid() {
+            format_instruction(&last_instruction, &mut formatter, &mut output);
+        } else {
+            // invalid instruction, add some NOP 0x90 at end
+            let ip = last_instruction.instruction.ip();
+            let bytes = last_instruction
+                .bytes
+                .iter()
+                .chain([0x90u8].iter().cycle())
+                .cloned()
+                .take(last_instruction.bytes.iter().len() + 30)
+                .collect_vec();
+            drop(code);
+            let code = decoder.decode(bytes.as_slice(), ip);
+            format_instruction(code.get(0).unwrap(), &mut formatter, &mut output);
+        }
+    }
+
+    output.push('\n');
+
+    out.push_str(&output);
 }

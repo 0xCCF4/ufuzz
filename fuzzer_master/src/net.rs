@@ -84,6 +84,7 @@ pub async fn net_execute_sample(
     interface: &FuzzerNodeInterface,
     db: &mut Database,
     sample: &[u8],
+    collect_coverage: bool,
 ) -> ExecuteSampleResult<(ExecutionResult, Vec<ReportExecutionProblem>)> {
     let mut disasm = String::new();
     disassemble_code(sample, &mut disasm);
@@ -92,6 +93,7 @@ pub async fn net_execute_sample(
     if let Err(err) = net
         .send(OtaC2DTransport::ExecuteSample {
             code: sample.to_vec(),
+            coverage: collect_coverage,
         })
         .await
     {

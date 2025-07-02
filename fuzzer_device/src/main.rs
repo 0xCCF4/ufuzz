@@ -327,7 +327,7 @@ unsafe fn main() -> Status {
                 OtaC2DTransport::SetRandomSeed { seed } => {
                     random = random_source(seed);
                 }
-                OtaC2DTransport::ExecuteSample { code } =>
+                OtaC2DTransport::ExecuteSample { code, coverage } =>
                 #[cfg_attr(
                     feature = "__debug_performance_trace",
                     track_time("fuzzer_device::main_loop::execute_sample")
@@ -342,6 +342,7 @@ unsafe fn main() -> Status {
                         &mut cmos,
                         &mut random,
                         Some(&mut udp),
+                        coverage,
                     );
 
                     let events = execution_result
@@ -490,14 +491,14 @@ unsafe fn main() -> Status {
                 }
                 OtaC2DTransport::TraceSample {
                     code,
-                    max_iterations: max_instructions,
+                    max_iterations,
                     record_memory_access,
                 } => {
                     if record_memory_access {
                         let exit = executor.state_trace_sample_mem(
                             code.as_slice(),
                             &mut state_trace_with_memory,
-                            max_instructions.max(u16::MAX as u64) as usize,
+                            max_iterations.min(u16::MAX as u64) as usize,
                         );
                         for (i, (state, memory_accesses)) in
                             state_trace_with_memory.state.iter().enumerate()
@@ -520,7 +521,7 @@ unsafe fn main() -> Status {
                         let exit = executor.state_trace_sample(
                             code.as_slice(),
                             &mut state_trace_scratchpad_normal,
-                            max_instructions.max(u16::MAX as u64) as usize,
+                            max_iterations.min(u16::MAX as u64) as usize,
                         );
                         for (i, state) in state_trace_scratchpad_normal.state.iter().enumerate() {
                             if let Err(err) =
@@ -607,6 +608,7 @@ fn genetic_pool_fuzzing(
                 cmos,
                 &mut random,
                 None,
+                true,
             );
 
             // Handle events
@@ -807,7 +809,7 @@ fn ground_truth_coverage<R: RngCore>(
     random: &mut R,
 ) -> BTreeMap<UCInstructionAddress, CoverageCount> {
     info!("Collecting ground truth coverage");
-    let _ = executor.execute_sample(&[], execution_result, cmos, random, None);
+    let _ = executor.execute_sample(&[], execution_result, cmos, random, None, true);
     let ground_truth_coverage = execution_result.coverage.clone();
     if execution_result.events.len() > 0 {
         error!("Initial sample execution had events");

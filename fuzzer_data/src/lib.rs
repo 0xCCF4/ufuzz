@@ -253,6 +253,8 @@ pub enum OtaC2DTransport {
     ExecuteSample {
         /// Code to execute
         code: Code,
+        /// Enable coverage collection
+        coverage: bool,
     },
     /// Trace a code sample
     TraceSample {

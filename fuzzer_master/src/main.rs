@@ -87,13 +87,19 @@ enum Cmd {
         max_iterations: u16,
         #[arg(short, long)]
         print_mem_access: bool,
+        #[arg(short, long)]
+        no_coverage_collection: bool,
     },
     BulkManual {
         input: Vec<PathBuf>,
         #[arg(short, long)]
         output: Option<PathBuf>,
-        #[arg(short = 'f', long, default_value = "false")]
+        #[arg(short = 'f', long)]
         overwrite: bool,
+        #[arg(short, long)]
+        no_coverage_collection: bool,
+        #[arg(short, long, default_value = "1000")]
+        max_iterations: u16,
     },
     AFL {
         #[arg(short, long)]
@@ -514,6 +520,7 @@ async fn main() {
                 bulk,
                 max_iterations,
                 print_mem_access,
+                no_coverage_collection,
             } => {
                 manual_execution::main(
                     &mut udp,
@@ -535,11 +542,16 @@ async fn main() {
                     &mut state_manual_execution,
                     *max_iterations,
                     *print_mem_access,
+                    !no_coverage_collection,
                 )
                 .await
             }
             Cmd::BulkManual {
-                overwrite, output, ..
+                overwrite,
+                output,
+                no_coverage_collection,
+                max_iterations,
+                ..
             } => {
                 if bulk_manual_queue.is_empty() {
                     CommandExitResult::ExitProgram
@@ -559,8 +571,9 @@ async fn main() {
                         *overwrite,
                         false,
                         &mut state_manual_execution,
-                        0,
+                        *max_iterations,
                         false,
+                        !no_coverage_collection,
                     )
                     .await;
                     match result {
