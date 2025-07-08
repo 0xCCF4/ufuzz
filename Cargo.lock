@@ -1768,9 +1768,9 @@ dependencies = [
 
 [[package]]
 name = "log"
-version = "0.4.26"
+version = "0.4.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "30bde2b3dc3671ae49d8e2e9f044c7c005836e7a023ee57cffa25ab82764bb9e"
+checksum = "13dc2df351e3202783a1fe0d44375f7295ffb4049267b0f3018346dc122a1d94"
 dependencies = [
  "serde",
 ]
@@ -2077,6 +2077,20 @@ name = "pin-utils"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8b870d8c151b6f2fb93e84a13146138f05d02ed11c7e7c54f8826aaaf7c9f184"
+
+[[package]]
+name = "poc"
+version = "0.1.0"
+dependencies = [
+ "custom_processing_unit",
+ "data_types",
+ "itertools 0.14.0",
+ "log",
+ "ucode_compiler_derive",
+ "ucode_compiler_dynamic",
+ "ucode_dump",
+ "uefi",
+]
 
 [[package]]
 name = "postcard"

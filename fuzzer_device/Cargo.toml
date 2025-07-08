@@ -34,6 +34,7 @@ __debug_print_udp = [] # print debug information from udp interface
 __debug_print_events = [] # print coverage events
 __debug_performance_trace = ["coverage/timing_measurement"] # trace function durations
 __debug_only_below_0x1000 = [] # collect coverage only below address 0x1000
+__debug_dont_reinitialize_fpu = [] # disable reinitialization of FPU
 
 __device_brix = ["device_brix", "rand_isaac", "mutation_all", "__debug_print_mutation_info", "__debug_print_dissassembly", "__debug_print_progress_print"]
 __device_bochs = ["device_bochs", "rand_isaac", "mutation_all", "__debug_print_external_interrupt_notification", "__debug_print_mutation_info", "__debug_performance_trace"]

@@ -21,6 +21,8 @@ use rocket::serde::json::Json;
 use rocket::Shutdown;
 use sd_notify::NotifyState;
 use std::process::Command;
+use std::thread;
+use std::time::Duration;
 
 /// Command configuration loaded from environment variables
 lazy_static! {
@@ -110,12 +112,30 @@ fn alive() -> Result<status::Custom<Json<bool>>, status::Custom<String>> {
     Ok(status::Custom(Status::Accepted, true.into()))
 }
 
+/// Runs the startup executable
+#[post("/startup")]
+fn startup() -> Result<status::Custom<String>, status::Custom<String>> {
+    let _ = sd_notify::notify(true, &[NotifyState::Ready]);
+    let mut command = Command::new(&CMD[0]);
+    command.args(&CMD[1..]);
+    command.arg("send_keys");
+    command.arg("startup");
+    execute_command(command)?;
+    thread::sleep(Duration::from_secs(2));
+    let mut command = Command::new(&CMD[0]);
+    command.args(&CMD[1..]);
+    command.arg("send_keys");
+    command.arg("enter");
+    execute_command(command)
+}
+
+/*
 /// Graceful shutdown endpoint
 #[get("/shutdown")]
 fn shutdown(shutdown: Shutdown) -> Result<status::Custom<String>, status::Custom<String>> {
     shutdown.notify();
     Ok(status::Custom(Status::Ok, "Shutting down".to_string()))
-}
+}*/
 
 /// Main method
 #[launch]
@@ -133,7 +153,8 @@ fn rocket() -> _ {
             power_button_short,
             alive,
             skip_bios,
-            shutdown
+            //shutdown,
+            startup,
         ],
     )
 }

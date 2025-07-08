@@ -652,7 +652,9 @@ impl Hypervisor {
     fn generate_code_entry(code_entry: u64, current_rip: u64) -> Vec<u8> {
         let mut assembler = CodeAssembler::new(64).unwrap();
 
-        assembler.finit().unwrap();
+        if cfg!(not(feature = "__debug_dont_reinitialize_fpu")) {
+            assembler.finit().unwrap();
+        }
         assembler.wbinvd().unwrap();
         assembler.mfence().unwrap();
         assembler.lfence().unwrap();

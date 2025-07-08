@@ -157,6 +157,16 @@ rec {
       # File a bug if you depend on any for non-debug work!
       debug = internal.debugCrate { inherit packageId; };
     };
+    "poc" = rec {
+      packageId = "poc";
+      build = internal.buildRustCrateWithFeatures {
+        packageId = "poc";
+      };
+
+      # Debug support which might change between releases.
+      # File a bug if you depend on any for non-debug work!
+      debug = internal.debugCrate { inherit packageId; };
+    };
     "spec_fuzz" = rec {
       packageId = "spec_fuzz";
       build = internal.buildRustCrateWithFeatures {
@@ -3111,7 +3121,7 @@ rec {
           "rand_isaac" = [ "dep:rand_isaac" ];
           "uefi" = [ "coverage/uefi" "no_std" "dep:uefi" "dep:uefi_udp4" "dep:uefi-raw" ];
         };
-        resolvedDefaultFeatures = [ "__debug_bochs_pretend" "__debug_only_below_0x1000" "__debug_performance_trace" "__debug_pretend_no_coverage" "__debug_print_dissassembly" "__debug_print_events" "__debug_print_external_interrupt_notification" "__debug_print_mutation_info" "__debug_print_progress_net" "__debug_print_progress_print" "__debug_print_udp" "__device_bochs" "__device_brix" "bios_ami" "bios_bochs" "default" "device_bochs" "device_brix" "mutation_all" "mutation_random" "no_std" "platform_bochs" "platform_intel" "rand_isaac" "uefi" ];
+        resolvedDefaultFeatures = [ "__debug_bochs_pretend" "__debug_dont_reinitialize_fpu" "__debug_only_below_0x1000" "__debug_performance_trace" "__debug_pretend_no_coverage" "__debug_print_dissassembly" "__debug_print_events" "__debug_print_external_interrupt_notification" "__debug_print_mutation_info" "__debug_print_progress_net" "__debug_print_progress_print" "__debug_print_udp" "__device_bochs" "__device_brix" "bios_ami" "bios_bochs" "default" "device_bochs" "device_brix" "mutation_all" "mutation_random" "no_std" "platform_bochs" "platform_intel" "rand_isaac" "uefi" ];
       };
       "fuzzer_master" = rec {
         crateName = "fuzzer_master";
@@ -5951,9 +5961,9 @@ rec {
       };
       "log" = rec {
         crateName = "log";
-        version = "0.4.26";
+        version = "0.4.27";
         edition = "2021";
-        sha256 = "17mvchkvhnm2zxyfagh2g9p861f0qx2g1sg2v14sww9nvjry5g9h";
+        sha256 = "150x589dqil307rv0rwj0jsgz5bjbwvl83gyl61jf873a7rjvp0k";
         authors = [
           "The Rust Project Developers"
         ];
@@ -6846,6 +6856,60 @@ rec {
         libName = "pin_utils";
         authors = [
           "Josef Brandl <mail@josefbrandl.de>"
+        ];
+
+      };
+      "poc" = rec {
+        crateName = "poc";
+        version = "0.1.0";
+        edition = "2024";
+        crateBin = [
+          {
+            name = "poc_ucode_update";
+            path = "src/poc_ucode_update.rs";
+            requiredFeatures = [ ];
+          }
+        ];
+        src = lib.cleanSourceWith { filter = sourceFilter;  src = ./evaluation/poc; };
+        dependencies = [
+          {
+            name = "custom_processing_unit";
+            packageId = "custom_processing_unit";
+            features = [ "nostd" ];
+          }
+          {
+            name = "data_types";
+            packageId = "data_types";
+            features = [ "nostd" ];
+          }
+          {
+            name = "itertools";
+            packageId = "itertools 0.14.0";
+            usesDefaultFeatures = false;
+            features = [ "use_alloc" ];
+          }
+          {
+            name = "log";
+            packageId = "log";
+          }
+          {
+            name = "ucode_compiler_derive";
+            packageId = "ucode_compiler_derive";
+          }
+          {
+            name = "ucode_compiler_dynamic";
+            packageId = "ucode_compiler_dynamic";
+          }
+          {
+            name = "ucode_dump";
+            packageId = "ucode_dump";
+          }
+          {
+            name = "uefi";
+            packageId = "uefi";
+            usesDefaultFeatures = false;
+            features = [ "alloc" "panic_handler" "global_allocator" ];
+          }
         ];
 
       };

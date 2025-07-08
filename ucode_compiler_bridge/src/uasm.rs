@@ -390,19 +390,21 @@ pub fn build_script_compile_folder<P: AsRef<Path>, Q: AsRef<Path>, C: AsRef<Comp
     let ucode_compiler = if let Ok(path) = env::var("UASM") {
         PathBuf::from(path)
     } else {
-        current_directory
+        let mut workspace_dir = current_directory.clone();
+        while workspace_dir
+            .parent()
+            .map(|p| p.join("Cargo.toml").exists() || p.join("EVALUATION.md").exists())
+            .unwrap_or(false)
+        {
+            workspace_dir = workspace_dir.parent().unwrap().to_path_buf();
+        }
+
+        workspace_dir
             .parent()
             .ok_or_else(|| {
                 ErrorKind::ParentDirectoryReadError(
                     current_directory.clone(),
                     "searching uasm.py 1".to_string(),
-                )
-            })?
-            .parent()
-            .ok_or_else(|| {
-                ErrorKind::ParentDirectoryReadError(
-                    current_directory.clone(),
-                    "searching uasm.py 2".to_string(),
                 )
             })?
             .join("CustomProcessingUnit")

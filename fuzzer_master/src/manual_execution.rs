@@ -15,7 +15,7 @@ use fuzzer_data::ReportExecutionProblem;
 use hypervisor::state::StateDifference;
 use iced_x86::{Formatter, NasmFormatter};
 use itertools::Itertools;
-use log::{error, info};
+use log::{debug, error, info};
 use std::collections::VecDeque;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::io;
@@ -302,6 +302,7 @@ pub async fn main<A: AsRef<Path>, B: AsRef<Path>>(
             }
 
             output_text.push_str("\n\nTrace:\n");
+            debug!("Issuing trace A...");
             do_trace(
                 udp,
                 &sample,
@@ -311,6 +312,7 @@ pub async fn main<A: AsRef<Path>, B: AsRef<Path>>(
                 print_mem_access,
             )
             .await;
+            debug!("Issuing trace B...");
             output_text.push_str("\n\nSerialized-Trace:\n");
             if let Some(serialized) = result.serialized.as_ref() {
                 do_trace(

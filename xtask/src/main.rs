@@ -165,6 +165,7 @@ fn main_put_remote(name: &str, startup: bool, release: bool) {
 
         let mut gen = Command::new("cargo")
             .arg("run")
+            .arg("--locked")
             .arg("-p")
             .arg("corpus-gen")
             .arg("--")
@@ -339,6 +340,7 @@ fn build_app(project: &str, release: bool, device: bool) -> Result<PathBuf, DynE
 
     status.args([
         "build",
+        "--locked",
         "-Zbuild-std",
         "--target",
         if device {
@@ -530,6 +532,7 @@ fn main_generate_doc() {
         let mut cmd = Command::new("cargo");
         cmd.arg("doc")
             .env("RUSTFLAGS", "-D warnings")
+            .arg("--locked")
             .arg("--no-deps")
             .arg("--document-private-items");
         if let Some(target) = target {
