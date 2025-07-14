@@ -19,7 +19,7 @@ use custom_processing_unit::{
 };
 use data_types::addresses::MSRAMHookIndex;
 use fuzzer_data::{OtaC2D, OtaC2DTransport, OtaD2CTransport};
-use log::{error, info, trace, warn, Level};
+use log::{error, trace, warn, Level};
 #[cfg(feature = "__debug_performance_trace")]
 use performance_timing::track_time;
 use spec_fuzz::controller_connection::{ConnectionSettings, ControllerConnection};
@@ -230,12 +230,13 @@ unsafe fn main() -> Status {
                     );
                 }
             }
-            OtaC2DTransport::RunScenario(name, payload) => {
-                info!("Running scenario {}", name);
+            OtaC2DTransport::RunScenario(_name, _payload) => {
+                /*info!("Running scenario {}", name);
                 let result = poc_agent::execute(&name, payload.as_slice());
                 if let Err(err) = udp.send(OtaD2CTransport::ScenarioResult(name, result)) {
                     error!("Failed to send result: {:?}", err);
-                }
+                }*/
+                let _ = udp.log_reliable(Level::Error, "Trace sample not supported!".to_string());
             }
         }
     }

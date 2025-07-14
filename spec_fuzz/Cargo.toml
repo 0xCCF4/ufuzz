@@ -25,7 +25,5 @@ custom_processing_unit = {path = "../custom_processing_unit", features = ["nostd
 hypervisor = { path = "../hypervisor" }
 coverage = { path = "../coverage", features = ["nostd", "uefi"] }
 
-poc_agent = {path="../evaluation/poc_agent"}
-
 [build-dependencies]
 ucode_compiler_bridge = { path = "../ucode_compiler_bridge" }

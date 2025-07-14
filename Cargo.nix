@@ -157,26 +157,6 @@ rec {
       # File a bug if you depend on any for non-debug work!
       debug = internal.debugCrate { inherit packageId; };
     };
-    "poc_agent" = rec {
-      packageId = "poc_agent";
-      build = internal.buildRustCrateWithFeatures {
-        packageId = "poc_agent";
-      };
-
-      # Debug support which might change between releases.
-      # File a bug if you depend on any for non-debug work!
-      debug = internal.debugCrate { inherit packageId; };
-    };
-    "poc_data" = rec {
-      packageId = "poc_data";
-      build = internal.buildRustCrateWithFeatures {
-        packageId = "poc_data";
-      };
-
-      # Debug support which might change between releases.
-      # File a bug if you depend on any for non-debug work!
-      debug = internal.debugCrate { inherit packageId; };
-    };
     "spec_fuzz" = rec {
       packageId = "spec_fuzz";
       build = internal.buildRustCrateWithFeatures {
@@ -6865,89 +6845,6 @@ rec {
         ];
 
       };
-      "poc_agent" = rec {
-        crateName = "poc_agent";
-        version = "0.1.0";
-        edition = "2024";
-        src = lib.cleanSourceWith { filter = sourceFilter;  src = ./evaluation/poc_agent; };
-        dependencies = [
-          {
-            name = "custom_processing_unit";
-            packageId = "custom_processing_unit";
-            features = [ "nostd" ];
-          }
-          {
-            name = "data_types";
-            packageId = "data_types";
-            features = [ "nostd" ];
-          }
-          {
-            name = "itertools";
-            packageId = "itertools 0.14.0";
-            usesDefaultFeatures = false;
-            features = [ "use_alloc" ];
-          }
-          {
-            name = "log";
-            packageId = "log";
-          }
-          {
-            name = "performance_timing";
-            packageId = "performance_timing";
-          }
-          {
-            name = "poc_data";
-            packageId = "poc_data";
-          }
-          {
-            name = "ucode_compiler_derive";
-            packageId = "ucode_compiler_derive";
-          }
-          {
-            name = "ucode_compiler_dynamic";
-            packageId = "ucode_compiler_dynamic";
-          }
-          {
-            name = "ucode_dump";
-            packageId = "ucode_dump";
-          }
-        ];
-
-      };
-      "poc_data" = rec {
-        crateName = "poc_data";
-        version = "0.1.0";
-        edition = "2024";
-        src = lib.cleanSourceWith { filter = sourceFilter;  src = ./evaluation/poc_data; };
-        dependencies = [
-          {
-            name = "clap";
-            packageId = "clap";
-            optional = true;
-            features = [ "derive" ];
-          }
-          {
-            name = "log";
-            packageId = "log";
-          }
-          {
-            name = "postcard";
-            packageId = "postcard";
-            usesDefaultFeatures = false;
-            features = [ "alloc" ];
-          }
-          {
-            name = "serde";
-            packageId = "serde";
-            usesDefaultFeatures = false;
-            features = [ "derive" ];
-          }
-        ];
-        features = {
-          "clap" = [ "dep:clap" ];
-        };
-        resolvedDefaultFeatures = [ "clap" ];
-      };
       "postcard" = rec {
         crateName = "postcard";
         version = "1.1.1";
@@ -9707,10 +9604,6 @@ rec {
             name = "log";
             packageId = "log";
             usesDefaultFeatures = false;
-          }
-          {
-            name = "poc_agent";
-            packageId = "poc_agent";
           }
           {
             name = "rand_core";
