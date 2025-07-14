@@ -11,7 +11,6 @@
 
 use crossterm::event;
 use crossterm::event::{KeyCode, KeyEventKind};
-use error_chain::error_chain;
 use ratatui::layout::Alignment;
 use ratatui::style::Stylize;
 use ratatui::symbols::border;
@@ -30,14 +29,60 @@ use std::io::Write;
 use std::ops::{Deref, DerefMut};
 use tokio::sync::Mutex;
 
-error_chain! {
-    foreign_links {
-        EnvVar(env::VarError);
-        HttpRequest(reqwest::Error);
-        IoError(std::io::Error);
-        SerdeError(serde_json::Error);
+#[derive(Debug)]
+pub enum Error {
+    EnvVar(env::VarError),
+    HttpRequest(reqwest::Error),
+    IoError(std::io::Error),
+    SerdeError(serde_json::Error),
+    Custom(&'static str),
+}
+
+impl std::error::Error for Error {}
+
+impl From<env::VarError> for Error {
+    fn from(err: env::VarError) -> Self {
+        Error::EnvVar(err)
     }
 }
+
+impl From<reqwest::Error> for Error {
+    fn from(err: reqwest::Error) -> Self {
+        Error::HttpRequest(err)
+    }
+}
+
+impl From<std::io::Error> for Error {
+    fn from(err: std::io::Error) -> Self {
+        Error::IoError(err)
+    }
+}
+
+impl From<serde_json::Error> for Error {
+    fn from(err: serde_json::Error) -> Self {
+        Error::SerdeError(err)
+    }
+}
+
+impl From<&'static str> for Error {
+    fn from(err: &'static str) -> Self {
+        Error::Custom(err)
+    }
+}
+
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Error::EnvVar(err) => write!(f, "Environment variable error: {}", err),
+            Error::HttpRequest(err) => write!(f, "HTTP request error: {}", err),
+            Error::IoError(err) => write!(f, "I/O error: {}", err),
+            Error::SerdeError(err) => write!(f, "Serialization/deserialization error: {}", err),
+            Error::Custom(msg) => write!(f, "Custom error: {}", msg),
+        }
+    }
+}
+
+pub type Result<T> = std::result::Result<T, Error>;
 
 /// Basic author information
 #[derive(Deserialize, Serialize, Clone, Debug)]

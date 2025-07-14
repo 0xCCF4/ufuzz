@@ -18,13 +18,12 @@ use rocket::figment::providers::Format;
 use rocket::http::Status;
 use rocket::response::status;
 use rocket::serde::json::Json;
-use rocket::Shutdown;
 use sd_notify::NotifyState;
 use std::process::Command;
 use std::thread;
 use std::time::Duration;
 
-/// Command configuration loaded from environment variables
+// Command configuration loaded from environment variables
 lazy_static! {
     static ref CMD: Vec<String> = {
         let env = std::env::var("CMD")

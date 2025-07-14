@@ -20,18 +20,13 @@ use alloc::vec::Vec;
 use alloc::{format, vec};
 use core::arch::asm;
 use core::mem;
-use custom_processing_unit::{
-    apply_ldat_read_func, ms_patch_instruction_read, ms_patch_instruction_write, patch_ucode,
-    HookGuard,
-};
-use data_types::addresses::Address;
+use custom_processing_unit::{ms_patch_instruction_write, HookGuard};
 use fuzzer_data::SpeculationResult;
 use hypervisor::state::GuestRegisters;
 use itertools::Itertools;
 use log::{trace, Level};
 use ucode_compiler_dynamic::instruction::Instruction;
 use ucode_compiler_dynamic::sequence_word::SequenceWord;
-use uefi::println;
 use x86::msr::{IA32_PERFEVTSEL0, IA32_PERFEVTSEL1, IA32_PERFEVTSEL2, IA32_PERFEVTSEL3};
 use x86_perf_counter::{PerfEventSpecifier, PerformanceCounter};
 
@@ -113,7 +108,7 @@ pub fn execute_speculation(
         triad[0].assemble()
     );
 
-    let sequence_word = match sequence_word.assemble() {
+    let _sequence_word = match sequence_word.assemble() {
         Ok(word) => word,
         Err(e) => {
             let _ = udp.log_reliable(
@@ -176,24 +171,24 @@ fn collect_perf_counters_values(
     let mut final_state = GuestRegisters::default();
 
     let mut perf0 = if let Some(event) = &perf_counter_setup[0] {
-        PerformanceCounter::from_perf_event_specifier(0, event)
+        unsafe { PerformanceCounter::from_perf_event_specifier(0, event) }
     } else {
-        PerformanceCounter::new(0)
+        unsafe { PerformanceCounter::new(0) }
     };
     let mut perf1 = if let Some(event) = &perf_counter_setup[1] {
-        PerformanceCounter::from_perf_event_specifier(1, event)
+        unsafe { PerformanceCounter::from_perf_event_specifier(1, event) }
     } else {
-        PerformanceCounter::new(1)
+        unsafe { PerformanceCounter::new(1) }
     };
     let mut perf2 = if let Some(event) = &perf_counter_setup[2] {
-        PerformanceCounter::from_perf_event_specifier(2, event)
+        unsafe { PerformanceCounter::from_perf_event_specifier(2, event) }
     } else {
-        PerformanceCounter::new(2)
+        unsafe { PerformanceCounter::new(2) }
     };
     let mut perf3 = if let Some(event) = &perf_counter_setup[3] {
-        PerformanceCounter::from_perf_event_specifier(3, event)
+        unsafe { PerformanceCounter::from_perf_event_specifier(3, event) }
     } else {
-        PerformanceCounter::new(3)
+        unsafe { PerformanceCounter::new(3) }
     };
 
     perf0

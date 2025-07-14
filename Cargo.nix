@@ -157,10 +157,20 @@ rec {
       # File a bug if you depend on any for non-debug work!
       debug = internal.debugCrate { inherit packageId; };
     };
-    "poc" = rec {
-      packageId = "poc";
+    "poc_agent" = rec {
+      packageId = "poc_agent";
       build = internal.buildRustCrateWithFeatures {
-        packageId = "poc";
+        packageId = "poc_agent";
+      };
+
+      # Debug support which might change between releases.
+      # File a bug if you depend on any for non-debug work!
+      debug = internal.debugCrate { inherit packageId; };
+    };
+    "poc_data" = rec {
+      packageId = "poc_data";
+      build = internal.buildRustCrateWithFeatures {
+        packageId = "poc_data";
       };
 
       # Debug support which might change between releases.
@@ -1170,10 +1180,10 @@ rec {
       };
       "clap" = rec {
         crateName = "clap";
-        version = "4.5.35";
+        version = "4.5.41";
         edition = "2021";
         crateBin = [];
-        sha256 = "0i1rnz7mwbhs5qf10r6vmrkplkzm3477khkwz189rha49f9qdanq";
+        sha256 = "1ydd3a22bxkn2a7bajnw57cwjhawqciyhz2x3rqm8fi4h0pd74my";
         dependencies = [
           {
             name = "clap_builder";
@@ -1212,9 +1222,9 @@ rec {
       };
       "clap_builder" = rec {
         crateName = "clap_builder";
-        version = "4.5.35";
+        version = "4.5.41";
         edition = "2021";
-        sha256 = "1nczcw6cc49ap99nn3v3n0vrv7j74zin34palq6ji586vnrdn514";
+        sha256 = "0g8w6da5y13kv93psl8c00c7f4q01753wmwx84wr2bv2x50snzkh";
         dependencies = [
           {
             name = "anstream";
@@ -1251,9 +1261,9 @@ rec {
       };
       "clap_derive" = rec {
         crateName = "clap_derive";
-        version = "4.5.32";
+        version = "4.5.41";
         edition = "2021";
-        sha256 = "1mqcag8qapb5yhygg2hi153kzmbf7w5hqp3nl3fvl5cn4yp6l5q9";
+        sha256 = "14glxqpfjs7z6m37f3ycrhgdkpyqmgwbr4vk1y34rjjrd8w54kzg";
         procMacro = true;
         dependencies = [
           {
@@ -5889,10 +5899,6 @@ rec {
             packageId = "crossterm";
           }
           {
-            name = "error-chain";
-            packageId = "error-chain";
-          }
-          {
             name = "lazy_static";
             packageId = "lazy_static";
           }
@@ -6859,18 +6865,11 @@ rec {
         ];
 
       };
-      "poc" = rec {
-        crateName = "poc";
+      "poc_agent" = rec {
+        crateName = "poc_agent";
         version = "0.1.0";
         edition = "2024";
-        crateBin = [
-          {
-            name = "poc_ucode_update";
-            path = "src/poc_ucode_update.rs";
-            requiredFeatures = [ ];
-          }
-        ];
-        src = lib.cleanSourceWith { filter = sourceFilter;  src = ./evaluation/poc; };
+        src = lib.cleanSourceWith { filter = sourceFilter;  src = ./evaluation/poc_agent; };
         dependencies = [
           {
             name = "custom_processing_unit";
@@ -6893,6 +6892,14 @@ rec {
             packageId = "log";
           }
           {
+            name = "performance_timing";
+            packageId = "performance_timing";
+          }
+          {
+            name = "poc_data";
+            packageId = "poc_data";
+          }
+          {
             name = "ucode_compiler_derive";
             packageId = "ucode_compiler_derive";
           }
@@ -6904,14 +6911,42 @@ rec {
             name = "ucode_dump";
             packageId = "ucode_dump";
           }
-          {
-            name = "uefi";
-            packageId = "uefi";
-            usesDefaultFeatures = false;
-            features = [ "alloc" "panic_handler" "global_allocator" ];
-          }
         ];
 
+      };
+      "poc_data" = rec {
+        crateName = "poc_data";
+        version = "0.1.0";
+        edition = "2024";
+        src = lib.cleanSourceWith { filter = sourceFilter;  src = ./evaluation/poc_data; };
+        dependencies = [
+          {
+            name = "clap";
+            packageId = "clap";
+            optional = true;
+            features = [ "derive" ];
+          }
+          {
+            name = "log";
+            packageId = "log";
+          }
+          {
+            name = "postcard";
+            packageId = "postcard";
+            usesDefaultFeatures = false;
+            features = [ "alloc" ];
+          }
+          {
+            name = "serde";
+            packageId = "serde";
+            usesDefaultFeatures = false;
+            features = [ "derive" ];
+          }
+        ];
+        features = {
+          "clap" = [ "dep:clap" ];
+        };
+        resolvedDefaultFeatures = [ "clap" ];
       };
       "postcard" = rec {
         crateName = "postcard";
@@ -9672,6 +9707,10 @@ rec {
             name = "log";
             packageId = "log";
             usesDefaultFeatures = false;
+          }
+          {
+            name = "poc_agent";
+            packageId = "poc_agent";
           }
           {
             name = "rand_core";

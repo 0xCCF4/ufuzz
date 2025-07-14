@@ -216,12 +216,12 @@ unsafe fn main() -> Status {
             };
 
             match packet {
-                OtaC2DTransport::GetCapabilities => {
+                OtaC2DTransport::GetCapabilities { leaf, node } => {
                     let vendor_str = x86::cpuid::CpuId::new()
                         .get_vendor_info()
                         .map(|v| v.to_string())
                         .unwrap_or("---".to_string());
-                    let processor_version = cpuid!(0x1);
+                    let processor_version = cpuid!(leaf, node);
                     let capabilities = OtaD2CTransport::Capabilities {
                         coverage_collection: executor.supports_coverage_collection(),
                         manufacturer: vendor_str,
@@ -542,6 +542,15 @@ unsafe fn main() -> Status {
                 }
                 OtaC2DTransport::UCodeSpeculation { .. }
                 | OtaC2DTransport::TestIfPMCStable { .. } => {
+                    let _ = udp.log_reliable(Level::Error, "Method not supported");
+                    error!("Method not supported");
+                }
+                OtaC2DTransport::RunScenario(_name, _payload) => {
+                    /*info!("Running scenario {}", name);
+                    let result = poc_agent::execute(&name, payload.as_slice());
+                    if let Err(err) = udp.send(OtaD2CTransport::ScenarioResult(name, result)) {
+                        error!("Failed to send result: {:?}", err);
+                    }*/
                     let _ = udp.log_reliable(Level::Error, "Method not supported");
                     error!("Method not supported");
                 }

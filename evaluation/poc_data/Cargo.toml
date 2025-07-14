@@ -1,0 +1,13 @@
+[package]
+name = "poc_data"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+log = { version = "0.4.22" }
+postcard = { version = "1.1.1", features = ["alloc"], default-features = false }
+serde = { version = "1.0.219", features = ["derive"], default-features = false }
+clap = { version = "4.5.31", features = ["derive"], optional = true}
+
+[features]
+clap = ["dep:clap"]

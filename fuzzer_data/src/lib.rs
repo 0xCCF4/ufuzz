@@ -201,6 +201,8 @@ pub enum OtaD2CTransport {
     UCodeSpeculationResult(SpeculationResult),
     /// Tracing result
     TraceResult(TraceResult),
+    /// Evaluation Scenario Result, arbitrary data
+    ScenarioResult(String, Vec<u8>),
 }
 
 /// Result of a speculation test
@@ -232,7 +234,12 @@ pub enum OtaC2DTransport {
     /// Check if device is responsive
     AreYouThere,
     /// Request device capabilities
-    GetCapabilities,
+    GetCapabilities {
+        /// CPUid leaf (EAX)
+        leaf: u32,
+        /// CPUid specifier (ECX)
+        node: u32,
+    },
     /// Blacklist addresses
     Blacklist {
         /// Addresses to blacklist
@@ -281,6 +288,8 @@ pub enum OtaC2DTransport {
     },
     /// Request device reboot
     Reboot,
+    /// Runs evaluation scenario
+    RunScenario(String, Vec<u8>),
 }
 
 /// Maximum size of a message fragment

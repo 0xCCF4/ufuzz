@@ -7,7 +7,7 @@
 #![allow(clippy::multiple_crate_versions)]
 
 use bochs::{Bochs, Cpu};
-use clap::{Parser, Subcommand};
+use clap::{command, Parser, Subcommand};
 use std::io::Write;
 use std::process::Stdio;
 use std::{
@@ -45,6 +45,8 @@ enum Cli {
     UpdateNode,
     /// Generate documentation
     Doc,
+    /// Compile all examples and subprojects
+    Check,
 }
 
 #[derive(Parser)]
@@ -88,6 +90,7 @@ fn main() {
         } => main_put_remote(&name, startup, release),
         Cli::ControlRemote { args } => main_control_remote(args),
         Cli::Doc => main_generate_doc(),
+        Cli::Check => main_compile_all(),
     }
 }
 
@@ -499,34 +502,88 @@ fn build_app(project: &str, release: bool, device: bool) -> Result<PathBuf, DynE
     }
 }
 
-fn main_generate_doc() {
+const PROJECTS_UEFI: &[&str] = &[
+    "coverage",
+    "custom_processing_unit",
+    "fuzzer_device",
+    "hypervisor",
+    "spec_fuzz",
+    "speculation_x86",
+    "speculation_ucode",
+    "uefi_udp4",
+];
+const PROJECTS_X86: &[&str] = &[
+    "corpus-gen",
+    "data_types",
+    "fuzzer_data",
+    "fuzzer_master",
+    "fuzzer_node",
+    "literature_search",
+    "performance_timing",
+    "performance_timing_macros",
+    "ucode_compiler_bridge",
+    "ucode_compiler_derive",
+    "ucode_compiler_dynamic",
+    "ucode_dump",
+    "x86_perf_counter",
+    "xtask",
+];
+
+fn main_compile_all() {
     let project_root = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
 
-    let projects_uefi = [
-        "coverage",
-        "custom_processing_unit",
-        "fuzzer_device",
-        "hypervisor",
-        "spec_fuzz",
-        "speculation_x86",
-        "speculation_ucode",
-        "uefi_udp4",
-    ];
-    let projects_x86 = [
-        "corpus-gen",
-        "data_types",
-        "fuzzer_data",
-        "fuzzer_master",
-        "fuzzer_node",
-        "literature_search",
-        "performance_timing",
-        "performance_timing_macros",
-        "ucode_compiler_bridge",
-        "ucode_compiler_derive",
-        "ucode_compiler_dynamic",
-        "ucode_dump",
-        "x86_perf_counter",
-    ];
+    fn cmd(target: Option<&str>, safe: bool) -> Command {
+        let mut cmd = Command::new("cargo");
+        cmd.arg("build")
+            .env("RUSTFLAGS", "-D warnings")
+            .arg("--locked")
+            .arg("--bins")
+            .arg("--examples");
+        if let Some(target) = target {
+            cmd.arg("--target").arg(target);
+        }
+        if safe {
+            cmd.arg("-j2");
+        }
+        cmd
+    }
+    fn augment(project: &str, command: &mut Command) {
+        match project {
+            "coverage" => {
+                command.args(["--features", "ucode,uefi"]);
+            }
+            _ => {}
+        }
+    }
+
+    for project in PROJECTS_UEFI {
+        let mut status = cmd(Some("x86_64-unknown-uefi"), false);
+        status.arg("-p").arg(project).current_dir(&project_root);
+        augment(project, &mut status);
+        let status = status.status().expect("Failed to generate documentation");
+        if !status.success() {
+            eprintln!("Failed to generate documentation for {project}");
+            std::process::exit(-1);
+        }
+    }
+
+    for project in PROJECTS_X86 {
+        let mut status = cmd(
+            Some("x86_64-unknown-linux-gnu"),
+            ["fuzzer_master"].contains(&project),
+        );
+        status.arg("-p").arg(project).current_dir(&project_root);
+        augment(project, &mut status);
+        let status = status.status().expect("Failed to generate documentation");
+        if !status.success() {
+            eprintln!("Failed to generate documentation for {project}");
+            std::process::exit(-1);
+        }
+    }
+}
+
+fn main_generate_doc() {
+    let project_root = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
 
     fn cmd(target: Option<&str>, safe: bool) -> Command {
         let mut cmd = Command::new("cargo");
@@ -561,7 +618,11 @@ fn main_generate_doc() {
             }
         }
         if !common_doc.exists() {
-            fs::create_dir(&common_doc).expect("Failed to create doc symlink directory");
+            fs::create_dir_all(&common_doc).expect("Failed to create doc symlink directory");
+        }
+        if !target_doc.parent().unwrap().exists() {
+            fs::create_dir_all(&target_doc.parent().unwrap())
+                .expect("Failed to create doc symlink directory");
         }
         #[cfg(unix)]
         std::os::unix::fs::symlink(&common_doc, &target_doc)
@@ -571,7 +632,7 @@ fn main_generate_doc() {
             .expect("Failed to create symlink for doc");
     }
 
-    for project in projects_uefi {
+    for project in PROJECTS_UEFI {
         let status = cmd(Some("x86_64-unknown-uefi"), false)
             .arg("-p")
             .arg(project)
@@ -584,7 +645,7 @@ fn main_generate_doc() {
         }
     }
 
-    for project in projects_x86 {
+    for project in PROJECTS_X86 {
         let status = cmd(
             Some("x86_64-unknown-linux-gnu"),
             ["fuzzer_master"].contains(&project),

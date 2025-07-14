@@ -1,3 +1,0 @@
-target remote :1234
-add-symbol-file target/uefi-target-with-debug/debug/fuzzer_device.efi 0x36d8f000
-continue

@@ -161,15 +161,15 @@ unsafe fn main() -> Status {
         dr7: 0,
     };
 
-    let mut state = VmState {
+    let state = VmState {
         standard_registers,
         extended_registers,
     };
 
     // build page table
-    let mut page_table_4: *mut PML4Entry = guest_memory[PAGE_TABLE_4_INDEX].as_mut_ptr().cast();
+    let page_table_4: *mut PML4Entry = guest_memory[PAGE_TABLE_4_INDEX].as_mut_ptr().cast();
     for i in 0..512 {
-        let mut dst_entry = page_table_4.add(i);
+        let dst_entry = page_table_4.add(i);
 
         let entry = PML4Entry::new(
             PAddr((PAGE_TABLE_3_INDEX << BASE_PAGE_SHIFT) as u64),
@@ -178,9 +178,9 @@ unsafe fn main() -> Status {
         *dst_entry = entry;
     }
 
-    let mut page_table_3: *mut PDPTEntry = guest_memory[PAGE_TABLE_3_INDEX].as_mut_ptr().cast();
+    let page_table_3: *mut PDPTEntry = guest_memory[PAGE_TABLE_3_INDEX].as_mut_ptr().cast();
     for i in 0..512 {
-        let mut dst_entry = page_table_3.add(i);
+        let dst_entry = page_table_3.add(i);
 
         // 1GB page size
         let entry = PDPTEntry::new(

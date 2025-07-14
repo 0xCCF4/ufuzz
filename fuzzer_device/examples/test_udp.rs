@@ -3,15 +3,12 @@
 
 extern crate alloc;
 
-use alloc::string::String;
+use alloc::format;
 use alloc::vec::Vec;
 use fuzzer_data::{OtaD2CTransport, MAX_FRAGMENT_SIZE};
 use fuzzer_device::controller_connection::{ConnectionSettings, ControllerConnection};
-use log::info;
-use uefi::{entry, println, Status};
-use uefi_raw::Ipv4Address;
-use uefi_udp4::uefi_raw::protocol::network::udp4::Udp4ConfigData;
-use uefi_udp4::Ipv4AddressExt;
+use log::{info, Level};
+use uefi::{entry, Status};
 
 #[entry]
 unsafe fn main() -> Status {
@@ -33,7 +30,10 @@ unsafe fn main() -> Status {
     while let Ok(x) = udp.receive(Some(60_000)) {
         if let Some(x) = x {
             info!("Received: {:?}", x);
-            if let Err(err) = udp.send(OtaD2CTransport::Alive { iteration: 0xFF }) {
+            if let Err(err) = udp.send(OtaD2CTransport::LogMessage {
+                level: Level::Info,
+                message: format!("Echo: {:?}", x),
+            }) {
                 info!("Failed to send: {:?}", err);
                 return Status::ABORTED;
             }
