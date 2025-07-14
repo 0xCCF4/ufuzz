@@ -5,7 +5,7 @@
 
 use custom_processing_unit::{apply_patch, call_custom_ucode_function, CustomProcessingUnit};
 use log::info;
-use ucode_compiler::utils::sequence_word::SequenceWord;
+use ucode_compiler_dynamic::sequence_word::SequenceWord;
 use uefi::{entry, print, println, Status};
 
 mod patch {

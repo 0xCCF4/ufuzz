@@ -1,6 +1,7 @@
 #![no_main]
 #![no_std]
 
+use coverage::interface_definition::COM_INTERFACE_DESCRIPTION;
 use coverage::page_allocation::PageAllocation;
 use custom_processing_unit::{
     apply_hook_patch_func, apply_patch, hook, hooks_enabled, CustomProcessingUnit, HookGuard,
@@ -11,7 +12,7 @@ use hypervisor::hardware_vt::vmx::{adjust_vmx_control, VmxControl};
 use hypervisor::state::{StateDifference, VmState};
 use iced_x86::code_asm;
 use iced_x86::code_asm::CodeAssembler;
-use log::{error, info, warn};
+use log::{error, info};
 use uefi::{entry, println};
 use uefi_raw::{PhysicalAddress, Status};
 use x86::current::vmx::vmwrite;
@@ -89,7 +90,7 @@ unsafe fn main() -> Status {
         return Status::ABORTED;
     }
 
-    let disable_hooks = HookGuard::enable_all(); // will be dropped on end of method
+    let _disable_hooks = HookGuard::enable_all(); // will be dropped on end of method
 
     if let Err(err) = apply_patch(&patches::PATCH) {
         println!("Failed to apply patch: {:?}", err);
@@ -139,6 +140,11 @@ unsafe fn main() -> Status {
         return Status::ABORTED;
     }
 
+    if let Err(err) = code.hlt() {
+        info!("Failed to assemble hlt instruction: {:?}", err);
+        return Status::ABORTED;
+    }
+
     let code = match code.assemble(0) {
         Ok(code) => code,
         Err(e) => {
@@ -147,7 +153,7 @@ unsafe fn main() -> Status {
         }
     };
 
-    let mut hypervisor = match Hypervisor::new() {
+    let mut hypervisor = match Hypervisor::new(&COM_INTERFACE_DESCRIPTION) {
         Ok(hypervisor) => hypervisor,
         Err(e) => {
             info!("Failed to initiate hypervisor {:?}", e);
@@ -191,7 +197,7 @@ unsafe fn main() -> Status {
     }
 
     println!("Hooking before: {}", hooks_enabled());
-    let exit = hypervisor.run_vm();
+    let exit = hypervisor.run_vm(false);
     println!("Hooking after: {}", hooks_enabled());
     hypervisor.capture_state(&mut state_after);
 

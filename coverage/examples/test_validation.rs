@@ -60,6 +60,7 @@ unsafe fn main() -> Status {
         cpu.rom(),
         &ModificationEngineSettings::default(),
         itd.max_number_of_hooks.min(1),
+        |_| true,
     );
 
     println!("Hookable addresses: {:04x}", hookable_addresses.len() * 2);

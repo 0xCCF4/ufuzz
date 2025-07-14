@@ -3,7 +3,7 @@
 //! This module provides functionality for compiling and processing microcode assembly files.
 //! It includes tools for preprocessing, compilation, and transformation of microcode files into Rust code.
 //!
-//! The compiler of https://github.com/pietroborrello/CustomProcessingUnit is used.
+//! The compiler of <https://github.com/pietroborrello/CustomProcessingUnit> is used.
 //! To correctly work, the uasm.py.patch file must be applied to the assembler.
 
 #![allow(unexpected_cfgs)] // todo: hide warning - file bug]

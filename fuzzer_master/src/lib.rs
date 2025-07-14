@@ -7,7 +7,6 @@ use crate::fuzzer_node_bridge::FuzzerNodeInterface;
 use fuzzer_data::OtaC2DTransport;
 use log::{debug, error, info, trace, warn};
 use performance_timing::track_time;
-use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::Instant;
 
@@ -183,10 +182,7 @@ pub async fn power_on(interface: &FuzzerNodeInterface) -> bool {
 /// * `interface` - Interface to the fuzzing node
 /// * `udp` - Network connection to the device
 #[track_time("host::guarantee_state")]
-pub async fn guarantee_initial_state(
-    interface: &Arc<FuzzerNodeInterface>,
-    udp: &mut DeviceConnection,
-) {
+pub async fn guarantee_initial_state(interface: &FuzzerNodeInterface, udp: &mut DeviceConnection) {
     // guarantee initial state
     let mut iteration = 0;
     loop {

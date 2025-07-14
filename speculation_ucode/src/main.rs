@@ -17,10 +17,10 @@ use custom_processing_unit::{
 };
 use data_types::addresses::MSRAMHookIndex;
 use hypervisor::state::{GuestRegisters, StateDifference};
-use log::{error, info, trace};
+use log::{error, info};
 use speculation_ucode::patches;
 use uefi::data_types::PhysicalAddress;
-use uefi::{Status, entry, print, println};
+use uefi::{Status, entry, println};
 
 #[entry]
 unsafe fn main() -> Status {
@@ -94,6 +94,7 @@ unsafe fn main() -> Status {
 }
 
 #[inline(always)]
+#[allow(dead_code)]
 fn capture_state(state: &mut GuestRegisters) {
     unsafe {
         asm!(

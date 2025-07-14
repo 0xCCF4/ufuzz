@@ -1,7 +1,7 @@
 #![feature(stmt_expr_attributes)]
 #![feature(proc_macro_hygiene)]
 
-use performance_timing::measurements::mm_instance;
+use performance_timing::measurements::{mm_instance, MeasurementCollection};
 use performance_timing::{initialize, instance};
 use performance_timing_macros::track_time;
 
@@ -42,5 +42,8 @@ fn main() {
 
     println!("Now: {:?}", instance().now());
 
-    println!("{}", mm_instance().borrow());
+    println!(
+        "{}",
+        MeasurementCollection::from(mm_instance().borrow().data.clone()).normalize()
+    );
 }

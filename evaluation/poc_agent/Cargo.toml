@@ -1,0 +1,20 @@
+[package]
+name = "poc_agent"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+
+itertools = { version = "0.14.0", default-features = false, features = ["use_alloc"] }
+
+
+data_types = { path = "../../data_types", features = ["nostd"] }
+custom_processing_unit = { path = "../../custom_processing_unit", features = ["nostd"]}
+ucode_compiler_dynamic = { path = "../../ucode_compiler_dynamic" }
+ucode_compiler_derive = { path = "../../ucode_compiler_derive" }
+ucode_dump = { path = "../../ucode_dump" }
+poc_data = {path = "../poc_data"}
+#coverage = {path="../../coverage"}
+#hypervisor = { path = "../../hypervisor" }
+performance_timing = {path="../../performance_timing"}
+log = "0.4.27"

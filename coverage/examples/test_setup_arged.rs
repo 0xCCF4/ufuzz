@@ -11,7 +11,6 @@ use alloc::vec::Vec;
 use core::arch::asm;
 use coverage::harness::coverage_harness::CoverageHarness;
 use coverage::interface::safe::ComInterface;
-use coverage::interface_definition::COM_INTERFACE_DESCRIPTION;
 use coverage::{coverage_collector, coverage_collector_debug_tools, interface_definition};
 use custom_processing_unit::{
     apply_patch, calculate_hook_value, call_custom_ucode_function, lmfence,

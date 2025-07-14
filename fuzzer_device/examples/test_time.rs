@@ -5,14 +5,8 @@
 
 extern crate alloc;
 
-use alloc::string::{String, ToString};
-use alloc::vec::Vec;
-use core::fmt::Debug;
-use fuzzer_device::cmos;
-use fuzzer_device::cmos::CMOS;
+use performance_timing::measurements::MeasurementCollection;
 use performance_timing::track_time;
-use uefi::boot::ScopedProtocol;
-use uefi::proto::loaded_image::LoadedImage;
 use uefi::{entry, print, println, Status};
 
 #[entry]
@@ -32,13 +26,19 @@ unsafe fn main() -> Status {
         uefi::boot::stall(1_000_000);
     }
 
-    for i in 0..10 {
+    for _ in 0..10 {
         sleep();
     }
 
     println!(
         "{}",
-        performance_timing::measurements::mm_instance().borrow()
+        MeasurementCollection::from(
+            performance_timing::measurements::mm_instance()
+                .borrow()
+                .data
+                .clone()
+        )
+        .normalize()
     );
 
     uefi::boot::stall(20_000_000);

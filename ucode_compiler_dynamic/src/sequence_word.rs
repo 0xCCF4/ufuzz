@@ -148,9 +148,9 @@ pub struct SequenceWordPart<T> {
 /// - How does an `eflow` value like URET/UEND behaves when also a jump is scheduled at other indexes?
 ///
 /// # Literature
-///  - https://github.com/chip-red-pill/uCodeDisasm/
-///  - https://github.com/pietroborrello/CustomProcessingUnit
-///  - https://libmicro.dev/structure.html#sequence-word
+///  - <https://github.com/chip-red-pill/uCodeDisasm/>
+///  - <https://github.com/pietroborrello/CustomProcessingUnit>
+///  - <https://libmicro.dev/structure.html#sequence-word>
 #[derive(Default, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct SequenceWord {
     /// Control operation

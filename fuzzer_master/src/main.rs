@@ -31,87 +31,145 @@ use ucode_compiler_dynamic::sequence_word::SequenceWord;
 pub mod main_compare;
 pub mod main_viewer;
 
+/// Main fuzzing application. This app governs and controls the entire fuzzing process,
+/// issuing commands to a fuzzer agent (which e.g. executes fuzzing inputs on its CPU)
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
+    /// The database file to save fuzzing progress and results to
     #[arg(short, long)]
     database: Option<PathBuf>,
+    /// The command to execute
     #[command(subcommand)]
     cmd: Cmd,
 }
 
 #[derive(Subcommand, Debug, Clone)]
 enum Cmd {
+    /// Perform coverage fuzzing using (bad) genetic mutation algorithm, probably you would like to execute the `afl` command.
+    /// == Requires the `fuzzer_device` app running on the agent ==
     Genetic {
+        /// A corpus file to generate the initial fuzzing inputs from
         #[arg(short, long)]
         corpus: Option<PathBuf>,
+        /// After how many hours the fuzzing should be terminated. If not given fuzzing must be interrupted by CTRL+C
         #[arg(short, long)]
         timeout_hours: Option<u32>,
+        /// Disable the feedback loop, fuzzing input ratings will become randomized
         #[arg(short, long)]
         disable_feedback: bool,
     },
+    /// Under-construction
     InstructionMutation,
+    /// Bring up the fuzzer agent to a usable state
     Init,
+    /// Reboot the fuzzer agent
     Reboot,
-    Cap,
+    /// Report the capabilities of the fuzzer agent
+    Cap {
+        /// CPUid leaf (EAX)
+        #[arg(long, default_value = "1")]
+        leaf: u32,
+        /// CPUid specifier (ECX)
+        #[arg(long, default_value = "0")]
+        node: u32,
+    },
+    /// Extract performance values from the fuzzer agent
     Performance,
+    /// Do speculative microcode fuzzing
+    /// == Requires the `spec_fuzz` app running on the agent ==
     Spec {
+        /// Path to database; save the results to this file
         report: PathBuf,
+        /// Execute fuzzing for all instructions extracted from MSROM
         #[arg(short, long)]
         all: bool,
+        /// Skip instruction that were already run; continue a stopped fuzzing execution
         #[arg(short, long)]
         skip: bool,
+        /// Skip all CRBUS related instructions
         #[arg(short, long)]
         no_crbus: bool,
+        /// Exclude a list of instructions from running through the fuzzer
         #[arg(short, long)]
         exclude: Option<PathBuf>,
+        /// Run all PMC variants through the fuzzer; takes a long time
         #[arg(short, long)]
         fuzzy_pmc: bool,
     },
+    /// Executes a given speculative fuzzing payload manually
+    /// == Requires the `spec_fuzz` app running on the agent ==
     SpecManual {
+        /// Instruction given as list of hex values
         #[arg(short, long)]
         instruction: Option<Vec<String>>,
+        /// Sequence word given as hex number
         #[arg(short, long)]
         sequence_word: Option<String>,
     },
+    /// Executes a single fuzzing input manually
+    /// == Requires the `fuzzer_device` app running on the agent ==
     Manual {
+        /// Path to the fuzzing input (file with hexadecimally formatted string/fuzzing input)
         #[arg(short, long)]
         input: PathBuf,
+        /// Path to save the fuzzing result to
         #[arg(short, long)]
         output: Option<PathBuf>,
+        /// Overwrite the target file without asking
         #[arg(short = 'f', long, default_value = "false")]
         overwrite: bool,
+        /// Split input file at newline characters and regard each line as single fuzzing input
         #[arg(short, long)]
         bulk: bool,
+        /// How many iterations should the sample trace execute for
         #[arg(short, long, default_value = "1000")]
         max_iterations: u16,
+        /// Analyze which memory locations are executed when tracing the fuzzing sample
         #[arg(short, long)]
         print_mem_access: bool,
+        /// Disable coverage collection
         #[arg(short, long)]
         no_coverage_collection: bool,
     },
+    /// Executes a corpus of fuzzing inputs; essentially runs the manual command using all files within the given directory
+    /// == Requires the `fuzzer_device` app running on the agent ==
     BulkManual {
+        /// Path to directory containing fuzzing inputs
         input: Vec<PathBuf>,
+        /// Path to directory to which outputs should be written to
         #[arg(short, long)]
         output: Option<PathBuf>,
+        /// Overwrite without asking
         #[arg(short = 'f', long)]
         overwrite: bool,
+        /// Disable coverage collection
         #[arg(short, long)]
         no_coverage_collection: bool,
+        /// How many iterations the sample trace should run at most
         #[arg(short, long, default_value = "1000")]
         max_iterations: u16,
     },
+    /// Executes the main fuzzing loop with AFL mutations
+    /// == Requires the `fuzzer_device` app running on the agent ==
     AFL {
+        /// Store findings to this path
         #[arg(short, long)]
         solutions: Option<PathBuf>,
+        /// Use the provided corpus file to generate initial fuzzing inputs from
         #[arg(short, long)]
         corpus: Option<PathBuf>,
+        /// Store the fuzzing corpus to that path
         #[arg(short, long)]
         afl_corpus: Option<PathBuf>,
+        /// End fuzzing after that many hours automatically, if not set fuzzing does not terminate
         #[arg(short, long)]
         timeout_hours: Option<u32>,
+        /// Disabled coverage fuzzing feedback; instead fuzzing feedback is randomized
         #[arg(short, long)]
         disable_feedback: bool,
+        /// When not using the `corpus` argument; initial fuzzing inputs are random byte sequences; enabling this flag
+        /// these byte sequences are selected among printable ASCII characters
         #[arg(short, long)]
         printable_input_generation: bool,
     },
@@ -439,9 +497,12 @@ async fn main() {
                     }
                 }
             }
-            Cmd::Cap => {
+            Cmd::Cap { leaf, node } => {
                 let _ = udp
-                    .send(OtaC2DTransport::GetCapabilities)
+                    .send(OtaC2DTransport::GetCapabilities {
+                        leaf: *leaf,
+                        node: *node,
+                    })
                     .await
                     .map_err(|e| {
                         error!("Failed to send GetCapabilities: {:?}", e);
@@ -617,7 +678,7 @@ async fn main() {
                 }
             }
             Cmd::AFL { .. } => {
-                unreachable!()
+                unreachable!("if statement above already governs this path")
             }
         };
 

@@ -132,9 +132,6 @@ fn process_binary<A: AsRef<Path>>(
             return BTreeSet::new();
         }
 
-        let mut counter_include = 0;
-        let mut counter_exclude = 0;
-
         for entry in std::fs::read_dir(&temp_dir_path).expect("Failed to read temporary directory")
         {
             let entry_path = entry.expect("Failed to read directory entry").path();
@@ -173,7 +170,7 @@ fn process_binary<A: AsRef<Path>>(
                     file.read_to_end(&mut buffer)
                         .expect("Failed to read target file");
 
-                    let decoded = decoder.decode(&buffer);
+                    let decoded = decoder.decode(&buffer, 0);
                     for i in 0..decoded.len() {
                         let instruction = decoded.get(i).unwrap();
 
@@ -187,7 +184,6 @@ fn process_binary<A: AsRef<Path>>(
                                 | FlowControl::ConditionalBranch
                                 | FlowControl::UnconditionalBranch
                         ) {
-                            counter_exclude += 1;
                             continue;
                         }
 
@@ -239,7 +235,7 @@ fn process_binary<A: AsRef<Path>>(
             file.read_to_end(&mut buffer)
                 .expect("Failed to read target file");
 
-            let decoded = decoder.decode(&buffer);
+            let decoded = decoder.decode(&buffer, 0);
             for i in 0..decoded.len() {
                 let instruction = decoded.get(i).unwrap();
 

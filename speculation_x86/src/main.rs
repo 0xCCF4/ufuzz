@@ -9,20 +9,18 @@
 extern crate alloc;
 
 use alloc::vec::Vec;
-use core::arch;
 use core::arch::asm;
 use custom_processing_unit::{
-    CustomProcessingUnit, HookGuard, StagingBufferAddress, apply_hook_patch_func, apply_patch,
-    hook, lmfence, stgbuf_read, stgbuf_write,
+    CustomProcessingUnit, HookGuard, StagingBufferAddress, apply_hook_patch_func, apply_patch, hook,
 };
 use data_types::addresses::MSRAMHookIndex;
 use log::info;
-use speculation::{
-    BRANCH_MISSES_RETIRED, INSTRUCTIONS_RETIRED, MS_DECODED_MS_ENTRY, UOPS_ISSUED_ANY,
-    UOPS_RETIRED_ANY, patches,
-};
+use speculation_x86::patches;
 use uefi::{Status, entry, print, println};
-use x86_perf_counter::PerformanceCounter;
+use x86_perf_counter::{
+    INSTRUCTIONS_RETIRED, MS_DECODED_MS_ENTRY, PerformanceCounter, UOPS_ISSUED_ANY,
+    UOPS_RETIRED_ANY,
+};
 
 #[entry]
 unsafe fn main() -> Status {
@@ -47,7 +45,7 @@ unsafe fn main() -> Status {
     }
 
     let disable_hooks = HookGuard::disable_all(); // will be dropped on end of method
-    let stg_addr = StagingBufferAddress::Raw(0xba00);
+    let _stg_addr = StagingBufferAddress::Raw(0xba00);
 
     if let Err(err) = apply_patch(&patches::experiment::PATCH) {
         println!("Failed to apply patch: {:?}", err);
@@ -69,7 +67,7 @@ unsafe fn main() -> Status {
         let enable_hooks = HookGuard::enable_all();
         //test_speculation("Instruction", spec_window);
 
-        spec_ucode();
+        unsafe { spec_ucode() };
 
         enable_hooks.restore();
     }
@@ -87,7 +85,7 @@ pub unsafe fn test_speculation(title: &str, func: unsafe fn(bool, bool) -> u64) 
     let mut sum_true = 0;
 
     for i in 0..n {
-        let result = func(true, i == 0);
+        let result = unsafe { func(true, i == 0) };
         sum_true += result;
         results_true.push(result);
     }
@@ -109,7 +107,7 @@ pub unsafe fn test_speculation(title: &str, func: unsafe fn(bool, bool) -> u64) 
     let mut sum_false = 0;
 
     for i in 0..n {
-        let result = func(false, i == 0);
+        let result = unsafe { func(false, i == 0) };
         sum_false += result;
         results_false.push(result);
     }
@@ -131,7 +129,7 @@ pub unsafe fn test_speculation(title: &str, func: unsafe fn(bool, bool) -> u64) 
 pub unsafe fn spec_ucode() {
     let result: u64;
 
-    let mut pmc_ms_entry = PerformanceCounter::new(0);
+    let mut pmc_ms_entry = unsafe { PerformanceCounter::new(0) };
     pmc_ms_entry
         .event()
         .apply_perf_event_specifier(MS_DECODED_MS_ENTRY);
@@ -139,7 +137,7 @@ pub unsafe fn spec_ucode() {
     pmc_ms_entry.event().set_os_mode(true);
     pmc_ms_entry.reset();
 
-    let mut pmc_uops_issued = PerformanceCounter::new(1);
+    let mut pmc_uops_issued = unsafe { PerformanceCounter::new(1) };
     pmc_uops_issued
         .event()
         .apply_perf_event_specifier(UOPS_ISSUED_ANY);
@@ -147,7 +145,7 @@ pub unsafe fn spec_ucode() {
     pmc_uops_issued.event().set_os_mode(true);
     pmc_uops_issued.reset();
 
-    let mut pmc_instructions_retired = PerformanceCounter::new(2);
+    let mut pmc_instructions_retired = unsafe { PerformanceCounter::new(2) };
     pmc_instructions_retired
         .event()
         .apply_perf_event_specifier(INSTRUCTIONS_RETIRED);
@@ -155,7 +153,7 @@ pub unsafe fn spec_ucode() {
     pmc_instructions_retired.event().set_os_mode(true);
     pmc_instructions_retired.reset();
 
-    let mut pmc_uops_retired = PerformanceCounter::new(3);
+    let mut pmc_uops_retired = unsafe { PerformanceCounter::new(3) };
     pmc_uops_retired
         .event()
         .apply_perf_event_specifier(UOPS_RETIRED_ANY);
@@ -168,7 +166,7 @@ pub unsafe fn spec_ucode() {
     pmc_uops_issued.enable();
     pmc_ms_entry.enable();
 
-    asm!("rdrand rax", out("rax") result);
+    unsafe { asm!("rdrand rax", out("rax") result) };
 
     pmc_ms_entry.disable();
     pmc_uops_issued.disable();
@@ -193,7 +191,7 @@ pub unsafe fn spec_window(attack: bool, pmc: bool) -> u64 {
     let mut q = [0u32; 256];
     q[0] = 0x22;
 
-    let mut pmc_ms_entry = PerformanceCounter::new(0);
+    let mut pmc_ms_entry = unsafe { PerformanceCounter::new(0) };
     pmc_ms_entry
         .event()
         .apply_perf_event_specifier(MS_DECODED_MS_ENTRY);
@@ -201,7 +199,7 @@ pub unsafe fn spec_window(attack: bool, pmc: bool) -> u64 {
     pmc_ms_entry.event().set_os_mode(true);
     pmc_ms_entry.reset();
 
-    let mut pmc_uops_issued = PerformanceCounter::new(1);
+    let mut pmc_uops_issued = unsafe { PerformanceCounter::new(1) };
     pmc_uops_issued
         .event()
         .apply_perf_event_specifier(UOPS_ISSUED_ANY);
@@ -209,7 +207,7 @@ pub unsafe fn spec_window(attack: bool, pmc: bool) -> u64 {
     pmc_uops_issued.event().set_os_mode(true);
     pmc_uops_issued.reset();
 
-    let mut pmc_instructions_retired = PerformanceCounter::new(2);
+    let mut pmc_instructions_retired = unsafe { PerformanceCounter::new(2) };
     pmc_instructions_retired
         .event()
         .apply_perf_event_specifier(INSTRUCTIONS_RETIRED);
@@ -217,7 +215,7 @@ pub unsafe fn spec_window(attack: bool, pmc: bool) -> u64 {
     pmc_instructions_retired.event().set_os_mode(true);
     pmc_instructions_retired.reset();
 
-    let mut pmc_uops_retired = PerformanceCounter::new(3);
+    let mut pmc_uops_retired = unsafe { PerformanceCounter::new(3) };
     pmc_uops_retired
         .event()
         .apply_perf_event_specifier(UOPS_RETIRED_ANY);
@@ -225,13 +223,15 @@ pub unsafe fn spec_window(attack: bool, pmc: bool) -> u64 {
     pmc_uops_retired.event().set_os_mode(true);
     pmc_uops_retired.reset();
 
-    asm!("wbinvd");
+    unsafe {
+        asm!("wbinvd");
 
-    for i in (0..q.len()).step_by(64) {
-        asm!("clflush [{}]", in(reg) &q[i]);
+        for i in (0..q.len()).step_by(64) {
+            asm!("clflush [{}]", in(reg) &q[i]);
+        }
+
+        asm!("sfence", "lfence", "sfence", "lfence");
     }
-
-    asm!("sfence", "lfence", "sfence", "lfence");
 
     // https://blog.can.ac/2021/03/22/speculating-x86-64-isa-with-one-weird-trick/
     flush_decode_stream_buffer();
@@ -241,18 +241,19 @@ pub unsafe fn spec_window(attack: bool, pmc: bool) -> u64 {
     pmc_uops_issued.enable();
     pmc_ms_entry.enable();
 
-    asm!(
+    unsafe {
+        asm!(
+        // Speculation template based on https://blog.can.ac/2021/03/22/speculating-x86-64-isa-with-one-weird-trick/
+
         "xor rdx,rdx",
         "cmp {attack}, 0",
         "jz 2f",
-
         "call 4f",
 
         // Speculative window
 
         "lea rdx, [{q_ptr}]",
         "mov rdx, [rdx]",
-
         "ud2",
 
         // Speculative window end
@@ -261,38 +262,29 @@ pub unsafe fn spec_window(attack: bool, pmc: bool) -> u64 {
         "lea rax, [rip+2f]",
         "xchg [rsp], rax",
         "ret",
-
         "2:",
-
         "xor rax, rax",
-
         "mfence",
         "lfence",
         "rdtsc",
         "lfence",
-
         "shl rdx, 32",
         "or rax, rdx",
         "mov {before}, rax",
         "xor rax, rax",
-
         "lea rdx, [{q_ptr}]",
         "mov rdx, [rdx]",
-
         "mfence",
         "lfence",
         "rdtsc",
         "lfence",
-
         "shl rdx, 32",
         "or rax, rdx",
         "mov {after}, rax",
         "xor rax, rax",
-
         "sub {after}, {before}",
         "mov {difference}, {after}",
-
-        attack = in(reg) if attack {1} else {0},
+        attack = in(reg) if attack { 1u64 } else { 0u64 },
         q_ptr = in(reg) (&q as *const u32 as usize),
         out("rdx") _,
         out("rax") _,
@@ -300,7 +292,8 @@ pub unsafe fn spec_window(attack: bool, pmc: bool) -> u64 {
         before = out(reg) _,
         after = out(reg) _,
         difference = out(reg) difference,
-    );
+        );
+    }
 
     pmc_ms_entry.disable();
     pmc_uops_issued.disable();

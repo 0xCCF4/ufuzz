@@ -2,7 +2,7 @@
 #![no_std]
 
 use custom_processing_unit::{
-    apply_patch, call_custom_ucode_function, hook, CustomProcessingUnit, HookGuard,
+    apply_patch, call_custom_ucode_function, CustomProcessingUnit, HookGuard,
 };
 use log::info;
 use uefi::{entry, println, Status};
