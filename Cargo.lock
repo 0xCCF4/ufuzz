@@ -2078,31 +2078,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8b870d8c151b6f2fb93e84a13146138f05d02ed11c7e7c54f8826aaaf7c9f184"
 
 [[package]]
-name = "poc_agent"
-version = "0.1.0"
-dependencies = [
- "custom_processing_unit",
- "data_types",
- "itertools 0.14.0",
- "log",
- "performance_timing",
- "poc_data",
- "ucode_compiler_derive",
- "ucode_compiler_dynamic",
- "ucode_dump",
-]
-
-[[package]]
-name = "poc_data"
-version = "0.1.0"
-dependencies = [
- "clap",
- "log",
- "postcard",
- "serde",
-]
-
-[[package]]
 name = "postcard"
 version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2859,7 +2834,6 @@ dependencies = [
  "hypervisor",
  "itertools 0.14.0",
  "log",
- "poc_agent",
  "rand_core 0.9.2",
  "serde",
  "serde_json",
