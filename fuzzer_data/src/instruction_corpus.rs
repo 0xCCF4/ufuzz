@@ -1,6 +1,6 @@
 //! Instruction corpus management
 //!
-//! This module provides types for managing a initial corpus of instructions used in fuzzing.
+//! This module provides types for managing an initial corpus of instructions used in fuzzing.
 
 use alloc::collections::BTreeSet;
 use alloc::vec::Vec;

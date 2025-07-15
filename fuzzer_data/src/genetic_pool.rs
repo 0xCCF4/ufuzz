@@ -2,6 +2,8 @@
 //!
 //! This module provides types and functionality for running a genetic algorithm
 //! to evolve and optimize fuzzing samples.
+//!
+//! You should maybe consider to use AFL as mutator/input generator instead
 
 use crate::instruction_corpus::CorpusInstruction;
 use alloc::vec::Vec;

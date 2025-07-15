@@ -78,7 +78,10 @@ impl VM for Bochs {
         if !Command::new("mkfs.fat")
             .args([disk.to_str().unwrap(), "-F", "32"])
             .status()
-            .map_err(|_| "mkfs.vfat failed")?
+            .map_err(|e| {
+                eprintln!("mkfs.vfat failed {e:?}");
+                e
+            })?
             .success()
         {
             return Err("mkfs.vfat failed".into());

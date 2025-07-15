@@ -77,11 +77,9 @@ further changes may be deployed using (deploy-rs) by running in the `nix` direct
 nix run |& nom
 ```
 
-To built and deploy the fuzzer device UEFI app, first, change the IP settings [`spec_fuzz`](spec_fuzz/src/controller_connection.rs)/[`fuzzer_device`](fuzzer_device/src/controller_connection.rs),
-then; fuzzer instrumentor must be running, then
-compile and deploy the app using:
+To built and deploy the fuzzer device UEFI app:
 ```bash
-HOST_NODE="put IP of the instrumentor here" cargo xtask put-remote --startup {app name here}
+HOST_NODE="put IP of the instrumentor here" cargo xtask put-remote --remote-ip {address of fuzzer controller} --source-ip {address of agent} --netmask {network mask} --port {udp port} --startup {app name here}
 ```
 Depending on the target fuzzing scenario, use `spec_fuzz` (speculative microcode fuzzing) or `fuzzer_device` (x86 instruction fuzzing)
 instead of `{app name here}`.
