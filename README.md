@@ -79,12 +79,53 @@ nix run |& nom
 
 To built and deploy the fuzzer device UEFI app:
 ```bash
-HOST_NODE="put IP of the instrumentor here" cargo xtask put-remote --remote-ip {address of fuzzer controller} --source-ip {address of agent} --netmask {network mask} --port {udp port} --startup {app name here}
+HOST_NODE="put IP of the instrumentor here" cargo xtask put-remote
+  --remote-ip {address of fuzzer controller}
+  --source-ip {address of agent}
+  --netmask {network mask}
+  --port {udp port}
+  --startup {app name here}
 ```
 Depending on the target fuzzing scenario, use `spec_fuzz` (speculative microcode fuzzing) or `fuzzer_device` (x86 instruction fuzzing)
 instead of `{app name here}`.
 
 Then boot the fuzzer master. Start the `fuzzer_master` app. Settings can be displayed by using `--help` in the CLI.
+          
+```bash
+fuzzer_master --help
+
+# Main fuzzing application. This app governs and controls the entire fuzzing process,
+# issuing commands to a fuzzer agent (which e.g. executes fuzzing inputs on its CPU)
+# 
+# Usage: fuzz_master [OPTIONS] <COMMAND>
+# 
+# Commands:
+#   genetic               Perform coverage fuzzing using (bad) genetic mutation algorithm,
+#                         probably you would like to execute the `afl` command. == Requires the `fuzzer_device`
+#                         app running on the agent ==
+#   instruction-mutation  Under-construction
+#   init                  Bring up the fuzzer agent to a usable state
+#   reboot                Reboot the fuzzer agent
+#   cap                   Report the capabilities of the fuzzer agent
+#   performance           Extract performance values from the fuzzer agent
+#   spec                  Do speculative microcode fuzzing == Requires the `spec_fuzz` app running on the agent ==
+#   spec-manual           Executes a given speculative fuzzing payload manually == Requires the `spec_fuzz`
+#                         app running on the agent ==
+#   manual                Executes a single fuzzing input manually == Requires the `fuzzer_device`
+#                         app running on the agent ==
+#   bulk-manual           Executes a corpus of fuzzing inputs; essentially runs the manual command using
+#                         all files within the given directory == Requires the `fuzzer_device` app running on the agent ==
+#   afl                   Executes the main fuzzing loop with AFL mutations == Requires the `fuzzer_device` app
+#                         running on the agent ==
+#   help                  Print this message or the help of the given subcommand(s)
+# 
+# Options:
+#   -d, --database <DATABASE>          The database file to save fuzzing progress and results to
+#       --instrumentor <INSTRUMENTOR>  Address of the fuzzer instrumentor [default: http://10.83.3.198:8000]
+#       --agent <AGENT>                Address of the fuzzer agent [default: 10.83.3.6:4444]
+#   -h, --help                         Print help
+#   -V, --version                      Print version
+```
 
 ---
 
@@ -125,4 +166,20 @@ cargo xtask emulate hypervisor bochs-intel
 List all available xtask commands using:
 ```bash
 cargo xtask --help
+
+# A build and test assist program
+# 
+# Usage: xtask <COMMAND>
+# 
+# Commands:
+#   emulate         Emulate a UEFI application using BOCHS CPU emulator
+#   put-remote      Push an UEFI app onto the remote machine
+#   control-remote  Control a remote machine
+#   update-node     Update the node's software, systemd service, etc
+#   doc             Generate documentation
+#   check           Compile all examples and subprojects
+#   help            Print this message or the help of the given subcommand(s)
+# 
+# Options:
+#   -h, --help  Print help
 ```
