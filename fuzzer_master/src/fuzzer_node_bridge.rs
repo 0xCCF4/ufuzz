@@ -44,7 +44,7 @@ impl FuzzerNodeInterface {
             .connect_timeout(Duration::from_secs(5))
             .timeout(Duration::from_secs(20))
             .build()
-            .unwrap()
+            .expect("failed to create instrumentor client")
     }
 
     /// Attempts to skip the BIOS screen

@@ -12,23 +12,71 @@
 extern crate alloc;
 
 use alloc::format;
-use alloc::string::ToString;
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
 use coverage::page_allocation::PageAllocation;
 use custom_processing_unit::{
     apply_hook_patch_func, apply_patch, hook, CustomProcessingUnit, HookGuard,
 };
 use data_types::addresses::MSRAMHookIndex;
 use fuzzer_data::{OtaC2D, OtaC2DTransport, OtaD2CTransport};
+use itertools::Itertools;
 use log::{error, trace, warn, Level};
 #[cfg(feature = "__debug_performance_trace")]
 use performance_timing::track_time;
 use spec_fuzz::controller_connection::{ConnectionSettings, ControllerConnection};
 use spec_fuzz::{check_if_pmc_stable, execute_speculation, patches};
-use uefi::{entry, println, Status};
+use uefi::boot::ScopedProtocol;
+use uefi::proto::loaded_image::LoadedImage;
+use uefi::{entry, println, CString16, Status};
 use uefi_raw::table::runtime::ResetType;
-use uefi_raw::PhysicalAddress;
+use uefi_raw::{Ipv4Address, PhysicalAddress};
+use uefi_udp4::Ipv4AddressExt;
 use x86::cpuid::cpuid;
 use x86_perf_counter::PerformanceCounter;
+
+fn get_program_args() -> Vec<String> {
+    let loaded_image_proto: ScopedProtocol<LoadedImage> =
+        match uefi::boot::open_protocol_exclusive(uefi::boot::image_handle()) {
+            Err(err) => {
+                error!("Failed to open image protocol: {:?}", err);
+                return Vec::new();
+            }
+            Ok(loaded_image_proto) => loaded_image_proto,
+        };
+    let options = match loaded_image_proto.load_options_as_bytes().map(|options| {
+        let header = options as *const [u8] as *const u8;
+
+        let description: *const u16 = header.cast();
+        let mut description_data = Vec::new();
+
+        for offset in 0..((options.len() - (description as usize - header as usize)) / 2) {
+            let data: u16 = unsafe { description.add(offset).read() };
+            description_data.push(data);
+            if data == 0 {
+                break;
+            }
+        }
+
+        CString16::try_from(description_data).unwrap_or_else(|err| {
+            error!("Failed to parse description: {:?}", err);
+            CString16::new()
+        })
+    }) {
+        None => {
+            error!("No args set.");
+            return Vec::new();
+        }
+        Some(options) => options,
+    };
+
+    let options = options.to_string();
+
+    options
+        .split_whitespace()
+        .map(|e| e.to_string())
+        .collect_vec()
+}
 
 /// Main entry point for the speculation fuzzer
 ///
@@ -38,6 +86,62 @@ use x86_perf_counter::PerformanceCounter;
 unsafe fn main() -> Status {
     uefi::helpers::init().unwrap();
     println!("Hello world!");
+
+    let program_args = get_program_args();
+    println!("Args: {:?}", program_args);
+
+    let mut connection_settings = ConnectionSettings::default();
+    if program_args.len() < 5 {
+        warn!("Using default connection settings. Provide at least <REMOTE_IP> <SOURCE_IP> <SUBNET_MASK> <PORT>")
+    } else {
+        fn parse_ip(s: &str) -> Option<Ipv4Address> {
+            let parts: Vec<&str> = s.split('.').collect();
+            if parts.len() != 4 {
+                return None;
+            }
+            let mut bytes = [0u8; 4];
+            for (i, part) in parts.iter().enumerate() {
+                if let Ok(num) = part.parse::<u8>() {
+                    bytes[i] = num;
+                } else {
+                    return None;
+                }
+            }
+            Some(Ipv4Address::new(bytes[0], bytes[1], bytes[2], bytes[3]))
+        }
+
+        if let Some(remote_ip) = parse_ip(&program_args[1]) {
+            connection_settings.remote_address = remote_ip;
+        } else {
+            warn!("Invalid remote IP address: {}", program_args[1]);
+        }
+
+        if let Some(source_ip) = parse_ip(&program_args[2]) {
+            connection_settings.source_address = source_ip;
+        } else {
+            warn!("Invalid source IP address: {}", program_args[2]);
+        }
+
+        if let Some(subnet_mask) = parse_ip(&program_args[3]) {
+            connection_settings.subnet_mask = subnet_mask;
+        } else {
+            warn!("Invalid subnet mask: {}", program_args[3]);
+        }
+
+        if let Ok(port) = program_args[4].parse::<u16>() {
+            connection_settings.remote_port = port;
+            connection_settings.source_port = port;
+        } else {
+            warn!("Invalid port number: {}", program_args[4]);
+        }
+    }
+    println!("--------------");
+    println!("Remote IP: {:?}", connection_settings.remote_address);
+    println!("Source IP: {:?}", connection_settings.source_address);
+    println!("Subnet Mask: {:?}", connection_settings.subnet_mask);
+    println!("Remote Port: {}", connection_settings.remote_port);
+    println!("Source Port: {}", connection_settings.source_port);
+    println!("--------------");
 
     let allocation = PageAllocation::alloc_address(PhysicalAddress::from(0x1000u64), 1);
     match &allocation {
@@ -102,7 +206,7 @@ unsafe fn main() -> Status {
     let mut udp: ControllerConnection = {
         trace!("Connecting to UDP");
 
-        match ControllerConnection::connect(&ConnectionSettings::default()) {
+        match ControllerConnection::connect(&connection_settings) {
             Ok(udp) => udp,
             Err(err) => {
                 error!("Failed to connect to controller: {:?}", err);

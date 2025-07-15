@@ -35,6 +35,18 @@ enum Cli {
         /// Release mode
         #[clap(short, long)]
         release: bool,
+        /// Fuzzer settings: Remote IP address, fuzzer agent connects to
+        #[clap(long, default_value = "a.b.c.d")]
+        remote_ip: String,
+        /// Fuzzer settings: Source IP address, fuzzer agent uses this as source
+        #[clap(long, default_value = "a.b.c.d")]
+        source_ip: String,
+        /// Fuzzer settings: Network mask
+        #[clap(long, default_value = "255.255.255.0")]
+        netmask: String,
+        /// Fuzzer settings: UDP Port number to use
+        #[clap(long, default_value = "4444")]
+        port: u16,
     },
     /// Control a remote machine
     ControlRemote {
@@ -87,7 +99,16 @@ fn main() {
             name,
             startup,
             release,
-        } => main_put_remote(&name, startup, release),
+            remote_ip,
+            source_ip,
+            netmask,
+            port,
+        } => main_put_remote(
+            &name,
+            startup,
+            release,
+            &([remote_ip, source_ip, netmask, port.to_string()].join(" ")),
+        ),
         Cli::ControlRemote { args } => main_control_remote(args),
         Cli::Doc => main_generate_doc(),
         Cli::Check => main_compile_all(),
@@ -131,7 +152,7 @@ fn main_control_remote(args: Vec<String>) {
     }
 }
 
-fn main_put_remote(name: &str, startup: bool, release: bool) {
+fn main_put_remote(name: &str, startup: bool, release: bool, startup_appends: &str) {
     let ssh_args = match env::var("SSH_ARGS") {
         Ok(args) => args
             .split_whitespace()
@@ -241,8 +262,12 @@ fn main_put_remote(name: &str, startup: bool, release: bool) {
             .expect("Failed to write to ssh stdin");
 
         if name != "corpus.json" && startup {
-            writeln!(ssh_stdin, "echo \"{}\" | sudo tee /mnt/startup.nsh", name)
-                .expect("Failed to write to ssh stdin");
+            writeln!(
+                ssh_stdin,
+                "echo \"{}\" | sudo tee /mnt/startup.nsh",
+                format!("{name} {startup_appends}")
+            )
+            .expect("Failed to write to ssh stdin");
         }
 
         writeln!(ssh_stdin, "sudo umount /mnt").expect("Failed to write to ssh stdin");
@@ -547,6 +572,14 @@ fn main_compile_all() {
         }
         cmd
     }
+    fn clean() {
+        let mut cmd = Command::new("cargo");
+        cmd.args(["clean", "--locked"]);
+        for project in PROJECTS_UEFI.iter().chain(PROJECTS_X86.iter()) {
+            cmd.arg("-p").arg(project);
+        }
+        cmd.status().expect("Failed to clean the project");
+    }
     fn augment(project: &str, command: &mut Command) {
         match project {
             "coverage" => {
@@ -557,6 +590,7 @@ fn main_compile_all() {
     }
 
     for project in PROJECTS_UEFI {
+        clean();
         let mut status = cmd(Some("x86_64-unknown-uefi"), false);
         status.arg("-p").arg(project).current_dir(&project_root);
         augment(project, &mut status);
@@ -568,6 +602,7 @@ fn main_compile_all() {
     }
 
     for project in PROJECTS_X86 {
+        clean();
         let mut status = cmd(
             Some("x86_64-unknown-linux-gnu"),
             ["fuzzer_master"].contains(&project),

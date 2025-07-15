@@ -39,6 +39,12 @@ struct Args {
     /// The database file to save fuzzing progress and results to
     #[arg(short, long)]
     database: Option<PathBuf>,
+    /// Address of the fuzzer instrumentor
+    #[arg(long, default_value = "http://10.83.3.198:8000")]
+    instrumentor: String,
+    /// Address of the fuzzer agent
+    #[arg(long, default_value = "10.83.3.6:4444")]
+    agent: String,
     /// The command to execute
     #[command(subcommand)]
     cmd: Cmd,
@@ -215,8 +221,10 @@ async fn main() {
     );
     info!("Loaded database from {:?}", &database.path);
 
-    let interface = Arc::new(FuzzerNodeInterface::new("http://10.83.3.198:8000"));
-    let mut udp = DeviceConnection::new("10.83.3.6:4444").await.unwrap();
+    let interface = Arc::new(FuzzerNodeInterface::new(&args.instrumentor));
+    let mut udp = DeviceConnection::new(&args.agent)
+        .await
+        .expect("failed to create agent socket");
 
     let corpus_vec = if let Cmd::Genetic { corpus, .. } | Cmd::AFL { corpus, .. } = &args.cmd {
         if let Some(corpus) = corpus {
