@@ -8,7 +8,7 @@ __debug_only_below_0x1000 = [] # collect coverage only below address 0x1000
 
 [dependencies]
 reqwest = { version = "0.12.12", default-features = false }
-tokio = { version = "1.43.0", features = ["full"] }
+tokio = { version = "1.43.1", features = ["full"] }
 fuzzer_data = { path = "../fuzzer_data" }
 log = "0.4.25"
 env_logger = "0.11.6"
