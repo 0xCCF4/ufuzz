@@ -65,7 +65,7 @@ Download [CustomProcessingUnit](https://github.com/pietroborrello/CustomProcessi
 Then apply the following git-patch to `uasm.py`: [uasm.py.patch](ucode_compiler_bridge/uasm.py.patch).
 
 To deploy the fuzzer instrumentor and fuzzer master, you will need `nix` installed (follow <https://nixos.org/download/> to install the package manager).
-Go into the [`nix`}(nix/) directory, change the public ssh keys, IPs etc., to your likings, then, change IP settings within the [`fuzzer_master`](fuzzer_master/src/main.rs) project,
+Go into the [`nix`](nix/) directory, change the public ssh keys, IPs etc., to your likings,
 and run the following commands to build the SD card images for the PIs (`|& nom` is optional):
 ```bash
 nix build .#images.master |& nom
@@ -91,7 +91,7 @@ Then boot the fuzzer master. Start the `fuzzer_master` app. Settings can be disp
 The fuzzing results will be stored to a database file (specifiable via the `--database` argument) (fuzzer master) 
 and can be viewed by running (fuzzer master):
 ```bash
-fuzz_viewer /home/thesis/database.json
+fuzz_viewer database.json
 ```
 
 ---
