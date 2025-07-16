@@ -2,9 +2,7 @@
 A x86 CPU fuzzer utilizing microcode coverage
 
 ## Overview
-uFuzz is a CPU fuzzer that leverage custom microcode updates for x86 Intel
-CPUs to extract e.g. microcode coverage information at runtime. For more details
-see the [paper](xxx).
+uFuzz is the first x86 CPU fuzzer that leverages microcode coverage information as feedback to guide the fuzzing campaign. For more details see the [paper](xxx).
 
 ## Structure
 uFuzz consists of three different systems:
@@ -127,6 +125,60 @@ fuzzer_master --help
 #   -V, --version                      Print version
 ```
 
+Each mentioned `fuzz_master` commands (experiments) includes built-in help documentation that allows you to specify parameters. For example:
+
+- For running the fuzzing campaign with AFL mutations:
+``` bash
+fuzz_master afl --help
+
+# Executes the main fuzzing loop with AFL mutations == Requires the `fuzzer_device` app running on the agent ==
+
+# Usage: fuzz_master afl [OPTIONS]
+
+# Options:
+#   -s, --solutions <SOLUTIONS>          Store findings to this path
+#   -c, --corpus <CORPUS>                Use the provided corpus file to generate initial fuzzing inputs from
+#   -a, --afl-corpus <AFL_CORPUS>        Store the fuzzing corpus to that path
+#   -t, --timeout-hours <TIMEOUT_HOURS>  End fuzzing after that many hours automatically, if not set fuzzing does not terminate
+#   -d, --disable-feedback               Disabled coverage fuzzing feedback; instead fuzzing feedback is randomized
+#   -p, --printable-input-generation     When not using the `corpus` argument; initial fuzzing inputs are random byte sequences; enabling this flag these byte sequences are selected among printable ASCII characters
+#   -h, --help                           Print help
+```
+
+- For running the fuzzing campaign with pure genetic mutations:
+``` bash
+fuzz_master genetic --help
+
+# Perform coverage fuzzing using (bad) genetic mutation algorithm, probably you would like to execute the `afl` command. == Requires the `fuzzer_device` app running on the agent ==
+
+# Usage: fuzz_master genetic [OPTIONS]
+# 
+# Options:
+#   -c, --corpus <CORPUS>                A corpus file to generate the initial fuzzing inputs from
+#   -t, --timeout-hours <TIMEOUT_HOURS>  After how many hours the fuzzing should be terminated. If not given fuzzing must be interrupted by CTRL+C
+#   -d, --disable-feedback               Disable the feedback loop, fuzzing input ratings will become randomized
+#   -h, --help                           Print help
+```
+
+- For running the fuzzing campaign with speculative microcode fuzzing:
+``` bash
+fuzz_master -- spec --help
+
+# Do speculative microcode fuzzing == Requires the `spec_fuzz` app running on the agent ==
+# 
+# Usage: fuzz_master spec [OPTIONS] <REPORT>
+# 
+# Arguments:
+#   <REPORT>  Path to database; save the results to this file
+# 
+# Options:
+#   -a, --all                Execute fuzzing for all instructions extracted from MSROM
+#   -s, --skip               Skip instruction that were already run; continue a stopped fuzzing execution
+#   -n, --no-crbus           Skip all CRBUS related instructions
+#   -e, --exclude <EXCLUDE>  Exclude a list of instructions from running through the fuzzer
+#   -f, --fuzzy-pmc          Run all PMC variants through the fuzzer; takes a long time
+#   -h, --help               Print help
+```
 ---
 
 The fuzzing results will be stored to a database file (specifiable via the `--database` argument) (fuzzer master) 
@@ -182,4 +234,11 @@ cargo xtask --help
 # 
 # Options:
 #   -h, --help  Print help
+```
+
+### Cite Us
+
+Our work has been published as a [paper](xxx) at Network and Distributed System Security Symposium 2026 ([NDSS'26](https://www.ndss-symposium.org/ndss2026/)): 
+```
+@inproceedings{TBD}
 ```
