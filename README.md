@@ -165,7 +165,7 @@ fuzz_master genetic --help
 
 - For running the fuzzing campaign with speculative microcode fuzzing:
 ``` bash
-fuzz_master -- spec --help
+fuzz_master spec --help
 
 # Do speculative microcode fuzzing == Requires the `spec_fuzz` app running on the agent ==
 # 
