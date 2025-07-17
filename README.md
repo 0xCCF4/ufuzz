@@ -47,13 +47,16 @@ To build and run the uFuzz project, you will need the Rust compiler with the nig
 # Install python (ubuntu/debian); required for the CustomProcessingUnit microcode compiler
 sudo apt install python3 python3-click
 
+# Install compiler
+sudo apt install gcc-aarch64-linux-gnu build-essential git
+
 # Install rust
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --default-toolchain none -y # installs rustup
-rustup install nightly-2024-09-06 # verified to work with the project
+rustup install nightly-2025-05-30 # verified to work with the project
 rustup target add x86_64-unknown-uefi # to compile UEFI applications
 rustup target add aarch64-unknown-linux-gnu # to compile the fuzzer instrumentor
 rustup target add x86_64-unknown-linux-gnu # to compile documentation
-rustup default nightly-2024-09-06 # set the default toolchain to nightly
+rustup default nightly-2025-05-30 # set the default toolchain to nightly
 ```
 
 ## Getting started
