@@ -192,6 +192,11 @@ impl DatabaseData {
                 Some(existing) => {
                     existing.found_at.extend(result.found_at);
                     existing.found_on.extend(result.found_on);
+                    for (cov_point, count) in result.coverage {
+                        if count > *existing.coverage.get(&cov_point).unwrap_or(&0) {
+                            existing.coverage.insert(cov_point, count);
+                        }
+                    }
                 }
                 None => self.results.push(result),
             }
