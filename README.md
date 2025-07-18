@@ -2,9 +2,7 @@
 A x86 CPU fuzzer utilizing microcode coverage
 
 ## Overview
-uFuzz is a CPU fuzzer that leverage custom microcode updates for x86 Intel
-CPUs to extract e.g. microcode coverage information at runtime. For more details
-see the [paper](xxx).
+uFuzz is the first x86 CPU fuzzer that leverages microcode coverage information as feedback to guide the fuzzing campaign. For more details see the [paper](xxx).
 
 ## Structure
 uFuzz consists of three different systems:
@@ -49,13 +47,16 @@ To build and run the uFuzz project, you will need the Rust compiler with the nig
 # Install python (ubuntu/debian); required for the CustomProcessingUnit microcode compiler
 sudo apt install python3 python3-click
 
+# Install compiler
+sudo apt install gcc-aarch64-linux-gnu build-essential git
+
 # Install rust
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --default-toolchain none -y # installs rustup
-rustup install nightly-2024-09-06 # verified to work with the project
+rustup install nightly-2025-05-30 # verified to work with the project
 rustup target add x86_64-unknown-uefi # to compile UEFI applications
 rustup target add aarch64-unknown-linux-gnu # to compile the fuzzer instrumentor
 rustup target add x86_64-unknown-linux-gnu # to compile documentation
-rustup default nightly-2024-09-06 # set the default toolchain to nightly
+rustup default nightly-2025-05-30 # set the default toolchain to nightly
 ```
 
 ## Getting started
@@ -65,7 +66,7 @@ Download [CustomProcessingUnit](https://github.com/pietroborrello/CustomProcessi
 Then apply the following git-patch to `uasm.py`: [uasm.py.patch](ucode_compiler_bridge/uasm.py.patch).
 
 To deploy the fuzzer instrumentor and fuzzer master, you will need `nix` installed (follow <https://nixos.org/download/> to install the package manager).
-Go into the [`nix`}(nix/) directory, change the public ssh keys, IPs etc., to your likings, then, change IP settings within the [`fuzzer_master`](fuzzer_master/src/main.rs) project,
+Go into the [`nix`](nix/) directory, change the public ssh keys, IPs etc., to your likings,
 and run the following commands to build the SD card images for the PIs (`|& nom` is optional):
 ```bash
 nix build .#images.master |& nom
@@ -79,19 +80,114 @@ nix run |& nom
 
 To built and deploy the fuzzer device UEFI app:
 ```bash
-HOST_NODE="put IP of the instrumentor here" cargo xtask put-remote --remote-ip {address of fuzzer controller} --source-ip {address of agent} --netmask {network mask} --port {udp port} --startup {app name here}
+HOST_NODE="put IP of the instrumentor here" cargo xtask put-remote
+  --remote-ip {address of fuzzer controller}
+  --source-ip {address of agent}
+  --netmask {network mask}
+  --port {udp port}
+  --startup {app name here}
 ```
 Depending on the target fuzzing scenario, use `spec_fuzz` (speculative microcode fuzzing) or `fuzzer_device` (x86 instruction fuzzing)
 instead of `{app name here}`.
 
 Then boot the fuzzer master. Start the `fuzzer_master` app. Settings can be displayed by using `--help` in the CLI.
+          
+```bash
+fuzzer_master --help
 
+# Main fuzzing application. This app governs and controls the entire fuzzing process,
+# issuing commands to a fuzzer agent (which e.g. executes fuzzing inputs on its CPU)
+# 
+# Usage: fuzz_master [OPTIONS] <COMMAND>
+# 
+# Commands:
+#   genetic               Perform coverage fuzzing using (bad) genetic mutation algorithm,
+#                         probably you would like to execute the `afl` command. == Requires the `fuzzer_device`
+#                         app running on the agent ==
+#   instruction-mutation  Under-construction
+#   init                  Bring up the fuzzer agent to a usable state
+#   reboot                Reboot the fuzzer agent
+#   cap                   Report the capabilities of the fuzzer agent
+#   performance           Extract performance values from the fuzzer agent
+#   spec                  Do speculative microcode fuzzing == Requires the `spec_fuzz` app running on the agent ==
+#   spec-manual           Executes a given speculative fuzzing payload manually == Requires the `spec_fuzz`
+#                         app running on the agent ==
+#   manual                Executes a single fuzzing input manually == Requires the `fuzzer_device`
+#                         app running on the agent ==
+#   bulk-manual           Executes a corpus of fuzzing inputs; essentially runs the manual command using
+#                         all files within the given directory == Requires the `fuzzer_device` app running on the agent ==
+#   afl                   Executes the main fuzzing loop with AFL mutations == Requires the `fuzzer_device` app
+#                         running on the agent ==
+#   help                  Print this message or the help of the given subcommand(s)
+# 
+# Options:
+#   -d, --database <DATABASE>          The database file to save fuzzing progress and results to
+#       --instrumentor <INSTRUMENTOR>  Address of the fuzzer instrumentor [default: http://10.83.3.198:8000]
+#       --agent <AGENT>                Address of the fuzzer agent [default: 10.83.3.6:4444]
+#   -h, --help                         Print help
+#   -V, --version                      Print version
+```
+
+Each mentioned `fuzz_master` commands (experiments) includes built-in help documentation that allows you to specify parameters. For example:
+
+- For running the fuzzing campaign with AFL mutations:
+``` bash
+fuzz_master afl --help
+
+# Executes the main fuzzing loop with AFL mutations == Requires the `fuzzer_device` app running on the agent ==
+
+# Usage: fuzz_master afl [OPTIONS]
+
+# Options:
+#   -s, --solutions <SOLUTIONS>          Store findings to this path
+#   -c, --corpus <CORPUS>                Use the provided corpus file to generate initial fuzzing inputs from
+#   -a, --afl-corpus <AFL_CORPUS>        Store the fuzzing corpus to that path
+#   -t, --timeout-hours <TIMEOUT_HOURS>  End fuzzing after that many hours automatically, if not set fuzzing does not terminate
+#   -d, --disable-feedback               Disabled coverage fuzzing feedback; instead fuzzing feedback is randomized
+#   -p, --printable-input-generation     When not using the `corpus` argument; initial fuzzing inputs are random byte sequences; enabling this flag these byte sequences are selected among printable ASCII characters
+#   -h, --help                           Print help
+```
+
+- For running the fuzzing campaign with pure genetic mutations:
+``` bash
+fuzz_master genetic --help
+
+# Perform coverage fuzzing using (bad) genetic mutation algorithm, probably you would like to execute the `afl` command. == Requires the `fuzzer_device` app running on the agent ==
+
+# Usage: fuzz_master genetic [OPTIONS]
+# 
+# Options:
+#   -c, --corpus <CORPUS>                A corpus file to generate the initial fuzzing inputs from
+#   -t, --timeout-hours <TIMEOUT_HOURS>  After how many hours the fuzzing should be terminated. If not given fuzzing must be interrupted by CTRL+C
+#   -d, --disable-feedback               Disable the feedback loop, fuzzing input ratings will become randomized
+#   -h, --help                           Print help
+```
+
+- For running the fuzzing campaign with speculative microcode fuzzing:
+``` bash
+fuzz_master spec --help
+
+# Do speculative microcode fuzzing == Requires the `spec_fuzz` app running on the agent ==
+# 
+# Usage: fuzz_master spec [OPTIONS] <REPORT>
+# 
+# Arguments:
+#   <REPORT>  Path to database; save the results to this file
+# 
+# Options:
+#   -a, --all                Execute fuzzing for all instructions extracted from MSROM
+#   -s, --skip               Skip instruction that were already run; continue a stopped fuzzing execution
+#   -n, --no-crbus           Skip all CRBUS related instructions
+#   -e, --exclude <EXCLUDE>  Exclude a list of instructions from running through the fuzzer
+#   -f, --fuzzy-pmc          Run all PMC variants through the fuzzer; takes a long time
+#   -h, --help               Print help
+```
 ---
 
 The fuzzing results will be stored to a database file (specifiable via the `--database` argument) (fuzzer master) 
 and can be viewed by running (fuzzer master):
 ```bash
-fuzz_viewer /home/thesis/database.json
+fuzz_viewer database.json
 ```
 
 ---
@@ -125,4 +221,27 @@ cargo xtask emulate hypervisor bochs-intel
 List all available xtask commands using:
 ```bash
 cargo xtask --help
+
+# A build and test assist program
+# 
+# Usage: xtask <COMMAND>
+# 
+# Commands:
+#   emulate         Emulate a UEFI application using BOCHS CPU emulator
+#   put-remote      Push an UEFI app onto the remote machine
+#   control-remote  Control a remote machine
+#   update-node     Update the node's software, systemd service, etc
+#   doc             Generate documentation
+#   check           Compile all examples and subprojects
+#   help            Print this message or the help of the given subcommand(s)
+# 
+# Options:
+#   -h, --help  Print help
+```
+
+### Cite Us
+
+Our work has been published as a [paper](xxx) at Network and Distributed System Security Symposium 2026 ([NDSS'26](https://www.ndss-symposium.org/ndss2026/)): 
+```
+@inproceedings{TBD}
 ```

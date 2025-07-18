@@ -7,7 +7,10 @@ fn main() {
         .args(&["rev-parse", "HEAD"])
         .output()
         .map(|output| String::from_utf8(output.stdout).unwrap())
-        .expect("Failed to get git hash");
+        .unwrap_or_else(|x| {
+            eprintln!("Failed to get git hash: {:?}", x);
+            String::from("<none>")
+        });
     let hash = chrono::Utc::now().to_rfc2822();
 
     let mut hasher = Sha256::new();

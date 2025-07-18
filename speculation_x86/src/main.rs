@@ -318,6 +318,8 @@ pub unsafe fn spec_window(attack: bool, pmc: bool) -> u64 {
 pub fn flush_decode_stream_buffer() {
     unsafe {
         asm!(
+        // Speculation template based on https://blog.can.ac/2021/03/22/speculating-x86-64-isa-with-one-weird-trick/
+
         // Align `ip` to a 64-byte boundary
         "lea {ip}, [rip]",
         "and {ip}, ~63",
