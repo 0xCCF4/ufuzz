@@ -1,12 +1,15 @@
 { config, pkgs, lib, settings, ... }:
 
 let
-  user = "thesis";
-  password = "abi2mf81l0sm";
-  SSID = "mxlan";
-  interface = "wlan0";
-  trusted_nix_keys = [ "laptop:zhWq+p6//VSVJiSKFitrqdJfzrJ1ajvPsXPz+M2n2Ao=" ];
-  ssh_keys = [
+    /*
+    Replace these configuration values to your likings.
+    */
+  user = "thesis"; # default user name
+  password = "abi2mf81l0sm"; # initial user's password, be aware when you commit this project that the initial password will be committed - make sure to passwd change it
+  SSID = "yourWifiSSID"; # wifi SSID, wifi password is fetched from on-device file /wifi.key (which must include the line WIFI_{SSID}_PASS={PASSWORD}
+  interface = "wlan0"; # wifi interface, when using a raspberry pi, leave as is
+  trusted_nix_keys = [ "laptop:zhWq+p6//VSVJiSKFitrqdJfzrJ1ajvPsXPz+M2n2Ao=" ]; # when updating from other host, change this to your public nix signing key, not required for initial provisioning
+  ssh_keys = [ # SSH keys that may connect to the user
     "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILouqEVZdQe9lSB5QC0XIU15poExO4BAQDlMLLNkDwFn thesis"
     "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMq/HVkrYPFG+zjYDluufADU37TlQGAowFeWI4f8vrG5"
     "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGmAJWLk4ovGhb32f5u2R7Q08zONOo6GcgoQ0bSoIS8p"
@@ -15,8 +18,10 @@ let
     "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEOEZ4fZluR+mdtCB/1HfwxVc346iH/B1HwkppuXoCMi"
     "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOSEwHr9Z0zHA/TaQgoOOXWbMnK+BDtk7jmVCGPhab2p"
   ];
-  wg_pubkey = "FYOAl5u+cZ0sb8jwgSF9OeeBE0pkN/4l3W53BX7DuQ0=";
-  wg_endpoint = "5.252.225.58:51820";
+  # In our lab setup, we connect our devices to an wireguard server, private key in stored in /wg.key on device
+  # Feel free to set wg_endpoint to null to disable wireguard
+  wg_endpoint = "5.252.225.58:51820"; # connect to this wireguard endpoint
+  wg_pubkey = "FYOAl5u+cZ0sb8jwgSF9OeeBE0pkN/4l3W53BX7DuQ0="; # using this public key
 in
 {
   config =
@@ -95,7 +100,7 @@ in
         };
       };
 
-      networking.wg-quick.interfaces.mx = {
+      networking.wg-quick.interfaces.mx = lib.mkIf (wg_endpoint != null) {
         privateKeyFile = "/wg.key";
         address = [ "10.0.0.${settings.ip}/24" ];
         listenPort = 51820;
@@ -125,7 +130,7 @@ in
           isNormalUser = true;
           extraGroups = [ "wheel" ];
           openssh.authorizedKeys.keys = ssh_keys;
-          password = password;
+          initialPassword = password;
         };
       };
       security.sudo.wheelNeedsPassword = false;
