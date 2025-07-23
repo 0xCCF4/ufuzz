@@ -445,6 +445,16 @@ fn build_app(project: &str, release: bool, device: bool) -> Result<PathBuf, DynE
             "uefi",
         ]);
         "examples/test_setup_arged"
+    } else if project == "test_exp_zeroext" {
+        status.args([
+            "-p",
+            "coverage",
+            "--example",
+            "test_exp_zeroext",
+            "--features",
+            "uefi",
+        ]);
+        "examples/test_exp_zeroext"
     } else if project == "test_rdrand" {
         status.args([
             "-p",
