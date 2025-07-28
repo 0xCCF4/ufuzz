@@ -290,6 +290,8 @@ pub enum OtaC2DTransport {
     Reboot,
     /// Runs evaluation scenario
     RunScenario(String, Vec<u8>),
+    /// Reset blacklist
+    ResetBlacklist,
 }
 
 /// Maximum size of a message fragment

@@ -270,6 +270,7 @@ unsafe fn main() -> Status {
                 }
             }
             OtaC2DTransport::Blacklist { address: _ } => {}
+            OtaC2DTransport::ResetBlacklist => {}
             OtaC2DTransport::DidYouExcludeAnAddressLastRun => {
                 let blacklisted = OtaD2CTransport::LastRunBlacklisted { address: None };
                 if let Err(err) = udp.send(blacklisted) {

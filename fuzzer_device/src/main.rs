@@ -355,6 +355,10 @@ unsafe fn main() -> Status {
                     drop(excluded_addresses_mut);
                     executor.update_excluded_addresses();
                 }
+                OtaC2DTransport::ResetBlacklist => {
+                    excluded_addresses.borrow_mut().clear();
+                    executor.update_excluded_addresses();
+                }
                 OtaC2DTransport::DidYouExcludeAnAddressLastRun => {
                     let blacklisted = OtaD2CTransport::LastRunBlacklisted {
                         address: excluded_last_run,

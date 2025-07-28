@@ -16,7 +16,7 @@ use fuzzer_master::{
 use hypervisor::state::StateDifference;
 use itertools::Itertools;
 use libafl_bolts::rands::random_seed;
-use log::{error, info, trace};
+use log::{error, info, trace, warn};
 use performance_timing::TimeMeasurement;
 use std::io;
 use std::io::Write;
@@ -39,6 +39,9 @@ struct Args {
     /// The database file to save fuzzing progress and results to
     #[arg(short, long)]
     database: Option<PathBuf>,
+    /// Dont reset address blacklist
+    #[arg(short, long)]
+    dont_reset: bool,
     /// Address of the fuzzer instrumentor
     #[arg(long, default_value = "http://10.83.3.198:8000")]
     instrumentor: String,
@@ -70,7 +73,11 @@ enum Cmd {
     /// Bring up the fuzzer agent to a usable state
     Init,
     /// Reboot the fuzzer agent
-    Reboot,
+    Reboot {
+        /// Resets the drive of the fuzzer agent before rebooting
+        #[arg(short, long)]
+        reset: bool,
+    },
     /// Report the capabilities of the fuzzer agent
     Cap {
         /// CPUid leaf (EAX)
@@ -306,6 +313,20 @@ async fn main() {
         });
     }
     */
+
+    if !args.dont_reset {
+        for _ in 0..100 {
+            let result = udp.send(OtaC2DTransport::ResetBlacklist).await;
+            match result {
+                Err(err) => {
+                    warn!("Failed to reset blacklist: {:?}", err);
+                }
+                Ok(_) => {
+                    break;
+                }
+            }
+        }
+    }
 
     if let Cmd::AFL {
         disable_feedback,
@@ -667,8 +688,21 @@ async fn main() {
                     CommandExitResult::ExitProgram
                 }
             }
-            Cmd::Reboot => {
+            Cmd::Reboot { reset } => {
                 if !reboot_state {
+                    if *reset {
+                        for _ in 0..100 {
+                            let result = udp.send(OtaC2DTransport::ResetBlacklist).await;
+                            match result {
+                                Err(err) => {
+                                    warn!("Failed to reset blacklist: {:?}", err);
+                                }
+                                Ok(_) => {
+                                    break;
+                                }
+                            }
+                        }
+                    }
                     reboot_state = true;
                     continue_count = 0;
                     if let Some(state) = net_reboot_device(&mut udp, &interface).await {
