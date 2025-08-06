@@ -43,7 +43,7 @@ use performance_timing::TimeMeasurement;
 use rand_core::{RngCore, SeedableRng};
 use uefi::boot::ScopedProtocol;
 use uefi::proto::loaded_image::LoadedImage;
-use uefi::proto::media::file::{File, FileAttribute, FileMode};
+use uefi::proto::media::file::{File, FileAttribute, FileInfo, FileMode};
 use uefi::{entry, println, CString16, Error, Status};
 use uefi_raw::table::runtime::ResetType;
 use uefi_raw::Ipv4Address;
@@ -358,6 +358,22 @@ unsafe fn main() -> Status {
                 OtaC2DTransport::ResetBlacklist => {
                     excluded_addresses.borrow_mut().clear();
                     executor.update_excluded_addresses();
+                    for _ in 0..50 {
+                        match (ExcludedAddresses {
+                            addresses: BTreeSet::new(),
+                        })
+                        .save_file()
+                        {
+                            Ok(_) => break,
+                            Err(err) => {
+                                error!("Failed to reset excluded-addresses: {:?}", err);
+                                let _ = udp.log_reliable(
+                                    Level::Error,
+                                    format!("Failed to reset excluded-addresses: {:?}", err),
+                                );
+                            }
+                        }
+                    }
                 }
                 OtaC2DTransport::DidYouExcludeAnAddressLastRun => {
                     let blacklisted = OtaD2CTransport::LastRunBlacklisted {
@@ -1071,7 +1087,9 @@ impl ExcludedAddresses {
             }
 
             for i in 0..read {
-                data.push(buffer[i] as char);
+                if buffer[i] != 0 {
+                    data.push(buffer[i] as char);
+                }
             }
         }
 
@@ -1112,6 +1130,25 @@ impl ExcludedAddresses {
             .write(data.as_bytes())
             .map_err(|_| uefi::Error::from(uefi::Status::WARN_WRITE_FAILURE))?;
         regular_file.flush()?;
+
+        let mut buf = Vec::new();
+        let fileinfo_size = regular_file
+            .get_info::<FileInfo>(&mut buf)
+            .unwrap_err()
+            .data()
+            .ok_or(uefi::Error::from(uefi::Status::UNSUPPORTED))?;
+        buf.resize(fileinfo_size, 0);
+        let file_size = regular_file
+            .get_info::<FileInfo>(&mut buf)
+            .map_err(|_| uefi::Error::from(uefi::Status::WARN_WRITE_FAILURE))?
+            .file_size();
+        let current_position = regular_file.get_position()?;
+
+        for _ in 0..(file_size - current_position).div_ceil(128) {
+            regular_file
+                .write(&[0; 128])
+                .map_err(|_| uefi::Error::from(uefi::Status::WARN_WRITE_FAILURE))?;
+        }
 
         root_dir.flush()?;
         root_dir.close();

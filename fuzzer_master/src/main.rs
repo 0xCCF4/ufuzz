@@ -40,7 +40,7 @@ struct Args {
     #[arg(short, long)]
     database: Option<PathBuf>,
     /// Dont reset address blacklist
-    #[arg(short, long)]
+    #[arg(long)]
     dont_reset: bool,
     /// Address of the fuzzer instrumentor
     #[arg(long, default_value = "http://10.83.3.198:8000")]
