@@ -7,7 +7,7 @@ use coverage::harness::coverage_harness::modification_engine::{
     modify_triad_for_hooking, ModificationEngineSettings,
 };
 use data_types::addresses::{Address, UCInstructionAddress};
-use fuzzer_master::database::{CodeEvent, Timestamp};
+use fuzzer_master::database::{BlacklistEntry, CodeEvent, ExcludeType, Timestamp};
 use hypervisor::state::{StateDifference, VmExitReason};
 use itertools::Itertools;
 use log::error;
@@ -23,6 +23,9 @@ struct Args {
     /// If set, only coverage information will be plotted
     #[arg(short, long)]
     just_coverage: bool,
+    /// Additional blacklist files from fuzzer_device
+    #[arg(short, long)]
+    additional_blacklists: Option<PathBuf>,
     /// Path to the database file
     database: Option<PathBuf>,
     /// Path for plotting output, if not provided, no plotting will be done
@@ -51,10 +54,47 @@ pub fn main() {
         return;
     }
 
-    let db = fuzzer_master::database::Database::from_file(&db_path).unwrap_or_else(|e| {
+    let mut db = fuzzer_master::database::Database::from_file(&db_path).unwrap_or_else(|e| {
         eprintln!("Failed to load the database: {:?}", e);
         std::process::exit(1)
     });
+
+    if let Some(blacklist_directory) = args.additional_blacklists {
+        if !blacklist_directory.exists() {
+            eprintln!("Additional blacklist directory does not exist");
+            return;
+        }
+
+        for file in std::fs::read_dir(blacklist_directory).unwrap_or_else(|e| {
+            eprintln!("Failed to read additional blacklist directory: {:?}", e);
+            std::process::exit(1)
+        }) {
+            let file = file.expect("Failed to get file");
+            if file.path().extension().and_then(|s| s.to_str()) == Some("txt") {
+                println!("Loading additional blacklist from {:?}", file.path());
+                let content = std::fs::read(file.path()).unwrap_or_else(|e| {
+                    eprintln!("Failed to read file {:?}: {:?}", file.path(), e);
+                    std::process::exit(1)
+                });
+                let content = content.iter().filter(|x| **x!=0).filter(|x|x.is_ascii_hexdigit() || x.is_ascii_whitespace()).map(|x|*x as char).collect::<String>();
+                let additional_blacklist: BTreeSet<u16> = content
+                    .lines()
+                    .filter_map(|line| u16::from_str_radix(line.trim(), 16).ok())
+                    .collect();
+                println!(" -> {} additional blacklisted addresses: {:x?}", additional_blacklist.len(), additional_blacklist);
+                for address in additional_blacklist {
+                    if !db.blacklisted().contains(&address) {
+                        db.data.blacklisted_addresses.push(BlacklistEntry {
+                            address,
+                            code: Vec::new(),
+                            iteration: u32::MAX,
+                            exclude_type: ExcludeType::Normal
+                        })
+                    }
+                }
+            }
+        }
+    }
 
     println!("Found {} samples in the database", db.data.results.len());
 
@@ -252,6 +292,9 @@ pub fn main() {
             coverage.insert(*cov.0);
         }
     }
+    for address in db.blacklisted() {
+        coverage.insert(address);
+    }
     let mut coverage_normalized = BTreeSet::new();
     for cov in coverage.iter() {
         if !db.blacklisted().contains(cov)
@@ -264,6 +307,9 @@ pub fn main() {
         "Total coverage: {} ({})",
         coverage.len(),
         coverage_normalized.len()
+    );
+    println!(
+        " - Excluded: {}", db.blacklisted().collect_vec().len()
     );
     println!(
         " - Possible coverage addresses: {}",
