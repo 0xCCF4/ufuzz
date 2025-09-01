@@ -1,4 +1,5 @@
 use clap::{Parser, Subcommand};
+use flate2::Compression;
 use fuzzer_data::instruction_corpus::InstructionCorpus;
 use fuzzer_data::{Ota, OtaC2DTransport, OtaD2C, OtaD2CTransport};
 use fuzzer_master::database::Database;
@@ -36,9 +37,12 @@ pub mod main_viewer;
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
-    /// The database file to save fuzzing progress and results to
+    /// The database file to save fuzzing progress and results to; a .gz extension enables gzip compression
     #[arg(short, long)]
     database: Option<PathBuf>,
+    /// Compression level of database when using gzip compression (1-9)
+    #[arg(long, default_value = "6")]
+    compression: u32,
     /// Dont reset address blacklist
     #[arg(long)]
     dont_reset: bool,
@@ -227,6 +231,7 @@ async fn main() {
         |x| x,
     );
     info!("Loaded database from {:?}", &database.path);
+    database.compression = Compression::new(args.compression);
 
     let interface = Arc::new(FuzzerNodeInterface::new(&args.instrumentor));
     let mut udp = DeviceConnection::new(&args.agent)

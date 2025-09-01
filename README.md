@@ -95,33 +95,28 @@ Then boot the fuzzer master. Start the `fuzzer_master` app. Settings can be disp
 ```bash
 fuzzer_master --help
 
-# Main fuzzing application. This app governs and controls the entire fuzzing process,
-# issuing commands to a fuzzer agent (which e.g. executes fuzzing inputs on its CPU)
+# Main fuzzing application. This app governs and controls the entire fuzzing process, issuing commands to a fuzzer agent (which e.g. executes fuzzing inputs on its CPU)
 # 
 # Usage: fuzz_master [OPTIONS] <COMMAND>
 # 
 # Commands:
-#   genetic               Perform coverage fuzzing using (bad) genetic mutation algorithm,
-#                         probably you would like to execute the `afl` command. == Requires the `fuzzer_device`
-#                         app running on the agent ==
+#   genetic               Perform coverage fuzzing using (bad) genetic mutation algorithm, probably you would like to execute the `afl` command. == Requires the `fuzzer_device` app running on the agent ==
 #   instruction-mutation  Under-construction
 #   init                  Bring up the fuzzer agent to a usable state
 #   reboot                Reboot the fuzzer agent
 #   cap                   Report the capabilities of the fuzzer agent
 #   performance           Extract performance values from the fuzzer agent
 #   spec                  Do speculative microcode fuzzing == Requires the `spec_fuzz` app running on the agent ==
-#   spec-manual           Executes a given speculative fuzzing payload manually == Requires the `spec_fuzz`
-#                         app running on the agent ==
-#   manual                Executes a single fuzzing input manually == Requires the `fuzzer_device`
-#                         app running on the agent ==
-#   bulk-manual           Executes a corpus of fuzzing inputs; essentially runs the manual command using
-#                         all files within the given directory == Requires the `fuzzer_device` app running on the agent ==
-#   afl                   Executes the main fuzzing loop with AFL mutations == Requires the `fuzzer_device` app
-#                         running on the agent ==
+#   spec-manual           Executes a given speculative fuzzing payload manually == Requires the `spec_fuzz` app running on the agent ==
+#   manual                Executes a single fuzzing input manually == Requires the `fuzzer_device` app running on the agent ==
+#   bulk-manual           Executes a corpus of fuzzing inputs; essentially runs the manual command using all files within the given directory == Requires the `fuzzer_device` app running on the agent ==
+#   afl                   Executes the main fuzzing loop with AFL mutations == Requires the `fuzzer_device` app running on the agent ==
 #   help                  Print this message or the help of the given subcommand(s)
 # 
 # Options:
-#   -d, --database <DATABASE>          The database file to save fuzzing progress and results to
+#   -d, --database <DATABASE>          The database file to save fuzzing progress and results to; a .gz extension enables gzip compression
+#       --compression <COMPRESSION>    Compression level of database when using gzip compression (1-9) [default: 6]
+#       --dont-reset                   Dont reset address blacklist
 #       --instrumentor <INSTRUMENTOR>  Address of the fuzzer instrumentor [default: http://10.83.3.198:8000]
 #       --agent <AGENT>                Address of the fuzzer agent [default: 10.83.3.6:4444]
 #   -h, --help                         Print help
@@ -131,13 +126,13 @@ fuzzer_master --help
 Each mentioned `fuzz_master` commands (experiments) includes built-in help documentation that allows you to specify parameters. For example:
 
 - For running the fuzzing campaign with AFL mutations:
-``` bash
+```bash
 fuzz_master afl --help
 
 # Executes the main fuzzing loop with AFL mutations == Requires the `fuzzer_device` app running on the agent ==
-
+# 
 # Usage: fuzz_master afl [OPTIONS]
-
+# 
 # Options:
 #   -s, --solutions <SOLUTIONS>          Store findings to this path
 #   -c, --corpus <CORPUS>                Use the provided corpus file to generate initial fuzzing inputs from
@@ -149,11 +144,11 @@ fuzz_master afl --help
 ```
 
 - For running the fuzzing campaign with pure genetic mutations:
-``` bash
+```bash
 fuzz_master genetic --help
 
 # Perform coverage fuzzing using (bad) genetic mutation algorithm, probably you would like to execute the `afl` command. == Requires the `fuzzer_device` app running on the agent ==
-
+# 
 # Usage: fuzz_master genetic [OPTIONS]
 # 
 # Options:
@@ -164,7 +159,7 @@ fuzz_master genetic --help
 ```
 
 - For running the fuzzing campaign with speculative microcode fuzzing:
-``` bash
+```bash
 fuzz_master spec --help
 
 # Do speculative microcode fuzzing == Requires the `spec_fuzz` app running on the agent ==

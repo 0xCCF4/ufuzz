@@ -18,9 +18,10 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::io;
 
 lazy_static! {
@@ -222,6 +223,8 @@ pub struct Database {
     pub save_mutex: Arc<tokio::sync::Mutex<()>>,
     /// Whether the database has unsaved changes
     pub dirty: bool,
+    /// Compression level
+    pub compression: Compression,
 }
 
 impl Clone for Database {
@@ -231,6 +234,7 @@ impl Clone for Database {
             data: self.data.clone(),
             save_mutex: Arc::clone(&self.save_mutex),
             dirty: self.dirty,
+            compression: self.compression,
         }
     }
 }
@@ -268,6 +272,7 @@ impl Database {
             data: db,
             save_mutex: Arc::new(tokio::sync::Mutex::new(())),
             dirty: false,
+            compression: Compression::default(),
         };
         result
             .data
@@ -293,6 +298,7 @@ impl Database {
             data: DatabaseData::default(),
             save_mutex: Arc::new(tokio::sync::Mutex::new(())),
             dirty: false,
+            compression: Compression::default(),
         };
         result
             .data
@@ -317,8 +323,17 @@ impl Database {
     /// # Returns
     ///
     /// * `io::Result<()>` - Success or error
-    #[track_time("host::database::save")]
     pub async fn save(&mut self) -> io::Result<()> {
+        self.save_progress(false).await
+    }
+
+    /// Saves the database to disk
+    ///
+    /// # Returns
+    ///
+    /// * `io::Result<()>` - Success or error
+    #[track_time("host::database::save")]
+    pub async fn save_progress(&mut self, progress: bool) -> io::Result<()> {
         if !self.dirty {
             return Ok(());
         }
@@ -338,9 +353,9 @@ impl Database {
                 error!("{}", msg);
                 e
             })?;
-        let mut writer = std::io::BufWriter::new(file);
+        let writer = std::io::BufWriter::new(file);
 
-        if self
+        let mut writer = if self
             .path
             .file_name()
             .map(|x| x.to_str())
@@ -348,27 +363,25 @@ impl Database {
             .map(|x| x.ends_with(".gz"))
             .unwrap_or(false)
         {
-            let mut encoder = GzEncoder::new(writer, Compression::best());
-            serde_json::to_writer(&mut encoder, &self.data).map_err(|e| {
-                let msg = format!(
-                    "Failed to write data to file at {}: {}",
-                    self.path.display(),
-                    e
-                );
-                error!("{}", msg);
-                e
-            })?;
+            let encoder = GzEncoder::new(writer, self.compression);
+            Box::new(encoder) as Box<dyn Write>
         } else {
-            serde_json::to_writer(&mut writer, &self.data).map_err(|e| {
-                let msg = format!(
-                    "Failed to write data to file at {}: {}",
-                    self.path.display(),
-                    e
-                );
-                error!("{}", msg);
-                e
-            })?;
+            Box::new(writer) as Box<dyn Write>
+        };
+
+        if progress {
+            writer = Box::new(ProgressWriter::new(writer, Duration::from_secs(5)));
         }
+
+        serde_json::to_writer(&mut writer, &self.data).map_err(|e| {
+            let msg = format!(
+                "Failed to write data to file at {}: {}",
+                self.path.display(),
+                e
+            );
+            error!("{}", msg);
+            e
+        })?;
 
         if self.path.exists() {
             let _ = std::fs::remove_file(&self.path).map_err(|e| {
@@ -554,5 +567,61 @@ impl Database {
 
         let last = self.data.performance.data.last_mut().unwrap();
         last.clone_from(&measurements);
+    }
+}
+
+struct ProgressWriter<W: Write> {
+    total: usize,
+    time_till_progress: Duration,
+    last_progress_time: Instant,
+    last_progress_length: usize,
+    downstream: W,
+}
+
+impl<W: Write> ProgressWriter<W> {
+    pub fn new(downstream: W, time_till_progress: Duration) -> Self {
+        Self {
+            total: 0,
+            time_till_progress,
+            last_progress_time: std::time::Instant::now(),
+            last_progress_length: 0,
+            downstream,
+        }
+    }
+    fn check_print_progress(&mut self) {
+        if self.total - self.last_progress_length > 1024 * 1024
+        /* 1 MB */
+        {
+            if Instant::now().duration_since(self.last_progress_time) > self.time_till_progress {
+                self.last_progress_time = std::time::Instant::now();
+                self.last_progress_length = self.total;
+
+                let gigabytes = self.total / (1024 * 1024 * 1024);
+                let megabytes = (self.total / (1024 * 1024)) % 1024;
+                let kilobytes = (self.total / 1024) % 1024;
+                let bytes = self.total % 1024;
+
+                println!(
+                    "Written {:>2} GB {:>4} MB {:>4} KB {:>4} B",
+                    gigabytes, megabytes, kilobytes, bytes
+                );
+            }
+        }
+    }
+}
+
+impl<W: Write> Write for ProgressWriter<W> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let result = self.downstream.write(buf);
+        if let Ok(size) = result {
+            self.total += size;
+        }
+        self.check_print_progress();
+        result
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.check_print_progress();
+        self.downstream.flush()
     }
 }

@@ -6,7 +6,7 @@ use clap::Parser;
 use coverage::harness::coverage_harness::modification_engine::{
     modify_triad_for_hooking, ModificationEngineSettings,
 };
-use data_types::addresses::{Address, UCInstructionAddress};
+use data_types::addresses::UCInstructionAddress;
 use fuzzer_master::database::{BlacklistEntry, CodeEvent, ExcludeType, Timestamp};
 use hypervisor::state::{StateDifference, VmExitReason};
 use itertools::Itertools;
@@ -250,7 +250,7 @@ pub fn main() {
 
     println!("\n\nCoverage summary:");
     let mut total_addresses_hookable = 0;
-    let mut total_addresses_hookable_excluded = 0;
+    // let mut total_addresses_hookable_excluded = 0;
     for i in 0..0x7c00 {
         let address = UCInstructionAddress::from_const(i);
         if address.triad_offset() != 0 {
@@ -272,7 +272,7 @@ pub fn main() {
 
         if low_hookable {
             total_addresses_hookable += 2;
-            total_addresses_hookable_excluded += db
+            /* total_addresses_hookable_excluded += db
                 .blacklisted()
                 .contains(&(address.address() as u16))
                 .then_some(1)
@@ -281,15 +281,15 @@ pub fn main() {
                 .blacklisted()
                 .contains(&(address.address() as u16 + 1))
                 .then_some(1)
-                .unwrap_or(0);
+                .unwrap_or(0); */
         }
         if high_hookable {
             total_addresses_hookable += 1;
-            total_addresses_hookable_excluded += db
-                .blacklisted()
-                .contains(&(address.address() as u16 + 2))
-                .then_some(1)
-                .unwrap_or(0);
+            /* total_addresses_hookable_excluded += db
+            .blacklisted()
+            .contains(&(address.address() as u16 + 2))
+            .then_some(1)
+            .unwrap_or(0); */
         }
     }
     let mut coverage = BTreeSet::new();
