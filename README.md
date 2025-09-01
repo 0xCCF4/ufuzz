@@ -1,5 +1,7 @@
-# uFuzz
+# Fuzzilicon
 A x86 CPU fuzzer utilizing microcode coverage
+
+Internal synonym: uFuzz
 
 ## Overview
 uFuzz is the first x86 CPU fuzzer that leverages microcode coverage information as feedback to guide the fuzzing campaign. For more details see the [paper](xxx).
@@ -235,6 +237,8 @@ cargo xtask --help
 ```
 
 ### Cite Us
+
+A up-to-date version of the source-code can be found at: <https://github.com/0xCCF4/ufuzz>
 
 Our work has been published as a [paper](xxx) at Network and Distributed System Security Symposium 2026 ([NDSS'26](https://www.ndss-symposium.org/ndss2026/)): 
 ```
