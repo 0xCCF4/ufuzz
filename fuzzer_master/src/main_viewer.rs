@@ -47,7 +47,7 @@ pub fn main() {
 
     let db_path = args
         .database
-        .unwrap_or_else(|| PathBuf::from("database.json.gz"));
+        .unwrap_or_else(|| PathBuf::from("database.json"));
 
     if !db_path.exists() {
         eprintln!("Database file does not exist");
