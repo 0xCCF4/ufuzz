@@ -202,7 +202,7 @@ async fn main() {
 
     let database_file = args
         .database
-        .unwrap_or(PathBuf::from_str("database.json").unwrap());
+        .unwrap_or(PathBuf::from_str("database.json.gz").unwrap());
 
     let mut database = fuzzer_master::database::Database::from_file(&database_file).map_or_else(
         |e| {

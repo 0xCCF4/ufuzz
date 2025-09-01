@@ -187,7 +187,7 @@ fuzz_master spec --help
 The fuzzing results will be stored to a database file (specifiable via the `--database` argument) (fuzzer master) 
 and can be viewed by running (fuzzer master):
 ```bash
-fuzz_viewer database.json
+fuzz_viewer database.json.gz
 ```
 
 ---

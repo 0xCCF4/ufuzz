@@ -47,7 +47,7 @@ pub fn main() {
 
     let db_path = args
         .database
-        .unwrap_or_else(|| PathBuf::from("database.json"));
+        .unwrap_or_else(|| PathBuf::from("database.json.gz"));
 
     if !db_path.exists() {
         eprintln!("Database file does not exist");
@@ -76,19 +76,28 @@ pub fn main() {
                     eprintln!("Failed to read file {:?}: {:?}", file.path(), e);
                     std::process::exit(1)
                 });
-                let content = content.iter().filter(|x| **x!=0).filter(|x|x.is_ascii_hexdigit() || x.is_ascii_whitespace()).map(|x|*x as char).collect::<String>();
+                let content = content
+                    .iter()
+                    .filter(|x| **x != 0)
+                    .filter(|x| x.is_ascii_hexdigit() || x.is_ascii_whitespace())
+                    .map(|x| *x as char)
+                    .collect::<String>();
                 let additional_blacklist: BTreeSet<u16> = content
                     .lines()
                     .filter_map(|line| u16::from_str_radix(line.trim(), 16).ok())
                     .collect();
-                println!(" -> {} additional blacklisted addresses: {:x?}", additional_blacklist.len(), additional_blacklist);
+                println!(
+                    " -> {} additional blacklisted addresses: {:x?}",
+                    additional_blacklist.len(),
+                    additional_blacklist
+                );
                 for address in additional_blacklist {
                     if !db.blacklisted().contains(&address) {
                         db.data.blacklisted_addresses.push(BlacklistEntry {
                             address,
                             code: Vec::new(),
                             iteration: u32::MAX,
-                            exclude_type: ExcludeType::Normal
+                            exclude_type: ExcludeType::Normal,
                         })
                     }
                 }
@@ -292,8 +301,9 @@ pub fn main() {
             coverage.insert(*cov.0);
         }
     }
+    let mut blacklist_enhance = 0;
     for address in db.blacklisted() {
-        coverage.insert(address);
+        blacklist_enhance += coverage.insert(address).then_some(1).unwrap_or(0);
     }
     let mut coverage_normalized = BTreeSet::new();
     for cov in coverage.iter() {
@@ -304,13 +314,12 @@ pub fn main() {
         }
     }
     println!(
-        "Total coverage: {} ({})",
+        "Total coverage: {} ({}) (+{})",
         coverage.len(),
-        coverage_normalized.len()
+        coverage_normalized.len(),
+        blacklist_enhance
     );
-    println!(
-        " - Excluded: {}", db.blacklisted().collect_vec().len()
-    );
+    println!(" - Excluded: {}", db.blacklisted().collect_vec().len());
     println!(
         " - Possible coverage addresses: {}",
         total_addresses_hookable
@@ -318,12 +327,6 @@ pub fn main() {
     println!(
         " - Percentage: {:.2}%",
         coverage.len() as f64 / total_addresses_hookable as f64 * 100.0
-    );
-    println!(
-        " - Percentage (without excluded): {:.2}%",
-        coverage.len() as f64
-            / (total_addresses_hookable - total_addresses_hookable_excluded) as f64
-            * 100.0
     );
 
     let seeds = db

@@ -3,6 +3,9 @@
 //! This module provides functionality for storing and managing fuzzing results and
 //! performance data.
 
+use flate2::read::GzDecoder;
+use flate2::write::GzEncoder;
+use flate2::Compression;
 use fuzzer_data::genetic_pool::GeneticSampleRating;
 use fuzzer_data::{Code, ExecutionResult, ReportExecutionProblem};
 use hypervisor::state::{VmExitReason, VmState};
@@ -245,7 +248,20 @@ impl Database {
     pub fn from_file<A: AsRef<Path>>(path: A) -> io::Result<Self> {
         let file = std::fs::File::open(&path)?;
         let reader = std::io::BufReader::new(file);
-        let db = serde_json::from_reader(reader)?;
+
+        let db = if path
+            .as_ref()
+            .file_name()
+            .map(|x| x.to_str())
+            .flatten()
+            .map(|x| x.ends_with(".gz"))
+            .unwrap_or(false)
+        {
+            let decoder = GzDecoder::new(reader);
+            serde_json::from_reader(decoder)?
+        } else {
+            serde_json::from_reader(reader)?
+        };
 
         let mut result = Database {
             path: path.as_ref().to_path_buf(),
@@ -323,16 +339,36 @@ impl Database {
                 e
             })?;
         let mut writer = std::io::BufWriter::new(file);
-        serde_json::to_writer(&mut writer, &self.data).map_err(|e| {
-            let msg = format!(
-                "Failed to write data to file at {}: {}",
-                self.path.display(),
+
+        if self
+            .path
+            .file_name()
+            .map(|x| x.to_str())
+            .flatten()
+            .map(|x| x.ends_with(".gz"))
+            .unwrap_or(false)
+        {
+            let mut encoder = GzEncoder::new(writer, Compression::best());
+            serde_json::to_writer(&mut encoder, &self.data).map_err(|e| {
+                let msg = format!(
+                    "Failed to write data to file at {}: {}",
+                    self.path.display(),
+                    e
+                );
+                error!("{}", msg);
                 e
-            );
-            error!("{}", msg);
-            e
-        })?;
-        drop(writer);
+            })?;
+        } else {
+            serde_json::to_writer(&mut writer, &self.data).map_err(|e| {
+                let msg = format!(
+                    "Failed to write data to file at {}: {}",
+                    self.path.display(),
+                    e
+                );
+                error!("{}", msg);
+                e
+            })?;
+        }
 
         if self.path.exists() {
             let _ = std::fs::remove_file(&self.path).map_err(|e| {
