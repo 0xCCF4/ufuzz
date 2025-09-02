@@ -250,6 +250,7 @@ pub fn main() {
 
     println!("\n\nCoverage summary:");
     let mut total_addresses_hookable = 0;
+    let mut total_iterations_required = 0;
     // let mut total_addresses_hookable_excluded = 0;
     for i in 0..0x7c00 {
         let address = UCInstructionAddress::from_const(i);
@@ -270,6 +271,7 @@ pub fn main() {
         )
         .is_ok();
 
+        total_iterations_required += 1;
         if low_hookable {
             total_addresses_hookable += 2;
             /* total_addresses_hookable_excluded += db
@@ -324,6 +326,7 @@ pub fn main() {
         " - Possible coverage addresses: {}",
         total_addresses_hookable
     );
+    println!(" - Iterations required: {}", total_iterations_required);
     println!(
         " - Percentage: {:.2}%",
         coverage.len() as f64 / total_addresses_hookable as f64 * 100.0
