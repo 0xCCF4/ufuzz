@@ -19,9 +19,9 @@ case "${1:-}" in
         ;;
     init)
         power_button release
-        if [ -f /home/thesis/disk.img ]; then
+        if [ -f /home/fuzz/disk.img ]; then
             if ! configure_usb check; then
-                configure_usb on /home/thesis/disk.img
+                configure_usb on /home/fuzz/disk.img
             fi
         fi
         ;;

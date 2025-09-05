@@ -4,13 +4,13 @@ let
     /*
     Replace these configuration values to your likings.
     */
-  user = "thesis"; # default user name
+  user = "fuzz"; # default user name (used across the whole build system)
   password = "abi2mf81l0sm"; # initial user's password, be aware when you commit this project that the initial password will be committed - make sure to passwd change it
   SSID = "yourWifiSSID"; # wifi SSID, wifi password is fetched from on-device file /wifi.key (which must include the line WIFI_{SSID}_PASS={PASSWORD}
   interface = "wlan0"; # wifi interface, when using a raspberry pi, leave as is
-  trusted_nix_keys = [ "laptop:zhWq+p6//VSVJiSKFitrqdJfzrJ1ajvPsXPz+M2n2Ao=" ]; # when updating from other host, change this to your public nix signing key, not required for initial provisioning
+  trusted_nix_keys = [ "deployMachine:zhWq+p6//VSVJiSKFitrqdJfzrJ1ajvPsXPz+M2n2Ao=" ]; # when updating from other host, change this to your public nix signing key (not required for initial provisioning; via SD card image) - see https://docs.nixbuild.net/signing-keys/
   ssh_keys = [ # SSH keys that may connect to the user
-    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILouqEVZdQe9lSB5QC0XIU15poExO4BAQDlMLLNkDwFn thesis"
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILouqEVZdQe9lSB5QC0XIU15poExO4BAQDlMLLNkDwFn"
     "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMq/HVkrYPFG+zjYDluufADU37TlQGAowFeWI4f8vrG5"
     "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGmAJWLk4ovGhb32f5u2R7Q08zONOo6GcgoQ0bSoIS8p"
     "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINdkuuDi9oylTQPjNi0S4xKRno0KguR5JK2CTolvaL2q"
@@ -20,7 +20,7 @@ let
   ];
   # In our lab setup, we connect our devices to an wireguard server, private key in stored in /wg.key on device
   # Feel free to set wg_endpoint to null to disable wireguard
-  wg_endpoint = "5.252.225.58:51820"; # connect to this wireguard endpoint
+  wg_endpoint = "1.1.1.1:51820"; # connect to this wireguard endpoint
   wg_pubkey = "FYOAl5u+cZ0sb8jwgSF9OeeBE0pkN/4l3W53BX7DuQ0="; # using this public key
 in
 {
@@ -140,7 +140,7 @@ in
       console.keyMap = "de";
 
       sdImage = {
-        imageBaseName = "thesis-${config.networking.hostName}";
+        imageBaseName = "fuzz-${config.networking.hostName}";
         expandOnBoot = true;
       };
 

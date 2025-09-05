@@ -2,7 +2,7 @@
 
 # https://www.kernel.org/doc/Documentation/usb/gadget_configfs.txt
 
-GADGET_DIR="/sys/kernel/config/usb_gadget/thesis"
+GADGET_DIR="/sys/kernel/config/usb_gadget/fuzz"
 
 exists_gadget() {
     [ -d "$GADGET_DIR" ]
@@ -23,8 +23,8 @@ enable_gadget() {
     echo 0x0200 > "$GADGET_DIR/bcdUSB" # USB2
     mkdir -p "$GADGET_DIR/strings/0x409"
     echo "0000000000000124" > "$GADGET_DIR/strings/0x409/serialnumber"
-    echo "Thesis" > "$GADGET_DIR/strings/0x409/manufacturer"
-    echo "Thesis USB Device" > "$GADGET_DIR/strings/0x409/product"
+    echo "Fuzz" > "$GADGET_DIR/strings/0x409/manufacturer"
+    echo "Fuzz USB Device" > "$GADGET_DIR/strings/0x409/product"
     mkdir -p "$GADGET_DIR/configs/c.1/strings/0x409"
     echo "Standard config" > "$GADGET_DIR/configs/c.1/strings/0x409/configuration"
     echo 250 > "$GADGET_DIR/configs/c.1/MaxPower"

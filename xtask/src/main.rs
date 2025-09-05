@@ -128,7 +128,7 @@ fn main_control_remote(args: Vec<String>) {
     };
     let mut ssh = Command::new("ssh")
         .args(ssh_args)
-        .arg(format!("thesis@{host_node}").as_str())
+        .arg(format!("fuzz@{host_node}").as_str())
         .stdin(Stdio::piped())
         .spawn()
         .expect("Failed to start ssh");
@@ -228,7 +228,7 @@ fn main_put_remote(name: &str, startup: bool, release: bool, startup_appends: &s
     println!("Pushing {} to the remote", name);
     let mut sftp = Command::new("sftp")
         .args(sftp_args)
-        .arg(&format!("thesis@{}:/tmp", host_node.as_str()))
+        .arg(&format!("fuzz@{}:/tmp", host_node.as_str()))
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .spawn()
@@ -242,7 +242,7 @@ fn main_put_remote(name: &str, startup: bool, release: bool, startup_appends: &s
 
     let mut ssh = Command::new("ssh")
         .args(ssh_args)
-        .arg(&format!("thesis@{}", host_node.as_str()))
+        .arg(&format!("fuzz@{}", host_node.as_str()))
         .stdin(Stdio::piped())
         .spawn()
         .expect("Failed to start ssh");

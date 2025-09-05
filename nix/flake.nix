@@ -100,7 +100,7 @@
         hostname = "127.0.0.1";
         sshOpts = [ "-p" "4445" ];
         profiles.system = {
-          sshUser = "thesis";
+          sshUser = "fuzz";
           user = "root";
           path = deploy-rs.lib.aarch64-linux.activate.nixos self.nixosConfigurations.master;
         };
@@ -109,7 +109,7 @@
         hostname = "127.0.0.1";
         sshOpts = [ "-p" "4444" ];
         profiles.system = {
-          sshUser = "thesis";
+          sshUser = "fuzz";
           user = "root";
           path = deploy-rs.lib.aarch64-linux.activate.nixos self.nixosConfigurations.node;
         };
