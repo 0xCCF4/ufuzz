@@ -240,7 +240,7 @@ cargo xtask --help
 
 A up-to-date version of the source-code can be found at: <https://github.com/0xCCF4/ufuzz>
 
-Our work has been published as a [paper](xxx) at Network and Distributed System Security Symposium 2026 ([NDSS'26](https://www.ndss-symposium.org/ndss2026/)): 
+Our work has been published as a [paper](https://arxiv.org/abs/2512.23438) at Network and Distributed System Security Symposium 2026 ([NDSS'26](https://www.ndss-symposium.org/ndss2026/)): 
 ```
 @inproceedings{TBD}
 ```
