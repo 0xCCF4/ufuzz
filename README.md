@@ -4,7 +4,7 @@ A x86 CPU fuzzer utilizing microcode coverage
 Internal synonym: uFuzz
 
 ## Overview
-uFuzz is the first x86 CPU fuzzer that leverages microcode coverage information as feedback to guide the fuzzing campaign. For more details see the [paper](xxx).
+uFuzz is the first x86 CPU fuzzer that leverages microcode coverage information as feedback to guide the fuzzing campaign. For more details see the [paper](https://arxiv.org/pdf/2512.23438).
 
 ## Structure
 uFuzz consists of three different systems:
