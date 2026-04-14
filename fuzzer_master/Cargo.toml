@@ -12,7 +12,7 @@ tokio = { version = "1.43.1", features = ["full"] }
 fuzzer_data = { path = "../fuzzer_data" }
 log = "0.4.25"
 env_logger = "0.11.6"
-rand = "0.9.0"
+rand = "0.9.3"
 serde = { version = "1.0.218", features = ["derive"] }
 itertools = "0.14.0"
 lazy_static = "1.5.0"
