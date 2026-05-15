@@ -240,7 +240,21 @@ cargo xtask --help
 
 A up-to-date version of the source-code can be found at: <https://github.com/0xCCF4/ufuzz>
 
-Our work has been published as a [paper](https://arxiv.org/abs/2512.23438) at Network and Distributed System Security Symposium 2026 ([NDSS'26](https://www.ndss-symposium.org/ndss2026/)): 
+Our work has been published as a [paper](https://arxiv.org/abs/2512.23438) at Network and Distributed System Security Symposium 2026 ([NDSS'26](https://www.ndss-symposium.org/ndss-paper/fuzzilicon-a-post-silicon-microcode-guided-x86-cpu-fuzzer/)): 
 ```
-@inproceedings{TBD}
+@inproceedings{DBLP:conf/ndss/LenzenRWS26,
+  author       = {Johannes Lenzen and
+                  Mohamadreza Rostami and
+                  Lichao Wu and
+                  Ahmad{-}Reza Sadeghi},
+  title        = {Fuzzilicon: {A} Post-Silicon Microcode-Guided x86 {CPU} Fuzzer},
+  booktitle    = {33rd Annual Network and Distributed System Security Symposium, {NDSS}
+                  2026, San Diego, California, USA, February 23-27, 2026},
+  publisher    = {The Internet Society},
+  year         = {2026},
+  url          = {https://www.ndss-symposium.org/ndss-paper/fuzzilicon-a-post-silicon-microcode-guided-x86-cpu-fuzzer/},
+  timestamp    = {Tue, 05 May 2026 16:25:44 +0200},
+  biburl       = {https://dblp.org/rec/conf/ndss/LenzenRWS26.bib},
+  bibsource    = {dblp computer science bibliography, https://dblp.org}
+}
 ```
